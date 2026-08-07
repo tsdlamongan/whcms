@@ -18,20 +18,20 @@
 		"node": ">=22"
 	},
 	"devDependencies": {
-		"@playwright/test": "^1.61.1",
+		"@playwright/test": "^1.62.1",
 		"@sveltejs/adapter-node": "^5.5.7",
-		"@sveltejs/kit": "^2.63.0",
-		"@sveltejs/vite-plugin-svelte": "^7.1.2",
-		"@tailwindcss/vite": "^4.3.2",
-		"@types/node": "^26.1.0",
+		"@sveltejs/kit": "^2.70.2",
+		"@sveltejs/vite-plugin-svelte": "^7.2.0",
+		"@tailwindcss/vite": "^4.3.3",
+		"@types/node": "^26.1.2",
 		"@types/qrcode": "^1.5.6",
 		"prettier": "^3.9.6",
 		"prettier-plugin-svelte": "^4.1.1",
-		"svelte": "^5.56.1",
-		"svelte-check": "^4.6.0",
+		"svelte": "^5.56.8",
+		"svelte-check": "^4.7.4",
 		"tailwindcss": "^4.3.2",
 		"typescript": "^6.0.3",
-		"vite": "^8.0.16"
+		"vite": "^8.2.0"
 	},
 	"dependencies": {
 		"qrcode": "^1.5.4"
