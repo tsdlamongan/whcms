@@ -26,7 +26,7 @@ RUN go build -trimpath -ldflags="-s -w" -o /out/api ./cmd/api \
     && go build -trimpath -ldflags="-s -w" -o /out/worker ./cmd/worker
 
 # ---------- final stage ----------
-FROM alpine:3.22
+FROM alpine:3.24
 
 # ca-certificates: outbound HTTPS (Duitku, RDash, WHM/DA)
 # tzdata: Asia/Jakarta display formatting, cron scheduling
