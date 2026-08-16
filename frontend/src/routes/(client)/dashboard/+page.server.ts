@@ -1,5 +1,7 @@
 import { apiFetch } from '$lib/server/api';
-import type { PageServerLoad } from './$types';
+import { loadRequireEmailVerification } from '$lib/server/captcha';
+import { fail } from '@sveltejs/kit';
+import type { Actions, PageServerLoad } from './$types';
 
 /** Invoice list row - field names per backend/internal/domain/entities.go JSON tags. */
 export interface InvoiceRow {
@@ -21,7 +23,7 @@ export interface InvoiceRow {
 export const load: PageServerLoad = async (event) => {
 	// KPI counts come from list endpoints' meta.total (per_page=1); unpaid invoices are
 	// fetched with a larger page so the outstanding amount can be summed client-side.
-	const [services, domains, unpaid, tickets, recent] = await Promise.all([
+	const [services, domains, unpaid, tickets, recent, requireVerify] = await Promise.all([
 		apiFetch<unknown[]>(event, '/api/v1/services', {
 			query: { status: 'active', page: 1, per_page: 1 }
 		}),
@@ -32,7 +34,10 @@ export const load: PageServerLoad = async (event) => {
 		apiFetch<unknown[]>(event, '/api/v1/tickets', {
 			query: { status: 'open', page: 1, per_page: 1 }
 		}),
-		apiFetch<InvoiceRow[]>(event, '/api/v1/invoices', { query: { page: 1, per_page: 5 } })
+		apiFetch<InvoiceRow[]>(event, '/api/v1/invoices', { query: { page: 1, per_page: 5 } }),
+		// The unverified-email banner mirrors the checkout gate - irrelevant
+		// (and hidden) when the admin has disabled the requirement.
+		loadRequireEmailVerification(event)
 	]);
 
 	const unpaidRows = unpaid.data ?? [];
@@ -47,6 +52,25 @@ export const load: PageServerLoad = async (event) => {
 			openTickets: tickets.meta?.total ?? null
 		},
 		recentInvoices: recent.data ?? [],
-		loadError: firstError ? firstError.message : null
+		loadError: firstError ? firstError.message : null,
+		showVerifyBanner: requireVerify && !(event.locals.user?.email_verified ?? true)
 	};
+};
+
+export const actions: Actions = {
+	/** Re-send the verification email for the logged-in, still-unverified user
+	 *  (checkout is gated on verification; the dashboard banner offers this). */
+	resendVerification: async (event) => {
+		if (!event.locals.user) {
+			return fail(401, { resendError: true, resendSuccess: false });
+		}
+		const res = await apiFetch(event, '/api/v1/auth/resend-verification', {
+			method: 'POST',
+			body: { email: event.locals.user.email }
+		});
+		if (res.error) {
+			return fail(res.status >= 400 ? res.status : 400, { resendError: true, resendSuccess: false });
+		}
+		return { resendSuccess: true, resendError: false };
+	}
 };

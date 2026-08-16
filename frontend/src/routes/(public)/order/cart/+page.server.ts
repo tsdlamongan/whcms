@@ -1,18 +1,14 @@
 import { apiFetch } from '$lib/server/api';
-import { captchaToken, loadCaptchaConfig, loadTaxConfig } from '$lib/server/captcha';
+import {
+	captchaToken,
+	loadCaptchaConfig,
+	loadRequireEmailVerification,
+	loadTaxConfig
+} from '$lib/server/captcha';
 import { setSessionCookies } from '$lib/server/session';
 import type { AppliedCoupon, BillingCycle, CartItemType } from '$lib/stores/cart.svelte';
 import { fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
-
-/** GET /api/v1/auth/me - fields per domain.User JSON tags (entities.go). */
-interface MeUser {
-	id: number;
-	email: string;
-	role: 'admin' | 'staff' | 'client';
-	client_id?: number;
-	email_verified_at?: string | null;
-}
 
 interface LoginResponse {
 	access_token: string;
@@ -147,14 +143,20 @@ export const load: PageServerLoad = async (event) => {
 		return { user: null, emailVerified: false, captcha, tax };
 	}
 
-	const me = await apiFetch<MeUser>(event, '/api/v1/auth/me');
-	// If the field is absent from the response, assume verified - the backend
-	// still enforces verification at POST /orders and we surface its error.
-	const emailVerified = me.data
-		? me.data.email_verified_at === undefined || me.data.email_verified_at !== null
-		: true;
-
-	return { user: event.locals.user, emailVerified, captcha, tax };
+	// locals.user.email_verified comes from hooks.server.ts (/auth/me user DTO).
+	// NOTE: a previous version re-fetched /auth/me here and read a flat
+	// `email_verified_at` field that the nested MeResponse never had - the
+	// check always passed and the verify-required panel never rendered,
+	// letting unverified users hit the raw backend checkout error instead.
+	// When the admin disables security.require_email_verification the backend
+	// gate is off too, so treat everyone as verified and keep checkout open.
+	const requireVerify = await loadRequireEmailVerification(event);
+	return {
+		user: event.locals.user,
+		emailVerified: event.locals.user.email_verified || !requireVerify,
+		captcha,
+		tax
+	};
 };
 
 export const actions: Actions = {

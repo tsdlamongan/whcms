@@ -30,7 +30,14 @@ const messages: Partial<Record<Locale, Record<string, unknown>>> = {
 				manageAccount: 'Kelola akun',
 				loadError: 'Sebagian data dashboard gagal dimuat: {message}',
 				noInvoices: 'Belum ada invoice',
-				noInvoicesDesc: 'Invoice Anda akan tampil di sini setelah Anda memesan layanan.'
+				noInvoicesDesc: 'Invoice Anda akan tampil di sini setelah Anda memesan layanan.',
+				verifyRequiredTitle: 'Email belum diverifikasi',
+				verifyRequiredDesc:
+					'Verifikasi email diperlukan sebelum Anda bisa melakukan checkout. Cek kotak masuk {email}, atau kirim ulang tautan verifikasinya.',
+				resendVerification: 'Kirim ulang email verifikasi',
+				resendSending: 'Mengirim…',
+				resendSuccess: 'Email verifikasi telah dikirim ulang. Silakan cek kotak masuk Anda.',
+				resendFailed: 'Gagal mengirim ulang email verifikasi. Coba lagi sebentar lagi.'
 			},
 			account: {
 				title: 'Akun Saya',
@@ -136,7 +143,14 @@ const messages: Partial<Record<Locale, Record<string, unknown>>> = {
 				manageAccount: 'Manage account',
 				loadError: 'Some dashboard data failed to load: {message}',
 				noInvoices: 'No invoices yet',
-				noInvoicesDesc: 'Your invoices will appear here once you order services.'
+				noInvoicesDesc: 'Your invoices will appear here once you order services.',
+				verifyRequiredTitle: 'Email not verified',
+				verifyRequiredDesc:
+					'Email verification is required before you can check out. Check the inbox of {email}, or resend the verification link.',
+				resendVerification: 'Resend verification email',
+				resendSending: 'Sending…',
+				resendSuccess: 'Verification email resent. Please check your inbox.',
+				resendFailed: 'Failed to resend the verification email. Please try again shortly.'
 			},
 			account: {
 				title: 'My Account',

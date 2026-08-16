@@ -9,6 +9,8 @@ declare global {
 		role: 'admin' | 'staff' | 'client';
 		client_id: number;
 		name: string;
+		/** False while the account's email is unverified (checkout is gated on it). */
+		email_verified: boolean;
 	}
 
 	namespace App {

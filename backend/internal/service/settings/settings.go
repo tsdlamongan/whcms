@@ -128,6 +128,17 @@ func (s *Service) TaxConfig(ctx context.Context) PublicTaxConfig {
 	return PublicTaxConfig{Enabled: enabled, Rate: rate, Inclusive: inclusive}
 }
 
+// RequireEmailVerification returns the effective
+// security.require_email_verification setting - the exact same read
+// orders.Checkout gates on - so public pages (cart, dashboard banner) can
+// mirror the gate instead of guessing. Defaults to true (the server's own
+// default, and the fail-closed choice: the UI hints at verification while the
+// backend remains the enforcer either way).
+func (s *Service) RequireEmailVerification(ctx context.Context) bool {
+	required, _ := s.repo.GetBool(ctx, "security.require_email_verification", true)
+	return required
+}
+
 // Update validates and persists updates (full key -> new value), atomically,
 // and writes one audit entry with before/after snapshots of touched keys.
 func (s *Service) Update(ctx context.Context, actorUserID int64, updates map[string]any) error {

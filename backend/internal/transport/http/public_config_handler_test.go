@@ -23,9 +23,14 @@ type stubCaptchaConfig struct{ cfg captcha.PublicConfig }
 func (s stubCaptchaConfig) PublicConfig(context.Context) captcha.PublicConfig { return s.cfg }
 
 // stubTaxConfig implements transporthttp.TaxConfigProvider.
-type stubTaxConfig struct{ cfg settingssvc.PublicTaxConfig }
+type stubTaxConfig struct {
+	cfg           settingssvc.PublicTaxConfig
+	requireVerify bool
+}
 
 func (s stubTaxConfig) TaxConfig(context.Context) settingssvc.PublicTaxConfig { return s.cfg }
+
+func (s stubTaxConfig) RequireEmailVerification(context.Context) bool { return s.requireVerify }
 
 // passMW implements transporthttp.PublicConfigMiddlewares with a no-op limiter.
 type passMW struct{}
@@ -41,7 +46,7 @@ func TestPublicConfigGet(t *testing.T) {
 		Provider: "turnstile",
 		SiteKey:  "1x00000000000000000000AA",
 	}}
-	taxProvider := stubTaxConfig{cfg: settingssvc.PublicTaxConfig{Enabled: true, Rate: 11, Inclusive: false}}
+	taxProvider := stubTaxConfig{cfg: settingssvc.PublicTaxConfig{Enabled: true, Rate: 11, Inclusive: false}, requireVerify: true}
 	transporthttp.NewPublicConfigHandler(captchaProvider, taxProvider, passMW{}).Register(app.Group("/api/v1"))
 
 	resp, err := app.Test(httptest.NewRequest("GET", "/api/v1/public/config", nil))
@@ -57,6 +62,9 @@ func TestPublicConfigGet(t *testing.T) {
 				TaxRate      float64 `json:"tax_rate"`
 				TaxInclusive bool    `json:"tax_inclusive"`
 			} `json:"billing"`
+			Security struct {
+				RequireEmailVerification bool `json:"require_email_verification"`
+			} `json:"security"`
 		} `json:"data"`
 		Error any `json:"error"`
 	}
@@ -68,6 +76,7 @@ func TestPublicConfigGet(t *testing.T) {
 	assert.True(t, env.Data.Billing.TaxEnabled)
 	assert.Equal(t, 11.0, env.Data.Billing.TaxRate)
 	assert.False(t, env.Data.Billing.TaxInclusive)
+	assert.True(t, env.Data.Security.RequireEmailVerification)
 }
 
 func TestPublicConfigGetDisabled(t *testing.T) {

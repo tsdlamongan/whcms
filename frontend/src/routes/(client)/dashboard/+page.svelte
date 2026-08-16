@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { enhance } from '$app/forms';
 	import { goto } from '$app/navigation';
 	import {
 		Alert,
@@ -13,7 +14,9 @@
 	import { formatIDR } from '$lib/money';
 	import type { PageProps } from './$types';
 
-	let { data }: PageProps = $props();
+	let { data, form }: PageProps = $props();
+
+	let resending = $state(false);
 
 	// StatCard's `sub` prop is string-typed, so MoneyText cannot be used for the
 	// unpaid total; use the shared formatter directly (same "Rp…,-" output).
@@ -47,6 +50,52 @@
 		{t('common.welcome', { name: data.user.name })}
 	</p>
 </div>
+
+{#if data.showVerifyBanner}
+	<div class="mb-4" data-testid="dashboard-verify-banner">
+		{#if form?.resendSuccess}
+			<Alert type="success" title={t('clientcore.dashboard.verifyRequiredTitle')}>
+				<span data-testid="dashboard-resend-success">
+					{t('clientcore.dashboard.resendSuccess')}
+				</span>
+			</Alert>
+		{:else}
+			<Alert type="warning" title={t('clientcore.dashboard.verifyRequiredTitle')}>
+				<p style="margin:0 0 8px">
+					{t('clientcore.dashboard.verifyRequiredDesc', { email: data.user.email })}
+				</p>
+				{#if form?.resendError}
+					<p style="margin:0 0 8px" data-testid="dashboard-resend-error">
+						{t('clientcore.dashboard.resendFailed')}
+					</p>
+				{/if}
+				<form
+					method="POST"
+					action="?/resendVerification"
+					style="display:inline"
+					use:enhance={() => {
+						resending = true;
+						return async ({ update }) => {
+							resending = false;
+							await update({ reset: false });
+						};
+					}}
+				>
+					<button
+						type="submit"
+						class="ca-btn ca-btn-primary"
+						disabled={resending}
+						data-testid="dashboard-resend-submit"
+					>
+						{resending
+							? t('clientcore.dashboard.resendSending')
+							: t('clientcore.dashboard.resendVerification')}
+					</button>
+				</form>
+			</Alert>
+		{/if}
+	</div>
+{/if}
 
 {#if data.loadError}
 	<div class="mb-4" data-testid="dashboard-error">

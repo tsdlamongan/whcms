@@ -9,6 +9,7 @@ import {
 	pollListStatus,
 	registerLogin,
 	registerVerifyLogin,
+	seededHostingProductId,
 	setSessionCookies,
 	unique,
 	uniqueDomainLabel,
@@ -344,10 +345,23 @@ test.describe('checkout email verification gate', () => {
 		const client = await registerLogin(api, 'unverified');
 		await setSessionCookies(context, client.accessToken, client.refreshToken);
 
+		// The cart now surfaces the gate up-front: the verify-required panel
+		// replaces the checkout form entirely (no submit button to click).
 		await addHostingToCart(page);
-		await page.getByTestId('checkout-submit').click();
-		await expect(page.getByTestId('checkout-error')).toBeVisible({ timeout: 10_000 });
-		await expect(page.getByTestId('checkout-error')).toContainText(/verif/i);
+		await expect(page.getByTestId('verify-required-panel')).toBeVisible();
+		await expect(page.getByTestId('checkout-submit')).toHaveCount(0);
+
+		// The backend gate stays the enforcer regardless of the UI: a direct
+		// API checkout with the unverified token must still be rejected.
+		const res = await api.post(`${API_BASE}/api/v1/orders`, {
+			headers: authHeaders(client.accessToken),
+			data: {
+				captcha_token: 'e2e-dummy-captcha-token',
+				items: [{ item_type: 'product', product_id: await seededHostingProductId(api), cycle: 'monthly', domain: 'unverified-gate.e2e.test' }]
+			}
+		});
+		expect(res.status()).toBe(403);
+		expect(await res.text()).toContain('verification');
 	});
 
 	test('disabling the setting lets an unverified client complete checkout', async ({ page, context }) => {

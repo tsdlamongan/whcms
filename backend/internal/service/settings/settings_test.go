@@ -107,6 +107,34 @@ func TestTaxConfig(t *testing.T) {
 	})
 }
 
+func TestRequireEmailVerification(t *testing.T) {
+	t.Run("reads the stored setting", func(t *testing.T) {
+		repo := &mocks.MockSettingsRepo{
+			GetBoolFn: func(ctx context.Context, key string, def bool) (bool, error) {
+				if key == "security.require_email_verification" {
+					return false, nil
+				}
+				return def, nil
+			},
+		}
+		svc := settings.New(repo, &mocks.MockTxManager{}, &mocks.MockAuditLogger{})
+		assert.False(t, svc.RequireEmailVerification(context.Background()))
+	})
+
+	t.Run("defaults to true when unset or on read error", func(t *testing.T) {
+		svc := settings.New(&mocks.MockSettingsRepo{}, &mocks.MockTxManager{}, &mocks.MockAuditLogger{})
+		assert.True(t, svc.RequireEmailVerification(context.Background()))
+
+		failing := &mocks.MockSettingsRepo{
+			GetBoolFn: func(ctx context.Context, key string, def bool) (bool, error) {
+				return def, errors.New("db down")
+			},
+		}
+		svc = settings.New(failing, &mocks.MockTxManager{}, &mocks.MockAuditLogger{})
+		assert.True(t, svc.RequireEmailVerification(context.Background()))
+	})
+}
+
 func TestGroupedRepoError(t *testing.T) {
 	repo := &mocks.MockSettingsRepo{
 		AllFn: func(ctx context.Context) ([]domain.Setting, error) {

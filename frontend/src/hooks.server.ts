@@ -20,6 +20,7 @@ interface MeResponse {
 		role: 'admin' | 'staff' | 'client';
 		client_id: number;
 		name?: string;
+		email_verified?: boolean;
 	};
 	client: {
 		first_name?: string;
@@ -43,7 +44,10 @@ function toSessionUser(me: MeResponse): SessionUser {
 		email: u.email,
 		role: u.role,
 		client_id: u.client_id ?? 0,
-		name
+		name,
+		// Absent field (older API) degrades to "verified" - the backend still
+		// enforces verification at POST /orders; this flag only drives UI hints.
+		email_verified: u.email_verified ?? true
 	};
 }
 

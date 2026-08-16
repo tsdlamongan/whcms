@@ -18,6 +18,7 @@ export interface TaxConfig {
 interface PublicConfigResponse {
 	captcha: { enabled: boolean; provider: string; site_key: string };
 	billing?: { tax_enabled: boolean; tax_rate: number; tax_inclusive: boolean };
+	security?: { require_email_verification: boolean };
 }
 
 const CAPTCHA_DISABLED: CaptchaConfig = { enabled: false, provider: 'turnstile', siteKey: '' };
@@ -73,6 +74,21 @@ export async function loadTaxConfig(event: RequestEvent): Promise<TaxConfig> {
 		rate: typeof b.tax_rate === 'number' ? b.tax_rate : 11,
 		inclusive: b.tax_inclusive === true
 	};
+}
+
+/**
+ * Whether checkout requires a verified email (security.require_email_verification,
+ * from the same public config endpoint). Mirrors the backend gate for UI hints
+ * (cart verify panel, dashboard banner); the backend still enforces it at
+ * POST /orders. Never throws - on any error it returns true (fail-closed: the
+ * UI hints at verification rather than letting the user run into the raw
+ * backend error).
+ */
+export async function loadRequireEmailVerification(event: RequestEvent): Promise<boolean> {
+	const res = await fetchPublicConfig(event);
+	const s = res.data?.security;
+	if (res.error || !s) return true;
+	return s.require_email_verification !== false;
 }
 
 /** Extract the posted CAPTCHA token from a form body (empty string when absent). */

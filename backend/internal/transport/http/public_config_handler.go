@@ -17,11 +17,14 @@ type CaptchaConfigProvider interface {
 	PublicConfig(ctx context.Context) captcha.PublicConfig
 }
 
-// TaxConfigProvider exposes the browser-facing tax config (satisfied by
-// *service/settings.Service) so order/cart price previews can reflect the
-// real billing.tax_enabled/tax_rate setting instead of guessing.
+// TaxConfigProvider exposes the browser-facing settings-derived config
+// (satisfied by *service/settings.Service): the tax settings so order/cart
+// price previews reflect the real billing.tax_* values, and the
+// email-verification requirement so the cart/dashboard can mirror the
+// checkout gate instead of guessing.
 type TaxConfigProvider interface {
 	TaxConfig(ctx context.Context) settingssvc.PublicTaxConfig
+	RequireEmailVerification(ctx context.Context) bool
 }
 
 // PublicConfigMiddlewares is the narrow middleware surface the handler needs.
@@ -52,10 +55,18 @@ type publicBillingConfig struct {
 	TaxInclusive bool    `json:"tax_inclusive"`
 }
 
+// publicSecurityConfig is the browser-facing security config (part of the
+// GET /public/config payload). RequireEmailVerification only mirrors the
+// checkout gate for UI hints - the backend still enforces it at POST /orders.
+type publicSecurityConfig struct {
+	RequireEmailVerification bool `json:"require_email_verification"`
+}
+
 // publicConfigResponse is the GET /public/config payload.
 type publicConfigResponse struct {
-	Captcha captcha.PublicConfig `json:"captcha"`
-	Billing publicBillingConfig  `json:"billing"`
+	Captcha  captcha.PublicConfig `json:"captcha"`
+	Billing  publicBillingConfig  `json:"billing"`
+	Security publicSecurityConfig `json:"security"`
 }
 
 // Register mounts GET /public/config on r (the /api/v1 group), rate limited.
@@ -72,6 +83,9 @@ func (h *PublicConfigHandler) Get(c fiber.Ctx) error {
 			TaxEnabled:   tax.Enabled,
 			TaxRate:      tax.Rate,
 			TaxInclusive: tax.Inclusive,
+		},
+		Security: publicSecurityConfig{
+			RequireEmailVerification: h.tax.RequireEmailVerification(c.Context()),
 		},
 	})
 }
