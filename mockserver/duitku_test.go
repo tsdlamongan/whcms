@@ -187,6 +187,33 @@ func TestDuitkuInquiry(t *testing.T) {
 		wantField(t, m, "reference", "MOCKREF-2")
 	})
 
+	t.Run("sub-minimum amount rejected for non-QRIS, accepted for QRIS", func(t *testing.T) {
+		// Mirrors the real gateway: every non-QRIS channel rejects < 10000 IDR.
+		orderID := "ORD-MIN"
+		amountStr := "5000"
+		resp, m := postJSON(t, endpoint, map[string]any{
+			"merchantCode":    testMerchantCode,
+			"paymentAmount":   5000,
+			"paymentMethod":   "BC",
+			"merchantOrderId": orderID,
+			"signature":       md5Hex(testMerchantCode + orderID + amountStr + testAPIKey),
+		})
+		wantStatus(t, resp, http.StatusBadRequest)
+		wantField(t, m, "statusMessage", "Minimum Payment 10000 IDR")
+
+		resp, m = postJSON(t, endpoint, map[string]any{
+			"merchantCode":    testMerchantCode,
+			"paymentAmount":   5000,
+			"paymentMethod":   "SP",
+			"merchantOrderId": orderID,
+			"signature":       md5Hex(testMerchantCode + orderID + amountStr + testAPIKey),
+		})
+		wantStatus(t, resp, http.StatusOK)
+		if v, _ := m["qrString"].(string); v == "" {
+			t.Fatal("qrString empty for sub-minimum QRIS payment")
+		}
+	})
+
 	t.Run("QRIS method returns qrString only", func(t *testing.T) {
 		orderID := "ORD-QRIS"
 		amountStr := "75000"
@@ -515,7 +542,7 @@ func TestDuitkuExpire(t *testing.T) {
 	_, ts := newTestServer(t)
 
 	t.Run("expire pending then status 02 and pay conflicts", func(t *testing.T) {
-		doInquiry(t, ts, "ORD-EXP", 5000, "", "")
+		doInquiry(t, ts, "ORD-EXP", 15000, "", "")
 		resp, m := postJSON(t, ts.URL+"/mock/duitku/expire/MOCKREF-1", map[string]any{})
 		wantStatus(t, resp, http.StatusOK)
 		wantField(t, m, "status", "expired")
@@ -531,7 +558,7 @@ func TestDuitkuExpire(t *testing.T) {
 	})
 
 	t.Run("expiring a paid transaction conflicts", func(t *testing.T) {
-		doInquiry(t, ts, "ORD-EXP2", 5000, "", "")
+		doInquiry(t, ts, "ORD-EXP2", 15000, "", "")
 		respPay, _ := postJSON(t, ts.URL+"/mock/duitku/pay/MOCKREF-2", map[string]any{})
 		wantStatus(t, respPay, http.StatusOK)
 

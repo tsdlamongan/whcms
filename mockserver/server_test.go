@@ -55,7 +55,7 @@ func TestMockReset(t *testing.T) {
 	_, ts := newTestServer(t)
 
 	// Seed all four stores + mail.
-	doInquiry(t, ts, "ORD-RESET", 1000, "", "")
+	doInquiry(t, ts, "ORD-RESET", 15000, "", "")
 	whmCreate(t, ts, "resetuser", "reset.com")
 	daCreate(t, ts, "resetda")
 	rdashRegister(t, ts, "resetdomain.id", 1)
@@ -91,6 +91,6 @@ func TestMockReset(t *testing.T) {
 	}
 
 	// Sequence restarts: a new inquiry gets MOCKREF-1 again.
-	m2 := doInquiry(t, ts, "ORD-AFTER", 1000, "", "")
+	m2 := doInquiry(t, ts, "ORD-AFTER", 15000, "", "")
 	wantField(t, m2, "reference", "MOCKREF-1")
 }

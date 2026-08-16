@@ -156,6 +156,13 @@ func (s *Server) handleDuitkuInquiry(w http.ResponseWriter, r *http.Request) {
 		writeDuitkuError(w, http.StatusBadRequest, "invalid paymentAmount")
 		return
 	}
+	// Real Duitku rejects sub-Rp10.000 inquiries on every non-QRIS channel
+	// (observed against the sandbox); mirror it so e2e exercises the same
+	// rejection the production gateway would produce.
+	if req.PaymentAmount.Value < 10000 && !isQRISMethod(req.PaymentMethod) {
+		writeDuitkuError(w, http.StatusBadRequest, "Minimum Payment 10000 IDR")
+		return
+	}
 	amountStr := strconv.FormatInt(req.PaymentAmount.Value, 10)
 	expected := md5Hex(s.cfg.DuitkuMerchantCode + req.MerchantOrderID + amountStr + s.cfg.DuitkuAPIKey)
 	if req.MerchantCode != s.cfg.DuitkuMerchantCode || !strings.EqualFold(req.Signature, expected) {

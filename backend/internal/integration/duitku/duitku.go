@@ -233,11 +233,19 @@ func (c *Client) GetPaymentMethods(ctx context.Context, amount int64) ([]ports.P
 		return nil, apperr.External(providerName, fmt.Errorf("decode getpaymentmethod response: %w", err))
 	}
 	if out.ResponseCode != responseCodeOK {
-		return nil, apperr.External(providerName,
-			fmt.Errorf("getpaymentmethod response code %s: %s", out.ResponseCode, out.ResponseMessage))
+		return nil, apperr.Newf(apperr.CodeExternal, "%s error: %s", providerName, out.ResponseMessage).
+			WithCause(fmt.Errorf("getpaymentmethod response code %s: %s", out.ResponseCode, out.ResponseMessage))
 	}
 	methods := make([]ports.PaymentMethod, 0, len(out.PaymentFee))
 	for _, m := range out.PaymentFee {
+		// Duitku rejects inquiries below a per-channel floor ("Minimum
+		// Payment 10000 IDR") but getpaymentmethod still lists the channel -
+		// drop those channels here so a small invoice (e.g. a prorated
+		// upgrade diff) only offers methods that can actually complete. QRIS
+		// is the one family that accepts micro-payments.
+		if amount < minNonQRISAmount && !isQRISMethod(m.PaymentMethod) {
+			continue
+		}
 		methods = append(methods, ports.PaymentMethod{
 			Code:  m.PaymentMethod,
 			Name:  m.PaymentName,
@@ -246,6 +254,22 @@ func (c *Client) GetPaymentMethods(ctx context.Context, amount int64) ([]ports.P
 		})
 	}
 	return methods, nil
+}
+
+// minNonQRISAmount is Duitku's per-transaction floor for every non-QRIS
+// channel - the upstream inquiry rejects smaller amounts with HTTP 400
+// "Minimum Payment 10000 IDR" (observed against the real sandbox).
+const minNonQRISAmount = 10_000
+
+// isQRISMethod reports whether a Duitku channel code is in the QRIS family
+// (PRD §8.1: SP/LQ/NQ) - the only family accepting payments below
+// minNonQRISAmount.
+func isQRISMethod(code string) bool {
+	switch code {
+	case "SP", "LQ", "NQ":
+		return true
+	}
+	return false
 }
 
 // CreateTransaction opens a payment via the V2 inquiry endpoint. Empty
@@ -306,8 +330,8 @@ func (c *Client) CreateTransaction(ctx context.Context, req ports.CreateTxReques
 		return nil, apperr.External(providerName, fmt.Errorf("decode inquiry response: %w", err))
 	}
 	if out.StatusCode != responseCodeOK {
-		return nil, apperr.External(providerName,
-			fmt.Errorf("inquiry status code %s: %s", out.StatusCode, out.StatusMessage))
+		return nil, apperr.Newf(apperr.CodeExternal, "%s error: %s", providerName, out.StatusMessage).
+			WithCause(fmt.Errorf("inquiry status code %s: %s", out.StatusCode, out.StatusMessage))
 	}
 	return &ports.CreateTxResult{
 		Reference:  out.Reference,
@@ -474,7 +498,12 @@ func checkHTTPStatus(res *httpResult) error {
 	if res.status >= 200 && res.status < 300 {
 		return nil
 	}
-	return apperr.External(providerName, fmt.Errorf("HTTP %d: %s", res.status, gatewayMessage(res.body)))
+	// Surface Duitku's own message ("Minimum Payment 10000 IDR", ...) in the
+	// client-visible error instead of a bare "duitku error" - the message is
+	// the part the payer can act on.
+	msg := gatewayMessage(res.body)
+	return apperr.Newf(apperr.CodeExternal, "%s error: %s", providerName, msg).
+		WithCause(fmt.Errorf("HTTP %d: %s", res.status, msg))
 }
 
 // gatewayMessage extracts a human-readable message from a Duitku error body.

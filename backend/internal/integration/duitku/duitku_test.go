@@ -108,6 +108,36 @@ func TestGetPaymentMethodsSuccess(t *testing.T) {
 	assert.Equal(t, vecMerchantCode, reqMap["merchantcode"], "non-secret fields kept")
 }
 
+func TestGetPaymentMethodsFiltersSubMinimumChannels(t *testing.T) {
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(t, w, http.StatusOK, map[string]any{
+			"paymentFee": []map[string]any{
+				{"paymentMethod": "VC", "paymentName": "Credit Card", "paymentImage": "", "totalFee": "5000"},
+				{"paymentMethod": "BC", "paymentName": "BCA Virtual Account", "paymentImage": "", "totalFee": "4000"},
+				{"paymentMethod": "SP", "paymentName": "QRIS ShopeePay", "paymentImage": "", "totalFee": "700"},
+				{"paymentMethod": "NQ", "paymentName": "QRIS Nobu", "paymentImage": "", "totalFee": "700"},
+			},
+			"responseCode":    "00",
+			"responseMessage": "SUCCESS",
+		})
+	}
+
+	// Below the non-QRIS floor: only the QRIS family survives (Duitku would
+	// reject an inquiry on any other channel with "Minimum Payment 10000 IDR").
+	c, _ := newTestClient(t, handler)
+	methods, err := c.GetPaymentMethods(context.Background(), 5000)
+	require.NoError(t, err)
+	require.Len(t, methods, 2)
+	assert.Equal(t, "SP", methods[0].Code)
+	assert.Equal(t, "NQ", methods[1].Code)
+
+	// At the floor every channel is offered.
+	c2, _ := newTestClient(t, handler)
+	methods, err = c2.GetPaymentMethods(context.Background(), 10000)
+	require.NoError(t, err)
+	assert.Len(t, methods, 4)
+}
+
 func TestGetPaymentMethodsRejectsNonPositiveAmount(t *testing.T) {
 	c := New(testConfig("http://unused.invalid"), nil, nil, &mocks.MockIntegrationLogger{}, &mocks.MockClock{FixedTime: fixedUTC})
 	for _, amount := range []int64{0, -1} {
@@ -274,6 +304,23 @@ func TestCreateTransactionExplicitURLsAndNoExpiry(t *testing.T) {
 	assert.Equal(t, "https://app.example.com/return", gotReq["returnUrl"])
 	_, hasExpiry := gotReq["expiryPeriod"]
 	assert.False(t, hasExpiry, "expiryPeriod omitted when zero")
+}
+
+func TestCreateTransactionSurfacesGatewayMessage(t *testing.T) {
+	// The client-visible apperr message must carry Duitku's own reason (e.g.
+	// the minimum-payment rejection) - a bare "duitku error" gives the payer
+	// nothing to act on.
+	c, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(t, w, http.StatusBadRequest, map[string]any{"Message": "Minimum Payment 10000 IDR"})
+	})
+	_, err := c.CreateTransaction(context.Background(), ports.CreateTxRequest{
+		MerchantOrderID: "INV-1-01", Amount: 5000, Method: "BC",
+		CustomerName: "Tester", Email: "t@example.test",
+	})
+	require.Error(t, err)
+	ae := apperr.From(err)
+	assert.Equal(t, apperr.CodeExternal, ae.Code)
+	assert.Contains(t, ae.Message, "Minimum Payment 10000 IDR")
 }
 
 func TestCreateTransactionValidation(t *testing.T) {
