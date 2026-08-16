@@ -39,9 +39,10 @@ interface AdminService {
 interface ProductOption {
 	id: number;
 	name: string;
-	// Custom-spec products aren't priced/applied correctly by Upgrade (no
-	// spec-selection input) - the Upgrade picker filters these out; Change
-	// Package (a raw, no-invoice swap) still allows them.
+	// The backend Upgrade endpoint accepts spec selections for custom-spec
+	// products, but this admin form has no spec-knob UI yet - the Upgrade
+	// picker filters configurable products out (clients use the client-area
+	// upgrade flow); Change Package (a raw, no-invoice swap) still allows them.
 	configurable?: boolean;
 }
 

@@ -317,6 +317,10 @@ test.describe('client-manage: service password + domain nameservers', () => {
 		await page.waitForLoadState('networkidle');
 
 		await expect(page.getByTestId('service-status')).toContainText(/active/i);
+		// Real display names from the ServiceView enrichment - never the
+		// "Produk #<id>" / "#<server_id>" fallbacks.
+		await expect(page.getByTestId('service-product')).toContainText('E2E Shared Hosting');
+		await expect(page.getByTestId('service-server')).toContainText('localhost');
 
 		await clickUntilVisible(
 			page,

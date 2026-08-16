@@ -401,12 +401,23 @@ func visibleFixture(f *fixtures) {
 		return []domain.Product{
 			{ID: 10, GroupID: 1, Name: "Basic", Slug: "basic", Type: domain.ProductSharedHosting},
 			{ID: 11, GroupID: 1, Name: "Pro", Slug: "pro", Type: domain.ProductSharedHosting, StockEnabled: true, StockQty: 0},
+			{ID: 12, GroupID: 1, Name: "Custom", Slug: "custom", Type: domain.ProductSharedHosting, Configurable: true},
 		}, nil
 	}
 	f.products.ListPricingByProductsFn = func(ctx context.Context, ids []int64) (map[int64][]domain.ProductPricing, error) {
 		return map[int64][]domain.ProductPricing{
 			10: {{ProductID: 10, Cycle: domain.CycleMonthly, Price: 50_000, Currency: "IDR"}},
 		}, nil
+	}
+	f.specs.ListSpecsFn = func(ctx context.Context, productID int64) ([]domain.ProductSpec, error) {
+		if productID != 12 {
+			return nil, nil
+		}
+		return []domain.ProductSpec{{ID: 31, ProductID: 12, Key: "disk", Label: "Disk",
+			ProvisionKey: domain.SpecDisk, Unit: domain.UnitGB, MinQty: 5, MaxQty: 100, StepQty: 5, DefaultQty: 10}}, nil
+	}
+	f.specs.ListSpecPricingFn = func(ctx context.Context, specID int64) ([]domain.ProductSpecPricing, error) {
+		return []domain.ProductSpecPricing{{SpecID: specID, Cycle: domain.CycleMonthly, UnitPrice: 1_000, Currency: "IDR"}}, nil
 	}
 }
 
@@ -417,7 +428,7 @@ func TestPublicCatalog(t *testing.T) {
 	groups, err := f.svc.PublicCatalog(context.Background())
 	require.NoError(t, err)
 	require.Len(t, groups, 2)
-	require.Len(t, groups[0].Products, 2)
+	require.Len(t, groups[0].Products, 3)
 	assert.Empty(t, groups[1].Products)
 
 	basic := groups[0].Products[0]
@@ -425,12 +436,21 @@ func TestPublicCatalog(t *testing.T) {
 	assert.True(t, basic.InStock)
 	require.Len(t, basic.Pricing, 1)
 	assert.Equal(t, int64(50_000), basic.Pricing[0].Price)
+	assert.Empty(t, basic.Specs, "flat products carry no specs")
 
 	pro := groups[0].Products[1]
 	assert.True(t, pro.StockEnabled)
 	assert.False(t, pro.InStock, "stock-tracked product with qty 0 is out of stock")
 
-	assert.Contains(t, f.cache.m, "catalog:products", "result is cached")
+	// Configurable products carry their spec knobs (with pricing) so catalog
+	// consumers can configure without a per-product detail fetch.
+	custom := groups[0].Products[2]
+	require.Len(t, custom.Specs, 1)
+	assert.Equal(t, "disk", custom.Specs[0].Key)
+	require.Len(t, custom.Specs[0].Pricing, 1)
+	assert.Equal(t, int64(1_000), custom.Specs[0].Pricing[0].UnitPrice)
+
+	assert.Contains(t, f.cache.m, "catalog:products:v2", "result is cached")
 }
 
 func TestPublicCatalogCacheHit(t *testing.T) {
@@ -454,11 +474,11 @@ func TestPublicCatalogInvalidatedOnAdminWrite(t *testing.T) {
 	visibleFixture(f)
 	_, err := f.svc.PublicCatalog(context.Background())
 	require.NoError(t, err)
-	require.Contains(t, f.cache.m, "catalog:products")
+	require.Contains(t, f.cache.m, "catalog:products:v2")
 
 	_, err = f.svc.CreateGroup(context.Background(), 1, catalog.GroupInput{Name: "New Group"})
 	require.NoError(t, err)
-	assert.NotContains(t, f.cache.m, "catalog:products", "admin write invalidates the catalog cache")
+	assert.NotContains(t, f.cache.m, "catalog:products:v2", "admin write invalidates the catalog cache")
 	assert.NotContains(t, f.cache.m, "catalog:groups")
 }
 
@@ -1170,9 +1190,9 @@ func TestUpdateOptionGroup(t *testing.T) {
 
 func TestDeleteOptionEntitiesInvalidateCache(t *testing.T) {
 	f := newFixture()
-	require.NoError(t, f.cache.SetJSON(context.Background(), "catalog:products", []string{"x"}, time.Minute))
+	require.NoError(t, f.cache.SetJSON(context.Background(), "catalog:products:v2", []string{"x"}, time.Minute))
 	require.NoError(t, f.svc.DeleteOptionGroup(context.Background(), 1, 5))
-	assert.NotContains(t, f.cache.m, "catalog:products")
+	assert.NotContains(t, f.cache.m, "catalog:products:v2")
 
 	require.NoError(t, f.svc.DeleteOption(context.Background(), 1, 5))
 	require.NoError(t, f.svc.DeleteOptionValue(context.Background(), 1, 5))

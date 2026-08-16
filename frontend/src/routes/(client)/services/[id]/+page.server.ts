@@ -39,7 +39,7 @@ function actionFail(
 	} satisfies ActionPayload);
 }
 
-/** Guessed shapes for POST /services/:id/upgrade (endpoint not in CONTRACTS §9). */
+/** POST /services/:id/upgrade response (see CONTRACTS §9 services-client). */
 interface UpgradeResponse {
 	invoice_id?: number;
 	invoice?: { id: number };
@@ -60,12 +60,11 @@ export const load: PageServerLoad = async (event) => {
 	]);
 
 	const notFound = svcRes.status === 404 || svcRes.error?.code === 'NOT_FOUND';
-	// Custom-spec (configurable) products aren't priced/applied correctly by
-	// Upgrade (no spec-selection input) - kept out of this picker; the only
-	// way to change them today is the initial order/configure flow.
-	const products = (productsRes.data ?? [])
-		.flatMap((g) => g.products ?? [])
-		.filter((p) => !p.hidden && !p.configurable);
+	// Configurable (custom-spec) products come with their spec knobs +
+	// per-cycle pricing embedded in the grouped catalog payload (PublicProduct
+	// .specs), so the upgrade modal can render the spec configurator without
+	// any per-product detail fetch.
+	const products = (productsRes.data ?? []).flatMap((g) => g.products ?? []).filter((p) => !p.hidden);
 
 	return {
 		service: svcRes.data,
@@ -143,10 +142,37 @@ export const actions: Actions = {
 			return actionFail('upgrade', 400, { errorKey: 'clientsvc.errors.invalidUpgrade' });
 		}
 
+		// Chosen dynamic specs for configurable targets, serialized by the
+		// modal into a hidden field as [{key, qty, unlimited}] - re-validated
+		// and re-priced by the backend (never trust the client's estimate).
+		let specs: { key: string; qty: number; unlimited: boolean }[] = [];
+		const rawSpecs = String(form.get('specs') ?? '');
+		if (rawSpecs) {
+			try {
+				const parsed: unknown = JSON.parse(rawSpecs);
+				if (Array.isArray(parsed)) {
+					specs = parsed
+						.filter(
+							(s): s is { key: string; qty: number; unlimited?: boolean } =>
+								typeof s === 'object' &&
+								s !== null &&
+								typeof (s as { key?: unknown }).key === 'string' &&
+								Number.isFinite(Number((s as { qty?: unknown }).qty))
+						)
+						.map((s) => ({ key: s.key, qty: Math.max(0, Number(s.qty)), unlimited: !!s.unlimited }));
+				}
+			} catch {
+				return actionFail('upgrade', 400, { errorKey: 'clientsvc.errors.invalidUpgrade' });
+			}
+		}
+
 		const res = await apiFetch<UpgradeResponse>(
 			event,
 			`/api/v1/services/${event.params.id}/upgrade`,
-			{ method: 'POST', body: { product_id: productId, cycle } }
+			{
+				method: 'POST',
+				body: { product_id: productId, cycle, ...(specs.length > 0 ? { specs } : {}) }
+			}
 		);
 		if (res.error) {
 			return actionFail('upgrade', res.status, { errorMessage: res.error.message });

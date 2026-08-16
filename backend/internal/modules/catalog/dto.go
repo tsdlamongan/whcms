@@ -219,6 +219,11 @@ type PublicProduct struct {
 	StockEnabled bool               `json:"stock_enabled"`
 	InStock      bool               `json:"in_stock"`
 	Pricing      []PublicPrice      `json:"pricing"`
+	// Specs carries the dynamic spec knobs (with per-cycle pricing) of a
+	// configurable product so pickers that work off the grouped catalog -
+	// e.g. the client-area service upgrade modal - can render the spec
+	// configurator without a per-product detail fetch. Nil for flat products.
+	Specs []PublicSpec `json:"specs,omitempty"`
 }
 
 // PublicSpecPrice is one billing-cycle unit price of a public spec.

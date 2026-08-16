@@ -638,6 +638,49 @@ func TestProvisionChangePackagePushesCurrentProduct(t *testing.T) {
 	assert.Equal(t, "basic", gotPkg)
 }
 
+// List/Get views (name enrichment)
+
+func TestListServicesAttachesProductAndServerNames(t *testing.T) {
+	f := newFixture()
+	f.withProduct(cpanelProduct())
+	f.withServer(cpanelServer())
+	f.store.ListByClientFn = func(_ context.Context, clientID int64, _ ports.ListParams) ([]domain.Service, int64, error) {
+		assert.EqualValues(t, 7, clientID)
+		return []domain.Service{*baseService(domain.ServiceActive)}, 1, nil
+	}
+
+	views, total, err := f.svc.ListServices(context.Background(), 7, ports.ListParams{Page: 1, PerPage: 10})
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, total)
+	require.Len(t, views, 1)
+	assert.Equal(t, "Hosting Basic", views[0].ProductName)
+	assert.Equal(t, "srv1", views[0].ServerName)
+	assert.Equal(t, "srv1.host.id", views[0].ServerHostname)
+}
+
+func TestGetServiceViewNamesBestEffort(t *testing.T) {
+	// A missing product/server must not fail the read - names stay empty and
+	// the UI falls back to "#<id>".
+	f := newFixture()
+	f.service = baseService(domain.ServiceActive)
+	f.withProduct(nil)
+	f.withServer(nil)
+
+	view, err := f.svc.GetService(context.Background(), 7, 42)
+	require.NoError(t, err)
+	assert.EqualValues(t, 42, view.ID)
+	assert.Empty(t, view.ProductName)
+	assert.Empty(t, view.ServerHostname)
+
+	// With both rows present the names are attached.
+	f.withProduct(cpanelProduct())
+	f.withServer(cpanelServer())
+	view, err = f.svc.GetService(context.Background(), 7, 42)
+	require.NoError(t, err)
+	assert.Equal(t, "Hosting Basic", view.ProductName)
+	assert.Equal(t, "srv1.host.id", view.ServerHostname)
+}
+
 // Change password / SSO
 
 func TestChangePasswordHappyPath(t *testing.T) {
@@ -941,21 +984,13 @@ func TestUpgradeServiceGuards(t *testing.T) {
 		UpgradeServiceInput{ProductID: 6, Cycle: domain.CycleAnnually})
 	assertCode(t, err, apperr.CodeValidation)
 
-	// Configurable (custom-spec) target rejected: Upgrade has no spec
-	// selection and would silently under-price/skip reconfiguring the panel.
+	// Specs passed for a non-configurable (flat) target rejected.
 	f = newFixture()
 	f.service = baseService(domain.ServiceActive)
-	f.products.GetByIDFn = func(_ context.Context, id int64) (*domain.Product, error) {
-		if id == 5 {
-			return cpanelProduct(), nil
-		}
-		return &domain.Product{ID: id, Module: domain.ModuleCpanel, Configurable: true}, nil
-	}
-	f.products.GetPricingFn = func(_ context.Context, productID int64, cycle domain.BillingCycle) (*domain.ProductPricing, error) {
-		return &domain.ProductPricing{ProductID: productID, Cycle: cycle, Price: 200_000}, nil
-	}
+	f.withUpgradeProducts(200_000)
 	_, err = f.svc.UpgradeService(context.Background(), 10, 7, 42,
-		UpgradeServiceInput{ProductID: 6, Cycle: domain.CycleMonthly})
+		UpgradeServiceInput{ProductID: 6, Cycle: domain.CycleMonthly,
+			Specs: []UpgradeSpecInput{{Key: "disk", Qty: 10}}})
 	assertCode(t, err, apperr.CodeValidation)
 
 	// one_time cycle rejected.

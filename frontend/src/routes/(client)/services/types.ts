@@ -3,6 +3,10 @@
  * Field names mirror the JSON tags in backend/internal/domain/entities.go.
  */
 
+import type { SpecRow } from '../../(public)/order/product/[slug]/+page.server';
+
+export type { SpecRow };
+
 export type ServiceStatus = 'pending' | 'active' | 'suspended' | 'terminated' | 'cancelled';
 
 export type BillingCycle =
@@ -25,12 +29,25 @@ export const BILLING_CYCLES: readonly BillingCycle[] = [
 	'biennially'
 ] as const;
 
+/** One chosen dynamic-spec knob inside a pending upgrade (domain.UpgradeSpec). */
+export interface PendingUpgradeSpec {
+	key: string;
+	provision_key: string;
+	unit: string;
+	/** -1 (UnlimitedQty) when unlimited. */
+	qty: number;
+	unlimited?: boolean;
+	amount: number;
+}
+
 /** services.pending_upgrade JSON payload (domain.ServiceUpgrade). */
 export interface PendingUpgrade {
 	product_id: number;
 	cycle: BillingCycle;
 	recurring_amount: number;
 	invoice_id: number;
+	/** Present when the upgrade targets a custom-spec (configurable) product. */
+	specs?: PendingUpgradeSpec[];
 }
 
 /** domain.Service (JSON tags) + optional enrichment fields the API may include. */
@@ -56,9 +73,15 @@ export interface Service {
 	notes: string;
 	created_at: string;
 	updated_at: string;
-	/** Enrichment (guessed - not in entities.go); rendered when present. */
+	/**
+	 * Display-name enrichment (provisioning.ServiceView): attached by
+	 * GET /services (+detail). Empty/absent when the referenced row is gone -
+	 * render with a "#<id>" fallback.
+	 */
 	product_name?: string;
+	server_name?: string;
 	server_hostname?: string;
+	/** Enrichment (guessed - not in entities.go); rendered when present. */
 	renewal_invoice_id?: number | null;
 }
 
@@ -77,6 +100,13 @@ export interface CatalogProduct {
 	hidden?: boolean;
 	configurable?: boolean;
 	pricing?: CatalogPricing[];
+	/**
+	 * Dynamic spec knobs with per-cycle pricing. Not part of the grouped
+	 * GET /products payload - the service-detail load attaches them (from
+	 * GET /products/:slug) for configurable products so the upgrade modal
+	 * can render the spec configurator.
+	 */
+	specs?: SpecRow[];
 }
 
 /**

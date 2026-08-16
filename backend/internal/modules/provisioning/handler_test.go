@@ -37,8 +37,8 @@ func (s fakeMW) RequireClient() fiber.Handler           { return pass }
 
 // fakeService implements ProvisioningService with function fields.
 type fakeService struct {
-	listServices       func(ctx context.Context, clientID int64, p ports.ListParams) ([]domain.Service, int64, error)
-	getService         func(ctx context.Context, clientID, serviceID int64) (*domain.Service, error)
+	listServices       func(ctx context.Context, clientID int64, p ports.ListParams) ([]ServiceView, int64, error)
+	getService         func(ctx context.Context, clientID, serviceID int64) (*ServiceView, error)
 	changePassword     func(ctx context.Context, actorUserID, clientID, serviceID int64, password string) error
 	sso                func(ctx context.Context, actorUserID, clientID, serviceID int64) (string, error)
 	cancelService      func(ctx context.Context, actorUserID, clientID, serviceID int64, in CancelServiceInput) (*domain.Service, error)
@@ -60,14 +60,14 @@ type fakeService struct {
 	listPackages       func(ctx context.Context, groupID int64) (*PackageListResult, error)
 }
 
-func (f *fakeService) ListServices(ctx context.Context, clientID int64, p ports.ListParams) ([]domain.Service, int64, error) {
+func (f *fakeService) ListServices(ctx context.Context, clientID int64, p ports.ListParams) ([]ServiceView, int64, error) {
 	if f.listServices != nil {
 		return f.listServices(ctx, clientID, p)
 	}
 	return nil, 0, nil
 }
 
-func (f *fakeService) GetService(ctx context.Context, clientID, serviceID int64) (*domain.Service, error) {
+func (f *fakeService) GetService(ctx context.Context, clientID, serviceID int64) (*ServiceView, error) {
 	if f.getService != nil {
 		return f.getService(ctx, clientID, serviceID)
 	}
@@ -235,11 +235,11 @@ func decodeEnvelope(t *testing.T, body io.Reader) httpx.Envelope {
 
 func TestHandlerListMyServices(t *testing.T) {
 	fs := &fakeService{
-		listServices: func(_ context.Context, clientID int64, p ports.ListParams) ([]domain.Service, int64, error) {
+		listServices: func(_ context.Context, clientID int64, p ports.ListParams) ([]ServiceView, int64, error) {
 			assert.Equal(t, int64(7), clientID)
 			assert.Equal(t, 2, p.Page)
 			assert.Equal(t, "active", p.Status)
-			return []domain.Service{{ID: 1, ClientID: 7}}, 26, nil
+			return []ServiceView{{Service: domain.Service{ID: 1, ClientID: 7}, ProductName: "Hosting Basic"}}, 26, nil
 		},
 	}
 	app := newApp(fs, clientIdentity())
@@ -255,10 +255,10 @@ func TestHandlerListMyServices(t *testing.T) {
 
 func TestHandlerGetMyService(t *testing.T) {
 	fs := &fakeService{
-		getService: func(_ context.Context, clientID, serviceID int64) (*domain.Service, error) {
+		getService: func(_ context.Context, clientID, serviceID int64) (*ServiceView, error) {
 			assert.Equal(t, int64(7), clientID)
 			assert.Equal(t, int64(42), serviceID)
-			return &domain.Service{ID: 42, ClientID: 7}, nil
+			return &ServiceView{Service: domain.Service{ID: 42, ClientID: 7}, ProductName: "Hosting Basic"}, nil
 		},
 	}
 	app := newApp(fs, clientIdentity())
@@ -273,7 +273,7 @@ func TestHandlerGetMyService(t *testing.T) {
 	assert.Equal(t, 422, resp.StatusCode)
 
 	// Not found -> 404.
-	fs.getService = func(context.Context, int64, int64) (*domain.Service, error) {
+	fs.getService = func(context.Context, int64, int64) (*ServiceView, error) {
 		return nil, apperr.NotFound("service")
 	}
 	resp, err = app.Test(httptest.NewRequest("GET", "/api/v1/services/43", nil))
@@ -614,13 +614,13 @@ func TestHandlerListPackages(t *testing.T) {
 
 func TestHandlerAdminListAndGetService(t *testing.T) {
 	fs := &fakeService{
-		listServices: func(_ context.Context, clientID int64, p ports.ListParams) ([]domain.Service, int64, error) {
+		listServices: func(_ context.Context, clientID int64, p ports.ListParams) ([]ServiceView, int64, error) {
 			assert.Zero(t, clientID) // admin sees everything
-			return []domain.Service{{ID: 1}}, 1, nil
+			return []ServiceView{{Service: domain.Service{ID: 1}}}, 1, nil
 		},
-		getService: func(_ context.Context, clientID, serviceID int64) (*domain.Service, error) {
+		getService: func(_ context.Context, clientID, serviceID int64) (*ServiceView, error) {
 			assert.Zero(t, clientID)
-			return &domain.Service{ID: serviceID}, nil
+			return &ServiceView{Service: domain.Service{ID: serviceID}}, nil
 		},
 	}
 	app := newApp(fs, adminIdentity())
@@ -723,7 +723,7 @@ func TestHandlerBadBodies(t *testing.T) {
 
 func TestHandlerErrorMapping(t *testing.T) {
 	fs := &fakeService{
-		getService: func(context.Context, int64, int64) (*domain.Service, error) {
+		getService: func(context.Context, int64, int64) (*ServiceView, error) {
 			return nil, apperr.Conflict("nope")
 		},
 	}

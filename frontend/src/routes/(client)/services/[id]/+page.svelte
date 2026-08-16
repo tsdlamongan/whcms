@@ -7,9 +7,11 @@
 	import FormField from '$lib/components/FormField.svelte';
 	import Modal from '$lib/components/Modal.svelte';
 	import MoneyText from '$lib/components/MoneyText.svelte';
+	import SpecConfigurator from '$lib/components/ca/SpecConfigurator.svelte';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import type { BreadcrumbItem, SelectOption } from '$lib/components/types';
 	import { t } from '$lib/i18n';
+	import { specAmount, type SpecChoice } from '$lib/stores/cart.svelte';
 	import { toast } from '$lib/stores/toast.svelte';
 	import type { ActionResult } from '@sveltejs/kit';
 	import type { PageProps } from './$types';
@@ -18,6 +20,7 @@
 		formatIDR,
 		parsePendingUpgrade,
 		type BillingCycle,
+		type CatalogProduct,
 		type Service
 	} from '../types';
 
@@ -94,6 +97,69 @@
 			: (availableCycles[0] ?? '');
 		if (desired !== upgradeCycle) upgradeCycle = desired;
 	});
+
+	// Dynamic specs (custom-spec / configurable upgrade targets)
+	let specChoices = $state<Record<string, SpecChoice>>({});
+
+	/** chosen_specs snapshot from services.panel_meta, keyed for prefill. */
+	function currentChosenSpecs(): Record<string, { qty: number; unlimited: boolean }> {
+		const meta = service?.panel_meta;
+		if (!meta || typeof meta !== 'object') return {};
+		const list = (meta as { chosen_specs?: unknown }).chosen_specs;
+		if (!Array.isArray(list)) return {};
+		const out: Record<string, { qty: number; unlimited: boolean }> = {};
+		for (const s of list) {
+			if (s && typeof s === 'object' && typeof (s as { key?: unknown }).key === 'string') {
+				const row = s as { key: string; qty?: number; unlimited?: boolean };
+				out[row.key] = { qty: Number(row.qty ?? 0), unlimited: !!row.unlimited };
+			}
+		}
+		return out;
+	}
+
+	/** Prefill: current knobs when resizing the same product, defaults otherwise. */
+	function initialSpecChoices(p: CatalogProduct | null): Record<string, SpecChoice> {
+		if (!p?.configurable) return {};
+		const current = service && p.id === service.product_id ? currentChosenSpecs() : {};
+		const out: Record<string, SpecChoice> = {};
+		for (const spec of p.specs ?? []) {
+			const cur = current[spec.key];
+			out[spec.key] = cur
+				? { qty: cur.unlimited || cur.qty < 0 ? spec.default_qty : cur.qty, unlimited: cur.unlimited }
+				: { qty: spec.default_qty, unlimited: false };
+		}
+		return out;
+	}
+
+	// Reset the knobs whenever the picked product changes.
+	let lastSpecProductId = $state('');
+	$effect(() => {
+		if (upgradeProductId === lastSpecProductId) return;
+		lastSpecProductId = upgradeProductId;
+		specChoices = initialSpecChoices(selectedProduct);
+	});
+
+	const selectedSpecs = $derived(
+		selectedProduct?.configurable ? (selectedProduct.specs ?? []) : []
+	);
+	const specsTotal = $derived(
+		selectedSpecs.reduce(
+			(sum, s) =>
+				sum + specAmount(s, specChoices[s.key], (upgradeCycle || null) as BillingCycle | null),
+			0
+		)
+	);
+	/** Estimated new recurring price: base + spec charges (specs are 0 for flat products). */
+	const upgradeTotalPrice = $derived((upgradePricing?.price ?? 0) + specsTotal);
+	/** [{key, qty, unlimited}] for the hidden form field; server re-validates. */
+	const specsPayload = $derived(
+		JSON.stringify(
+			selectedSpecs.map((s) => {
+				const c = specChoices[s.key] ?? { qty: s.default_qty, unlimited: false };
+				return { key: s.key, qty: c.unlimited ? 0 : c.qty, unlimited: !!c.unlimited };
+			})
+		)
+	);
 
 	// helpers
 	function productLabel(s: Service): string {
@@ -273,7 +339,7 @@
 				<dt class="text-xs font-semibold tracking-wide text-gray-500 uppercase">
 					{t('clientsvc.detail.server')}
 				</dt>
-				<dd class="mt-0.5 text-gray-800">
+				<dd class="mt-0.5 text-gray-800" data-testid="service-server">
 					{service.server_hostname ?? (service.server_id ? `#${service.server_id}` : '—')}
 				</dd>
 			</div>
@@ -521,12 +587,27 @@
 					required
 				/>
 
+				{#if selectedSpecs.length > 0}
+					<div class="mb-4" data-testid="service-upgrade-specs">
+						<SpecConfigurator
+							specs={selectedSpecs}
+							cycle={(upgradeCycle || null) as BillingCycle | null}
+							bind:choices={specChoices}
+						/>
+					</div>
+				{/if}
+				<input
+					type="hidden"
+					name="specs"
+					value={selectedProduct?.configurable ? specsPayload : ''}
+				/>
+
 				{#if upgradePricing}
 					<div class="mb-4 rounded-md border border-gray-200 bg-gray-50 px-4 py-3 text-sm">
 						<div class="flex items-center justify-between">
 							<span class="text-gray-500">{t('clientsvc.actions.upgradePrice')}</span>
 							<span class="font-semibold text-gray-800" data-testid="service-upgrade-price">
-								<MoneyText amount={upgradePricing.price} />
+								<MoneyText amount={upgradeTotalPrice} />
 								<span class="text-xs font-normal text-gray-400">
 									/ {t(`clientsvc.cycle.${upgradePricing.cycle}`)}
 								</span>

@@ -28,8 +28,8 @@ var _ Middlewares = (*transporthttp.Middleware)(nil)
 // (implemented by *Service).
 type ProvisioningService interface {
 	// Client
-	ListServices(ctx context.Context, clientID int64, p ports.ListParams) ([]domain.Service, int64, error)
-	GetService(ctx context.Context, clientID, serviceID int64) (*domain.Service, error)
+	ListServices(ctx context.Context, clientID int64, p ports.ListParams) ([]ServiceView, int64, error)
+	GetService(ctx context.Context, clientID, serviceID int64) (*ServiceView, error)
 	ChangePassword(ctx context.Context, actorUserID, clientID, serviceID int64, password string) error
 	SSO(ctx context.Context, actorUserID, clientID, serviceID int64) (string, error)
 	CancelService(ctx context.Context, actorUserID, clientID, serviceID int64, in CancelServiceInput) (*domain.Service, error)

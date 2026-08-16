@@ -64,7 +64,10 @@ import (
 
 // Public catalog cache parameters (invalidated on every admin write).
 const (
-	cacheKeyCatalog = "catalog:products"
+	// v2: cached payload gained per-product specs for configurable products;
+	// the version suffix keeps a pre-upgrade cached blob (which would lack
+	// specs) from being served until its TTL expires.
+	cacheKeyCatalog = "catalog:products:v2"
 	cacheKeyGroups  = "catalog:groups"
 	catalogCacheTTL = 10 * time.Minute
 )
@@ -231,7 +234,18 @@ func (s *Service) PublicCatalog(ctx context.Context) ([]PublicGroup, error) {
 
 	byGroup := make(map[int64][]PublicProduct, len(groups))
 	for _, p := range products {
-		byGroup[p.GroupID] = append(byGroup[p.GroupID], toPublicProduct(p, pricing[p.ID]))
+		pub := toPublicProduct(p, pricing[p.ID])
+		if p.Configurable {
+			// Attach the spec knobs so catalog consumers (e.g. the client
+			// upgrade modal) can configure without a detail fetch; the result
+			// is cached below, so this per-product cost is amortized.
+			specs, err := s.publicSpecs(ctx, p.ID)
+			if err != nil {
+				return nil, err
+			}
+			pub.Specs = specs
+		}
+		byGroup[p.GroupID] = append(byGroup[p.GroupID], pub)
 	}
 	out := make([]PublicGroup, 0, len(groups))
 	for _, g := range groups {

@@ -23,10 +23,22 @@ type ChangePasswordInput struct {
 	Password string `json:"password" validate:"required,min=12,max=64"`
 }
 
-// UpgradeServiceInput is the body of POST /services/:id/upgrade.
+// UpgradeServiceInput is the body of POST /services/:id/upgrade. Specs carries
+// the customer's dynamic-spec choices when the target product is configurable
+// (same shape as the order checkout's spec selections); knobs left out fall
+// back to their default quantity.
 type UpgradeServiceInput struct {
 	ProductID int64               `json:"product_id" validate:"required,min=1"`
 	Cycle     domain.BillingCycle `json:"cycle" validate:"required"`
+	Specs     []UpgradeSpecInput  `json:"specs" validate:"omitempty,max=20,dive"`
+}
+
+// UpgradeSpecInput is a customer-chosen quantity for one dynamic spec knob of
+// a configurable upgrade target (mirrors orders.SpecSelectionRequest).
+type UpgradeSpecInput struct {
+	Key       string `json:"key" validate:"required,min=1,max=50"`
+	Qty       int64  `json:"qty" validate:"gte=0"`
+	Unlimited bool   `json:"unlimited"`
 }
 
 // UpgradeResult is returned by UpgradeService. When the change requires
@@ -44,6 +56,18 @@ type UpgradeResult struct {
 // SSOResult is returned by GET /services/:id/sso.
 type SSOResult struct {
 	URL string `json:"url"`
+}
+
+// ServiceView is a domain.Service plus the display names of its referenced
+// product and server, joined for the client/admin UIs (GET /services and
+// /admin/services list + detail). Names are best-effort: an unresolvable
+// reference (e.g. a soft-deleted product) leaves them empty and the UI falls
+// back to "#<id>".
+type ServiceView struct {
+	domain.Service
+	ProductName    string `json:"product_name,omitempty"`
+	ServerName     string `json:"server_name,omitempty"`
+	ServerHostname string `json:"server_hostname,omitempty"`
 }
 
 // Admin DTOs - services

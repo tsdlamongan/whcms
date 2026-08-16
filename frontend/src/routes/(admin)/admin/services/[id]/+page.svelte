@@ -111,9 +111,10 @@
 		};
 	}
 
-	// Custom-spec (configurable) products aren't priced/applied correctly by
-	// Upgrade (see the backend guard) - keep them out of this picker so
-	// there's no confusing dead-end; Change Package still lists everything.
+	// The backend Upgrade endpoint accepts spec selections for custom-spec
+	// (configurable) products, but this admin form has no spec-knob UI yet -
+	// keep them out of this picker so there's no dead-end (the client-area
+	// upgrade flow covers them); Change Package still lists everything.
 	const upgradeableProducts = $derived(data.products.filter((p) => !p.configurable));
 
 	const CYCLE_LABELS: Record<string, string> = {
@@ -640,7 +641,7 @@
 					{/each}
 				</select>
 				<div class="hp-help" style="margin-top:3px">
-					Custom-spec products aren't listed — Upgrade doesn't support spec selection yet.
+					Custom-spec products aren't listed here — clients configure those via the client-area upgrade flow.
 				</div>
 			</div>
 		</div>

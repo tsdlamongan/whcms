@@ -68,6 +68,9 @@ test.describe('client area', () => {
 	test('services list shows the active service and filters by status', async ({ page }) => {
 		await page.goto('/services');
 		await expect(page.getByText(serviceDomain)).toBeVisible();
+		// The row must show the real product name (ServiceView enrichment),
+		// not the "Produk #<id>" fallback.
+		await expect(page.getByText('E2E Shared Hosting').first()).toBeVisible();
 
 		await page.getByTestId('services-status-filter').selectOption('active');
 		await page.getByTestId('services-filter-submit').click();
