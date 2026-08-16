@@ -33,7 +33,7 @@
 - GET/POST/PATCH/DELETE /account/contacts (+`permissions:{invoices,services,domains,tickets}` map; entities.ClientContact has JSONB permissions — serve it).
 - GET /account/credit → `{balance, ledger:[...]}` (or plain array tolerated; balance fallback client.credit_balance).
 - GET /transactions (client history, paginated) — **not in §9, FE needs it** (fe-client-billing).
-- GET /services rows + `product_name`; detail optionally `server_hostname`, `renewal_invoice_id`; GET /services/:id/sso → `{url}`; POST /services/:id/upgrade `{product_id, cycle}` → `{invoice_id}` (or invoice.id / pending_upgrade.invoice_id).
+- GET /services and /admin/services (list + detail) return provisioning.ServiceView: domain.Service + `product_name`, `server_name`, `server_hostname` (best-effort — empty when the referenced row is gone, FE falls back to `#<id>`); detail optionally `renewal_invoice_id`; GET /services/:id/sso → `{url}`; POST /services/:id/upgrade `{product_id, cycle, specs?: [{key,qty,unlimited}]}` → `{invoice_id}` (or invoice.id / pending_upgrade.invoice_id); `pending_upgrade` carries `specs[]` for custom-spec targets; GET /products embeds `specs` (knobs + per-cycle pricing) on configurable products.
   **STILL OPEN (E2E renewal-unsuspend.spec.ts, flow-5)**: `renewal_invoice_id` is never populated anywhere in
   `backend/internal` (confirmed by grep — zero occurrences outside the frontend), so the client service-detail
   page's renewal-invoice banner/link (`(client)/services/[id]/+page.svelte`, `data-testid=service-renewal-invoice-link`)

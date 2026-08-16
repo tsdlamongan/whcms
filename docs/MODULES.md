@@ -196,11 +196,19 @@ err), final failure → AlertAdmin (detect via asynq MaxRetry in worker wrapper 
 NotifyProvisionFailure(ctx, serviceID, taskType, errMsg) for worker to call on last-retry). ProvisionSuspend/
 Unsuspend/Terminate/ChangePackage similar with state machine transitions (+suspend_reason, terminated_at).
 RenewService: next_due_date += cycle (from current next_due_date), if suspended → enqueue provision:unsuspend,
-notification renew. ApplyUpgrade: read pending_upgrade {product_id, cycle, price} → update product_id/cycle/
-recurring_amount + enqueue provision:change_package, clear pending. UpgradeService(client initiation): active
-only, target product same module, compute prorate: unused = recurring_amount * days_left/period_days; charge =
-new_cycle_price * (days_left/period)… use domain.Prorate helper; diff>0 → invoice service_upgrade item + store
-pending_upgrade; diff<=0 → apply immediately + AddCredit(excess). Client cancel: immediate → enqueue terminate +
+notification renew. ApplyUpgrade: read pending_upgrade {product_id, cycle, price, specs?} → update product_id/
+cycle/recurring_amount, rewrite panel_meta.chosen_specs from the pending specs (cleared when the target is a
+flat product) + enqueue provision:change_package, clear pending. UpgradeService(client initiation): active
+only, target product same module; custom-spec (configurable) targets take a specs[] input ({key,qty,unlimited},
+unchosen knobs default) validated/priced with the SAME rules as order checkout (resolveUpgradeSpecs mirrors
+orders.priceSpec) so the target price = base cycle price + per-spec charges; same product+cycle with different
+specs = a resize (identical specs rejected). Compute prorate: unused = recurring_amount * days_left/period_days;
+charge = target_price * (days_left/period)… use domain.Prorate helper; diff>0 → invoice service_upgrade item
+(description carries the spec summary) + store pending_upgrade (incl. resolved specs); diff<=0 → apply
+immediately (chosen_specs rewritten in the same tx) + AddCredit(excess). ProvisionChangePackage: flat products
+push product.package_name; configurable products rebuild the dynamic package from panel_meta.chosen_specs
+(EnsurePackage, same as ProvisionCreate), update panel_meta package_name/limits, and delete the old dynamic
+package once no sibling service on the server references it (CountByServerAndPackage, same rule as terminate). Client cancel: immediate → enqueue terminate +
 cancel open renewal invoices; end_of_term → flag (services.notes/cancel_at_period_end bool in panel_meta JSON) —
 honored by AutoTerminate/renewal generation. AutoSuspend: active services whose renewal invoice overdue past
 automation.suspend_after_days → enqueue suspend (reason "Overdue on payment"). AutoTerminate: suspended >
