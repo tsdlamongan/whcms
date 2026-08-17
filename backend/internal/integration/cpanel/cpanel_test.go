@@ -422,13 +422,17 @@ func TestMutatingOps_Success(t *testing.T) {
 }
 
 func TestMutatingOps_AccountDoesNotExist(t *testing.T) {
+	// NOTE: Terminate is deliberately NOT in this table - unlike every other
+	// mutating op, a missing account is a SUCCESS for Terminate (idempotent -
+	// see TestTerminate_NotFoundIsSuccess), since the desired end state
+	// ("account gone") was already achieved, most likely by an earlier
+	// attempt of the very same retried job.
 	ops := []struct {
 		name   string
 		invoke func(c *Client, s ports.ServerConfig) error
 	}{
 		{"suspend", func(c *Client, s ports.ServerConfig) error { return c.Suspend(context.Background(), s, "ghost", "r") }},
 		{"unsuspend", func(c *Client, s ports.ServerConfig) error { return c.Unsuspend(context.Background(), s, "ghost") }},
-		{"terminate", func(c *Client, s ports.ServerConfig) error { return c.Terminate(context.Background(), s, "ghost") }},
 		{"change package", func(c *Client, s ports.ServerConfig) error {
 			return c.ChangePackage(context.Background(), s, "ghost", "gold")
 		}},
@@ -445,6 +449,28 @@ func TestMutatingOps_AccountDoesNotExist(t *testing.T) {
 			assert.Equal(t, apperr.CodeNotFound, ae.Code)
 		})
 	}
+}
+
+// TestTerminate_NotFoundIsSuccess is the regression test for a real incident:
+// removeacct on an already-gone account used to propagate NOT_FOUND like
+// every other mutating op, so ProvisionTerminate returned an error AFTER the
+// account had genuinely already been deleted (by an earlier attempt of the
+// same asynq-retried job) - the job then retried forever, calling removeacct
+// again on an account that no longer existed, failing at the exact same step
+// every time. Mirrors DeletePackage's existing idempotent-NotFound handling.
+func TestTerminate_NotFoundIsSuccess(t *testing.T) {
+	c, s, _, _ := newHarness(t, Config{}, func(w http.ResponseWriter, r *http.Request) {
+		whmFail(w, "removeacct", "account does not exist")
+	})
+	assert.NoError(t, c.Terminate(context.Background(), s, "ghost"))
+}
+
+func TestTerminate_ErrorPropagates(t *testing.T) {
+	c, s, _, _ := newHarness(t, Config{}, func(w http.ResponseWriter, r *http.Request) {
+		whmFail(w, "removeacct", "permission denied")
+	})
+	err := c.Terminate(context.Background(), s, "user1")
+	assert.Equal(t, apperr.CodeExternal, asAppErr(t, err).Code)
 }
 
 func TestMutatingOps_Validation(t *testing.T) {

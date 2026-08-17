@@ -215,7 +215,10 @@ func (c *Client) Unsuspend(ctx context.Context, s ports.ServerConfig, username s
 	return err
 }
 
-// Terminate deletes an account (CMD_API_SELECT_USERS delete=yes).
+// Terminate deletes an account (CMD_API_SELECT_USERS delete=yes). A missing
+// account is not an error (idempotent - same as DeletePackage - a retried
+// terminate after the account was already removed on an earlier attempt
+// must succeed, not fail forever).
 func (c *Client) Terminate(ctx context.Context, s ports.ServerConfig, username string) error {
 	params := url.Values{
 		"select0":   {username},
@@ -223,6 +226,9 @@ func (c *Client) Terminate(ctx context.Context, s ports.ServerConfig, username s
 		"confirmed": {"Confirm"},
 	}
 	_, err := c.call(ctx, s, http.MethodPost, "CMD_API_SELECT_USERS", params, false)
+	if err != nil && apperr.From(err).Code == apperr.CodeNotFound {
+		return nil
+	}
 	return err
 }
 

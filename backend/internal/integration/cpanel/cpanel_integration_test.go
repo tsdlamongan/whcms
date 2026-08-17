@@ -108,6 +108,13 @@ func TestIntegration_MockserverWHM(t *testing.T) {
 	_, err = c.AccountInfo(ctx, s, username)
 	assert.Equal(t, apperr.CodeNotFound, apperr.From(err).Code, "terminated account must map to NOT_FOUND: %v", err)
 
+	// A retried ProvisionTerminate job (e.g. after a failure elsewhere in the
+	// same job run) calls Terminate again on an already-gone account -
+	// against the real mockserver WHM, this must still succeed (idempotent),
+	// not fail forever at the exact same step.
+	require.NoError(t, c.Terminate(ctx, s, username),
+		"a second Terminate on an already-removed account must be idempotent, not error")
+
 	err = c.Suspend(ctx, s, username+"x", "x")
 	assert.Equal(t, apperr.CodeNotFound, apperr.From(err).Code, "unknown account must map to NOT_FOUND: %v", err)
 

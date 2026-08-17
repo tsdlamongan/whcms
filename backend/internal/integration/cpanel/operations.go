@@ -116,7 +116,9 @@ func (c *Client) Unsuspend(ctx context.Context, s ports.ServerConfig, username s
 	return err
 }
 
-// Terminate deletes an account via removeacct.
+// Terminate deletes an account via removeacct. A missing account is not an
+// error (idempotent - a retried terminate after the account was already
+// removed on an earlier attempt must succeed, not fail forever).
 func (c *Client) Terminate(ctx context.Context, s ports.ServerConfig, username string) error {
 	if err := requireUsername(username); err != nil {
 		return err
@@ -124,6 +126,9 @@ func (c *Client) Terminate(ctx context.Context, s ports.ServerConfig, username s
 	params := url.Values{}
 	params.Set("user", username)
 	_, err := c.post(ctx, s, "removeacct", params)
+	if err != nil && apperr.From(err).Code == apperr.CodeNotFound {
+		return nil
+	}
 	return err
 }
 

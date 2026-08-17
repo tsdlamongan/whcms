@@ -276,6 +276,31 @@ func TestTerminateSuccess(t *testing.T) {
 	assert.Equal(t, "yes", form.Get("delete"))
 }
 
+// TestTerminateNotFoundIsSuccess is the regression test for a real incident:
+// deleting an already-gone account used to propagate NOT_FOUND like every
+// other mutating op, so ProvisionTerminate returned an error AFTER the
+// account had genuinely already been deleted (by an earlier attempt of the
+// same asynq-retried job) - the job then retried forever, failing at the
+// exact same step every time even though the account was long gone. Mirrors
+// DeletePackage's existing idempotent-NotFound handling.
+func TestTerminateNotFoundIsSuccess(t *testing.T) {
+	ts := httptest.NewServer(legacyHandler(t, 200, "error=1&text=Error&details=user+ghost+does+not+exist", nil, nil))
+	defer ts.Close()
+
+	c, _ := newTestClient(t, testConfig())
+	err := c.Terminate(context.Background(), serverConfig(t, ts), "ghost")
+	assert.NoError(t, err)
+}
+
+func TestTerminateErrorPropagates(t *testing.T) {
+	ts := httptest.NewServer(legacyHandler(t, 200, "error=1&text=Error&details=permission+denied", nil, nil))
+	defer ts.Close()
+
+	c, _ := newTestClient(t, testConfig())
+	err := c.Terminate(context.Background(), serverConfig(t, ts), "alice")
+	requireAppErr(t, err, apperr.CodeExternal)
+}
+
 // --- ChangePackage / ChangePassword ------------------------------------------
 
 func TestChangePackageSuccess(t *testing.T) {
