@@ -19,6 +19,7 @@
 //	GET   /admin/logs/queue             ?type&state&page&per_page (Pending Module Actions) [perm: logs]
 //	POST  /admin/logs/queue/:queue/:id/retry   re-run one module action now      [perm: logs]
 //	DELETE /admin/logs/queue/:queue/:id        dismiss one module action         [perm: logs]
+//	DELETE /admin/logs/queue            ?type&state - dismiss every matching action [perm: logs]
 //	GET   /admin/gateways                                                         [role: admin]
 //	PUT   /admin/gateways                                                         [role: admin]
 //
@@ -583,6 +584,18 @@ func (s *Service) DeleteModuleAction(ctx context.Context, actorUserID int64, que
 	s.d.AuditLog.Log(ctx, actorUserID, "module_action.delete", "job", 0,
 		nil, map[string]any{"queue": queue, "id": id})
 	return nil
+}
+
+// DismissAllModuleActions dismisses every module action matching f (the
+// currently-applied type/state filter), without retrying any of them.
+func (s *Service) DismissAllModuleActions(ctx context.Context, actorUserID int64, f ports.ModuleActionFilter) (int, error) {
+	n, err := s.d.Jobs.DismissAllModuleActions(ctx, f)
+	if err != nil {
+		return 0, apperr.Internal(err)
+	}
+	s.d.AuditLog.Log(ctx, actorUserID, "module_action.dismiss_all", "job", 0,
+		nil, map[string]any{"type": f.Type, "state": f.State, "count": n})
+	return n, nil
 }
 
 // Gateways

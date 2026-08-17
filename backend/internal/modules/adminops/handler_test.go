@@ -72,25 +72,26 @@ func (m *fakeMW) RequirePermission(module string) fiber.Handler {
 
 // fakeAdminService is a function-field fake of adminops.AdminService.
 type fakeAdminService struct {
-	DashboardFn            func(ctx context.Context, force bool) (*adminops.DashboardData, error)
-	RevenueReportFn        func(ctx context.Context, from, to time.Time, groupBy string) (*adminops.RevenueReportData, error)
-	OrdersReportFn         func(ctx context.Context, from, to time.Time) (*adminops.OrdersReportData, error)
-	ServicesReportFn       func(ctx context.Context) (*adminops.ServicesReportData, error)
-	ListStaffFn            func(ctx context.Context, p ports.ListParams) ([]domain.User, int64, error)
-	OnlineStaffFn          func(ctx context.Context) ([]ports.PresenceEntry, error)
-	CreateStaffFn          func(ctx context.Context, actorUserID int64, in adminops.CreateStaffInput) (*domain.User, error)
-	GetStaffFn             func(ctx context.Context, id int64) (*domain.User, error)
-	UpdateStaffFn          func(ctx context.Context, actorUserID, id int64, in adminops.UpdateStaffInput) (*domain.User, error)
-	DeactivateStaffFn      func(ctx context.Context, actorUserID, id int64) (*domain.User, error)
-	AuditLogsFn            func(ctx context.Context, f adminops.AuditLogFilter) ([]domain.AuditLog, int64, error)
-	EmailLogsFn            func(ctx context.Context, p ports.ListParams) ([]domain.EmailLogEntry, int64, error)
-	IntegrationLogsFn      func(ctx context.Context, f adminops.IntegrationLogFilter) ([]domain.IntegrationLog, int64, error)
-	PendingModuleActionsFn func(ctx context.Context, f ports.ModuleActionFilter) ([]ports.ModuleAction, int64, error)
-	RetryModuleActionFn    func(ctx context.Context, actorUserID int64, queue, id string) error
-	DeleteModuleActionFn   func(ctx context.Context, actorUserID int64, queue, id string) error
-	GatewaysFn             func(ctx context.Context) (*adminops.GatewaysConfig, error)
-	UpdateGatewaysFn       func(ctx context.Context, actorUserID int64, in adminops.UpdateGatewaysInput) (*adminops.GatewaysConfig, error)
-	UpdateManualGatewayFn  func(ctx context.Context, actorUserID int64, in adminops.UpdateManualGatewayInput) (*adminops.ManualGatewayConfig, error)
+	DashboardFn               func(ctx context.Context, force bool) (*adminops.DashboardData, error)
+	RevenueReportFn           func(ctx context.Context, from, to time.Time, groupBy string) (*adminops.RevenueReportData, error)
+	OrdersReportFn            func(ctx context.Context, from, to time.Time) (*adminops.OrdersReportData, error)
+	ServicesReportFn          func(ctx context.Context) (*adminops.ServicesReportData, error)
+	ListStaffFn               func(ctx context.Context, p ports.ListParams) ([]domain.User, int64, error)
+	OnlineStaffFn             func(ctx context.Context) ([]ports.PresenceEntry, error)
+	CreateStaffFn             func(ctx context.Context, actorUserID int64, in adminops.CreateStaffInput) (*domain.User, error)
+	GetStaffFn                func(ctx context.Context, id int64) (*domain.User, error)
+	UpdateStaffFn             func(ctx context.Context, actorUserID, id int64, in adminops.UpdateStaffInput) (*domain.User, error)
+	DeactivateStaffFn         func(ctx context.Context, actorUserID, id int64) (*domain.User, error)
+	AuditLogsFn               func(ctx context.Context, f adminops.AuditLogFilter) ([]domain.AuditLog, int64, error)
+	EmailLogsFn               func(ctx context.Context, p ports.ListParams) ([]domain.EmailLogEntry, int64, error)
+	IntegrationLogsFn         func(ctx context.Context, f adminops.IntegrationLogFilter) ([]domain.IntegrationLog, int64, error)
+	PendingModuleActionsFn    func(ctx context.Context, f ports.ModuleActionFilter) ([]ports.ModuleAction, int64, error)
+	RetryModuleActionFn       func(ctx context.Context, actorUserID int64, queue, id string) error
+	DeleteModuleActionFn      func(ctx context.Context, actorUserID int64, queue, id string) error
+	DismissAllModuleActionsFn func(ctx context.Context, actorUserID int64, f ports.ModuleActionFilter) (int, error)
+	GatewaysFn                func(ctx context.Context) (*adminops.GatewaysConfig, error)
+	UpdateGatewaysFn          func(ctx context.Context, actorUserID int64, in adminops.UpdateGatewaysInput) (*adminops.GatewaysConfig, error)
+	UpdateManualGatewayFn     func(ctx context.Context, actorUserID int64, in adminops.UpdateManualGatewayInput) (*adminops.ManualGatewayConfig, error)
 }
 
 func (f *fakeAdminService) Dashboard(ctx context.Context, force bool) (*adminops.DashboardData, error) {
@@ -203,6 +204,13 @@ func (f *fakeAdminService) DeleteModuleAction(ctx context.Context, actorUserID i
 		return f.DeleteModuleActionFn(ctx, actorUserID, queue, id)
 	}
 	return nil
+}
+
+func (f *fakeAdminService) DismissAllModuleActions(ctx context.Context, actorUserID int64, filter ports.ModuleActionFilter) (int, error) {
+	if f.DismissAllModuleActionsFn != nil {
+		return f.DismissAllModuleActionsFn(ctx, actorUserID, filter)
+	}
+	return 0, nil
 }
 
 func (f *fakeAdminService) Gateways(ctx context.Context) (*adminops.GatewaysConfig, error) {
@@ -745,6 +753,30 @@ func TestDeleteModuleActionEndpoint(t *testing.T) {
 	assert.Equal(t, 200, resp.StatusCode)
 	assert.Equal(t, "critical", gotQueue)
 	assert.Equal(t, "task-2", gotID)
+}
+
+func TestDismissAllModuleActionsEndpoint(t *testing.T) {
+	var gotActor int64
+	var got ports.ModuleActionFilter
+	svc := &fakeAdminService{
+		DismissAllModuleActionsFn: func(_ context.Context, actorUserID int64, f ports.ModuleActionFilter) (int, error) {
+			gotActor, got = actorUserID, f
+			return 5, nil
+		},
+	}
+	app := newApp(svc, adminMW())
+
+	resp, err := app.Test(httptest.NewRequest("DELETE", "/api/v1/admin/logs/queue?type=provision:create&state=retry", nil))
+	require.NoError(t, err)
+	assert.Equal(t, 200, resp.StatusCode)
+	assert.Equal(t, "provision:create", got.Type)
+	assert.Equal(t, "retry", got.State)
+	assert.NotZero(t, gotActor)
+
+	var body map[string]any
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+	data := body["data"].(map[string]any)
+	assert.Equal(t, float64(5), data["dismissed"])
 }
 
 func TestLogsRequirePermission(t *testing.T) {

@@ -1060,6 +1060,34 @@ func TestDeleteModuleActionPropagatesError(t *testing.T) {
 	assert.Empty(t, f.auditLog.Entries)
 }
 
+func TestDismissAllModuleActions(t *testing.T) {
+	f := newFixture()
+	var got ports.ModuleActionFilter
+	f.jobs.DismissAllModuleActionsFn = func(_ context.Context, flt ports.ModuleActionFilter) (int, error) {
+		got = flt
+		return 7, nil
+	}
+	n, err := f.service().DismissAllModuleActions(context.Background(), 9,
+		ports.ModuleActionFilter{Type: "provision:create", State: "archived"})
+	require.NoError(t, err)
+	assert.Equal(t, 7, n)
+	assert.Equal(t, "provision:create", got.Type)
+	assert.Equal(t, "archived", got.State)
+	require.Len(t, f.auditLog.Entries, 1)
+	assert.Equal(t, "module_action.dismiss_all", f.auditLog.Entries[0].Action)
+	assert.Equal(t, int64(9), f.auditLog.Entries[0].ActorUserID)
+}
+
+func TestDismissAllModuleActionsPropagatesError(t *testing.T) {
+	f := newFixture()
+	f.jobs.DismissAllModuleActionsFn = func(context.Context, ports.ModuleActionFilter) (int, error) {
+		return 0, errors.New("redis down")
+	}
+	_, err := f.service().DismissAllModuleActions(context.Background(), 9, ports.ModuleActionFilter{})
+	requireCode(t, err, apperr.CodeInternal)
+	assert.Empty(t, f.auditLog.Entries, "no audit entry when the bulk dismiss itself failed")
+}
+
 // Gateways
 
 func TestGatewaysDefaultsFromEnvSecrets(t *testing.T) {

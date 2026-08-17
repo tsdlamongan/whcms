@@ -996,6 +996,10 @@ type JobInspector interface {
 	ListModuleActions(ctx context.Context, filter ModuleActionFilter) ([]ModuleAction, int64, error)
 	RetryModuleAction(ctx context.Context, queue, id string) error
 	DeleteModuleAction(ctx context.Context, queue, id string) error
+	// DismissAllModuleActions dismisses every module action matching filter
+	// (Type/State only - Page/PerPage are ignored, the full matching set is
+	// dismissed), returning how many were dismissed.
+	DismissAllModuleActions(ctx context.Context, filter ModuleActionFilter) (int, error)
 }
 
 // CancellationRequestRepo is the persistence surface for client service

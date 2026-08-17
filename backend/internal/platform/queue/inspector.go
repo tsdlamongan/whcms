@@ -58,9 +58,11 @@ type taskWithState struct {
 	state string
 }
 
-// ListModuleActions merges archived+retry (or just filter.State, if set)
-// module-action tasks across every queue, newest-failure-first.
-func (i *Inspector) ListModuleActions(_ context.Context, filter ports.ModuleActionFilter) ([]ports.ModuleAction, int64, error) {
+// collectModuleActions gathers every archived+retry (or just filter.State,
+// if set) module-action task across every queue matching filter.Type,
+// newest-failure-first. Shared by ListModuleActions (paginates the result)
+// and DismissAllModuleActions (dismisses the whole thing).
+func (i *Inspector) collectModuleActions(filter ports.ModuleActionFilter) ([]taskWithState, error) {
 	states := []string{"archived", "retry"}
 	if filter.State != "" {
 		states = []string{filter.State}
@@ -74,7 +76,7 @@ func (i *Inspector) ListModuleActions(_ context.Context, filter ports.ModuleActi
 				if errors.Is(err, asynq.ErrQueueNotFound) {
 					continue // queue never had a task enqueued to it yet
 				}
-				return nil, 0, fmt.Errorf("queue: list %s tasks in %s: %w", state, q, err)
+				return nil, fmt.Errorf("queue: list %s tasks in %s: %w", state, q, err)
 			}
 			for _, t := range tasks {
 				if !moduleActionTypeSet[t.Type] {
@@ -91,6 +93,16 @@ func (i *Inspector) ListModuleActions(_ context.Context, filter ports.ModuleActi
 	sort.Slice(all, func(a, b int) bool {
 		return all[a].task.LastFailedAt.After(all[b].task.LastFailedAt)
 	})
+	return all, nil
+}
+
+// ListModuleActions merges archived+retry (or just filter.State, if set)
+// module-action tasks across every queue, newest-failure-first.
+func (i *Inspector) ListModuleActions(_ context.Context, filter ports.ModuleActionFilter) ([]ports.ModuleAction, int64, error) {
+	all, err := i.collectModuleActions(filter)
+	if err != nil {
+		return nil, 0, err
+	}
 
 	total := int64(len(all))
 	page, perPage := filter.Page, filter.PerPage
@@ -193,4 +205,28 @@ func (i *Inspector) DeleteModuleAction(_ context.Context, queue, id string) erro
 		return fmt.Errorf("queue: delete task %s/%s: %w", queue, id, err)
 	}
 	return nil
+}
+
+// DismissAllModuleActions dismisses every module action matching filter
+// (ignoring Page/PerPage - the full matching set, across every queue). A
+// task deleted by a concurrent admin action between collection and delete
+// (already gone) is not an error for a bulk operation - it's simply not
+// counted.
+func (i *Inspector) DismissAllModuleActions(_ context.Context, filter ports.ModuleActionFilter) (int, error) {
+	all, err := i.collectModuleActions(filter)
+	if err != nil {
+		return 0, err
+	}
+
+	dismissed := 0
+	for _, tw := range all {
+		if err := i.insp.DeleteTask(tw.task.Queue, tw.task.ID); err != nil {
+			if errors.Is(err, asynq.ErrTaskNotFound) || errors.Is(err, asynq.ErrQueueNotFound) {
+				continue
+			}
+			return dismissed, fmt.Errorf("queue: delete task %s/%s: %w", tw.task.Queue, tw.task.ID, err)
+		}
+		dismissed++
+	}
+	return dismissed, nil
 }

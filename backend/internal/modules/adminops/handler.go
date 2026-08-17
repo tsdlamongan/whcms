@@ -43,6 +43,7 @@ type AdminService interface {
 	PendingModuleActions(ctx context.Context, f ports.ModuleActionFilter) ([]ports.ModuleAction, int64, error)
 	RetryModuleAction(ctx context.Context, actorUserID int64, queue, id string) error
 	DeleteModuleAction(ctx context.Context, actorUserID int64, queue, id string) error
+	DismissAllModuleActions(ctx context.Context, actorUserID int64, f ports.ModuleActionFilter) (int, error)
 	Gateways(ctx context.Context) (*GatewaysConfig, error)
 	UpdateGateways(ctx context.Context, actorUserID int64, in UpdateGatewaysInput) (*GatewaysConfig, error)
 	UpdateManualGateway(ctx context.Context, actorUserID int64, in UpdateManualGatewayInput) (*ManualGatewayConfig, error)
@@ -92,6 +93,7 @@ func (h *Handler) RegisterRoutes(r fiber.Router) {
 	logs.Get("/queue", h.PendingModuleActions)
 	logs.Post("/queue/:queue/:id/retry", h.RetryModuleAction)
 	logs.Delete("/queue/:queue/:id", h.DeleteModuleAction)
+	logs.Delete("/queue", h.DismissAllModuleActions)
 
 	gateways := admin.Group("/gateways", h.mw.RequireRole("admin"))
 	gateways.Get("/", h.Gateways)
@@ -399,6 +401,18 @@ func (h *Handler) DeleteModuleAction(c fiber.Ctx) error {
 		return err
 	}
 	return httpx.OK(c, map[string]any{"deleted": true})
+}
+
+// DismissAllModuleActions dismisses every module action matching the
+// current ?type&state filter, without retrying any of them.
+func (h *Handler) DismissAllModuleActions(c fiber.Ctx) error {
+	f := ports.ModuleActionFilter{Type: c.Query("type"), State: c.Query("state")}
+	identity := httpx.MustIdentity(c)
+	n, err := h.svc.DismissAllModuleActions(c.Context(), identity.UserID, f)
+	if err != nil {
+		return err
+	}
+	return httpx.OK(c, map[string]any{"dismissed": n})
 }
 
 // Gateways

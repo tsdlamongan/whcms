@@ -48,6 +48,11 @@
 		confirmOpen = true;
 	}
 
+	// dismiss-all confirm
+	let dismissAllOpen = $state(false);
+	let dismissingAll = $state(false);
+	let dismissAllFormEl = $state<HTMLFormElement | null>(null);
+
 	// payload/error viewer
 	let viewerOpen = $state(false);
 	let viewerRow = $state<Row | null>(null);
@@ -123,8 +128,19 @@
 	</button>
 </form>
 
-<div class="hp-listbar">
+<div class="hp-listbar" style="display:flex;align-items:center;justify-content:space-between;gap:12px">
 	<div class="hp-count">{total} Records Found, Showing {from} to {to}</div>
+	{#if total > 0}
+		<button
+			type="button"
+			class="hp-btn hp-btn-danger"
+			style="padding:5px 10px"
+			data-testid="module-queue-dismiss-all"
+			onclick={() => (dismissAllOpen = true)}
+		>
+			Dismiss All ({total})
+		</button>
+	{/if}
 </div>
 
 <div class="hp-scroll">
@@ -249,6 +265,41 @@
 	confirmLabel="Dismiss"
 	onConfirm={() => deleteFormEl?.requestSubmit()}
 	onCancel={() => (deleteTarget = null)}
+/>
+
+<!-- dismiss-all confirm -->
+<form
+	method="POST"
+	action="?/dismissAll"
+	class="hidden"
+	bind:this={dismissAllFormEl}
+	use:enhance={() => {
+		dismissingAll = true;
+		return async ({ result, update }) => {
+			dismissingAll = false;
+			dismissAllOpen = false;
+			if (result.type === 'success') {
+				const count =
+					result.data && 'dismissedCount' in result.data ? Number(result.data.dismissedCount) : 0;
+				toast.success(`${count} module action${count === 1 ? '' : 's'} dismissed`);
+				await invalidateAll();
+			}
+			await update({ reset: false });
+		};
+	}}
+>
+	<input type="hidden" name="type" value={data.filters.type} />
+	<input type="hidden" name="state" value={data.filters.state} />
+</form>
+
+<ConfirmDialog
+	bind:open={dismissAllOpen}
+	danger
+	loading={dismissingAll}
+	title="Dismiss All Module Actions"
+	message={`Dismiss all ${total} module action${total === 1 ? '' : 's'} matching the current filter, without retrying any of them? This cannot be undone.`}
+	confirmLabel="Dismiss All"
+	onConfirm={() => dismissAllFormEl?.requestSubmit()}
 />
 
 <HpModal open={viewerOpen} title="Module Action Detail" onClose={() => (viewerOpen = false)}>

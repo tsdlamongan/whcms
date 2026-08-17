@@ -85,5 +85,22 @@ export const actions: Actions = {
 			});
 		}
 		return { op: 'delete', success: true, targetId: id };
+	},
+
+	dismissAll: async (event) => {
+		const form = await event.request.formData();
+		const type = String(form.get('type') ?? '').trim();
+		const state = String(form.get('state') ?? '').trim();
+		const res = await apiFetch<{ dismissed: number }>(event, '/api/v1/admin/logs/queue', {
+			method: 'DELETE',
+			query: { type: type || undefined, state: state || undefined }
+		});
+		if (res.error) {
+			return fail(res.status >= 400 ? res.status : 500, {
+				op: 'dismissAll',
+				errorMessage: res.error.message
+			});
+		}
+		return { op: 'dismissAll', success: true, dismissedCount: res.data?.dismissed ?? 0 };
 	}
 };

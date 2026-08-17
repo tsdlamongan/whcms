@@ -229,3 +229,42 @@ func TestInspectorDeleteUnknownTaskNotFound(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, apperr.CodeNotFound, apperr.From(err).Code)
 }
+
+func TestInspectorDismissAllModuleActions(t *testing.T) {
+	opt := testOpt(t)
+	cleanQueues(t, opt)
+	defer cleanQueues(t, opt)
+
+	enqueueArchived(t, opt, jobs.TypeDomainRegister, jobs.DomainRegisterPayload{DomainID: 1, Years: 1}, "e1")
+	enqueueArchived(t, opt, jobs.TypeDomainRegister, jobs.DomainRegisterPayload{DomainID: 2, Years: 1}, "e2")
+	enqueueArchived(t, opt, jobs.TypeProvisionCreate, jobs.ProvisionCreatePayload{ServiceID: 3}, "e3")
+	enqueueArchived(t, opt, jobs.TypeMailSend, map[string]string{"to": "x@example.test"}, "e4") // NOT a module action
+
+	insp := queue.NewInspector(opt)
+
+	// Filtered dismiss: only the matching type is removed.
+	n, err := insp.DismissAllModuleActions(context.Background(), ports.ModuleActionFilter{Type: jobs.TypeProvisionCreate})
+	require.NoError(t, err)
+	assert.Equal(t, 1, n)
+
+	rows, total, err := insp.ListModuleActions(context.Background(), ports.ModuleActionFilter{PerPage: 10, Page: 1})
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), total, "the two DomainRegister rows must survive the type-filtered dismiss")
+	for _, r := range rows {
+		assert.Equal(t, jobs.TypeDomainRegister, r.Type)
+	}
+
+	// Unfiltered dismiss: everything module-action-shaped goes.
+	n, err = insp.DismissAllModuleActions(context.Background(), ports.ModuleActionFilter{})
+	require.NoError(t, err)
+	assert.Equal(t, 2, n)
+
+	_, total, err = insp.ListModuleActions(context.Background(), ports.ModuleActionFilter{PerPage: 10, Page: 1})
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), total)
+
+	// Nothing left to dismiss - 0, not an error.
+	n, err = insp.DismissAllModuleActions(context.Background(), ports.ModuleActionFilter{})
+	require.NoError(t, err)
+	assert.Equal(t, 0, n)
+}

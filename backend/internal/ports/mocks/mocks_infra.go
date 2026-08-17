@@ -436,9 +436,10 @@ func (m *MockNotificationSender) AlertAdmin(ctx context.Context, subject, messag
 
 // MockJobInspector mocks ports.JobInspector.
 type MockJobInspector struct {
-	ListModuleActionsFn  func(ctx context.Context, filter ports.ModuleActionFilter) ([]ports.ModuleAction, int64, error)
-	RetryModuleActionFn  func(ctx context.Context, queue, id string) error
-	DeleteModuleActionFn func(ctx context.Context, queue, id string) error
+	ListModuleActionsFn       func(ctx context.Context, filter ports.ModuleActionFilter) ([]ports.ModuleAction, int64, error)
+	RetryModuleActionFn       func(ctx context.Context, queue, id string) error
+	DeleteModuleActionFn      func(ctx context.Context, queue, id string) error
+	DismissAllModuleActionsFn func(ctx context.Context, filter ports.ModuleActionFilter) (int, error)
 }
 
 func (m *MockJobInspector) ListModuleActions(ctx context.Context, filter ports.ModuleActionFilter) ([]ports.ModuleAction, int64, error) {
@@ -460,4 +461,11 @@ func (m *MockJobInspector) DeleteModuleAction(ctx context.Context, queue, id str
 		return m.DeleteModuleActionFn(ctx, queue, id)
 	}
 	return nil
+}
+
+func (m *MockJobInspector) DismissAllModuleActions(ctx context.Context, filter ports.ModuleActionFilter) (int, error) {
+	if m.DismissAllModuleActionsFn != nil {
+		return m.DismissAllModuleActionsFn(ctx, filter)
+	}
+	return 0, nil
 }
