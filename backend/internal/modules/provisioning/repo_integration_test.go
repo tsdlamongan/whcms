@@ -475,6 +475,15 @@ func TestRepoCancellationRequestCRUD(t *testing.T) {
 	ctx := context.Background()
 	view := repo.CancellationRequests()
 
+	// decided_by FKs to users(id) - a fresh admin user, not a hardcoded id
+	// (a hardcoded id=1 only "worked" against a long-lived local dev DB that
+	// happens to already have a row there; CI starts from a clean DB).
+	var adminID int64
+	require.NoError(t, d.Querier(ctx).QueryRow(ctx, `
+		INSERT INTO users (email, password_hash, role, status)
+		VALUES ($1, 'x', 'admin', 'active') RETURNING id`,
+		fmt.Sprintf("prov-admin-%s@test.local", f.uid)).Scan(&adminID))
+
 	svc := f.newService(t, repo, domain.ServiceActive, nil)
 
 	cr := &domain.CancellationRequest{
@@ -512,7 +521,6 @@ func TestRepoCancellationRequestCRUD(t *testing.T) {
 	now := time.Now().UTC()
 	got.Status = domain.CancellationAccepted
 	got.DecidedAt = &now
-	adminID := int64(1)
 	got.DecidedBy = &adminID
 	require.NoError(t, view.Update(ctx, got))
 
