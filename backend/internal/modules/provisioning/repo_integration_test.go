@@ -467,3 +467,97 @@ func TestRepoServerAndGroupCRUD(t *testing.T) {
 	gm.ID = -1
 	assert.Error(t, view.UpdateGroup(ctx, &gm))
 }
+
+func TestRepoCancellationRequestCRUD(t *testing.T) {
+	d := testDB(t)
+	repo := NewRepo(d)
+	f := seedFixtures(t, d)
+	ctx := context.Background()
+	view := repo.CancellationRequests()
+
+	svc := f.newService(t, repo, domain.ServiceActive, nil)
+
+	cr := &domain.CancellationRequest{
+		ServiceID: svc.ID, ClientID: f.clientID,
+		Mode: CancelModeEndOfTerm, Reason: "too expensive", Status: domain.CancellationPending,
+	}
+	require.NoError(t, view.Create(ctx, cr))
+	require.NotZero(t, cr.ID)
+	assert.False(t, cr.RequestedAt.IsZero())
+
+	got, err := view.GetByID(ctx, cr.ID)
+	require.NoError(t, err)
+	assert.Equal(t, svc.ID, got.ServiceID)
+	assert.Equal(t, domain.CancellationPending, got.Status)
+	assert.Nil(t, got.DecidedAt)
+
+	pending, err := view.GetPendingByService(ctx, svc.ID)
+	require.NoError(t, err)
+	require.NotNil(t, pending)
+	assert.Equal(t, cr.ID, pending.ID)
+
+	// Partial unique index: a second pending request for the same service
+	// conflicts (the service layer's GetPendingByService guard is the normal
+	// path; this proves the DB-level backstop too).
+	dup := &domain.CancellationRequest{
+		ServiceID: svc.ID, ClientID: f.clientID,
+		Mode: CancelModeEndOfTerm, Status: domain.CancellationPending,
+	}
+	err = view.Create(ctx, dup)
+	var ae *apperr.Error
+	require.ErrorAs(t, err, &ae)
+	assert.Equal(t, apperr.CodeConflict, ae.Code)
+
+	// Accept: mark decided.
+	now := time.Now().UTC()
+	got.Status = domain.CancellationAccepted
+	got.DecidedAt = &now
+	adminID := int64(1)
+	got.DecidedBy = &adminID
+	require.NoError(t, view.Update(ctx, got))
+
+	got2, err := view.GetByID(ctx, cr.ID)
+	require.NoError(t, err)
+	assert.Equal(t, domain.CancellationAccepted, got2.Status)
+	require.NotNil(t, got2.DecidedBy)
+	assert.Equal(t, adminID, *got2.DecidedBy)
+
+	// No longer pending, so a fresh request on the same service is allowed.
+	noPending, err := view.GetPendingByService(ctx, svc.ID)
+	require.NoError(t, err)
+	assert.Nil(t, noPending)
+
+	// Immediate mode, auto_processed at creation (no admin decision needed).
+	autoSvc := f.newService(t, repo, domain.ServiceActive, nil)
+	auto := &domain.CancellationRequest{
+		ServiceID: autoSvc.ID, ClientID: f.clientID,
+		Mode: CancelModeImmediate, Status: domain.CancellationAutoProcessed, DecidedAt: &now,
+	}
+	require.NoError(t, view.Create(ctx, auto))
+
+	// List filtered by status + service_id.
+	list, total, err := view.List(ctx, ports.ListParams{Status: "accepted", ServiceID: svc.ID, Page: 1, PerPage: 10})
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), total)
+	require.Len(t, list, 1)
+	assert.Equal(t, cr.ID, list[0].ID)
+
+	autoList, autoTotal, err := view.List(ctx, ports.ListParams{Status: "auto_processed"})
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, autoTotal, int64(1))
+	found := false
+	for _, r := range autoList {
+		if r.ID == auto.ID {
+			found = true
+		}
+	}
+	assert.True(t, found)
+
+	// Unknown id -> NOT_FOUND.
+	_, err = view.GetByID(ctx, -1)
+	require.ErrorAs(t, err, &ae)
+	assert.Equal(t, apperr.CodeNotFound, ae.Code)
+	missingUpdate := *got2
+	missingUpdate.ID = -1
+	assert.ErrorAs(t, view.Update(ctx, &missingUpdate), &ae)
+}

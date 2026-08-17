@@ -68,6 +68,19 @@ type ServiceView struct {
 	ProductName    string `json:"product_name,omitempty"`
 	ServerName     string `json:"server_name,omitempty"`
 	ServerHostname string `json:"server_hostname,omitempty"`
+	// PendingCancellation is the service's pending cancellation request, if
+	// any (set by GetService only - the bulk ListServices path leaves it nil
+	// to avoid an extra query per row).
+	PendingCancellation *domain.CancellationRequest `json:"pending_cancellation,omitempty"`
+}
+
+// CancellationRequestView is a domain.CancellationRequest plus the display
+// names of its service/client, joined for the admin cancellation-requests
+// list (GET /admin/services/cancellation-requests).
+type CancellationRequestView struct {
+	domain.CancellationRequest
+	ServiceDomain string `json:"service_domain,omitempty"`
+	ClientName    string `json:"client_name,omitempty"`
 }
 
 // Admin DTOs - services

@@ -39,6 +39,9 @@ type ListParams struct {
 	// UserID filters EmailLogRepo.List to one recipient account (0 = unset);
 	// unused by every other List caller, same convention as Gateway.
 	UserID int64
+	// ServiceID filters CancellationRequestRepo.List to one service (0 =
+	// unset); unused by every other List caller, same convention as Gateway.
+	ServiceID int64
 }
 
 // Offset returns the SQL offset.
@@ -993,6 +996,19 @@ type JobInspector interface {
 	ListModuleActions(ctx context.Context, filter ModuleActionFilter) ([]ModuleAction, int64, error)
 	RetryModuleAction(ctx context.Context, queue, id string) error
 	DeleteModuleAction(ctx context.Context, queue, id string) error
+}
+
+// CancellationRequestRepo is the persistence surface for client service
+// cancellation requests (provisioning module). List is filtered by
+// ListParams.Status/ServiceID (both optional).
+type CancellationRequestRepo interface {
+	Create(ctx context.Context, r *domain.CancellationRequest) error
+	GetByID(ctx context.Context, id int64) (*domain.CancellationRequest, error)
+	// GetPendingByService returns the service's pending request, or nil (no
+	// error) when none exists.
+	GetPendingByService(ctx context.Context, serviceID int64) (*domain.CancellationRequest, error)
+	Update(ctx context.Context, r *domain.CancellationRequest) error
+	List(ctx context.Context, p ListParams) ([]domain.CancellationRequest, int64, error)
 }
 
 // InvoicePDFItem is one invoice line for PDF rendering.

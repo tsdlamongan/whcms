@@ -52,6 +52,7 @@ export const topMenus: HpNavMenu[] = [
 			{ label: 'View/Search Clients', href: '/admin/clients' },
 			{ label: 'Add New Client', href: '/admin/clients/new' },
 			{ label: 'Products/Services', href: '/admin/services' },
+			{ label: 'Cancellation Requests', href: '/admin/services/cancellation-requests' },
 			{ label: 'Domain Registrations', href: '/admin/domains' }
 		]
 	},
@@ -176,6 +177,7 @@ export function sidebarSections(kind: SidebarKind): HpSideSection[] {
 						{ label: '- Active', href: '/admin/services?status=active', sub: true },
 						{ label: '- Pending', href: '/admin/services?status=pending', sub: true },
 						{ label: '- Suspended', href: '/admin/services?status=suspended', sub: true },
+						{ label: 'Cancellation Requests', href: '/admin/services/cancellation-requests' },
 						{ label: 'Orders', href: '/admin/orders' },
 						{ label: 'Domain Registrations', href: '/admin/domains' }
 					]
@@ -327,6 +329,7 @@ export function pageTitle(pathname: string): string {
 		['/admin/products', 'Products/Services'],
 		['/admin/product-groups', 'Product Groups'],
 		['/admin/coupons', 'Promotions'],
+		['/admin/services/cancellation-requests', 'Cancellation Requests'],
 		['/admin/services', 'Products/Services'],
 		['/admin/domains/pricing', 'TLD Pricing'],
 		['/admin/domains/addons', 'Domain Addons'],

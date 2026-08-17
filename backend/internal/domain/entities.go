@@ -365,6 +365,25 @@ type UpgradeSpec struct {
 	Amount       int64  `json:"amount"`
 }
 
+// CancellationRequest is a client-submitted request to cancel a service.
+// Immediate-mode requests are recorded already CancellationAutoProcessed (no
+// admin action needed - the cancellation itself already ran synchronously);
+// end_of_term requests start CancellationPending and only take effect
+// (panel_meta.cancel_at_period_end set) once an admin accepts them.
+type CancellationRequest struct {
+	ID          int64                     `json:"id"`
+	ServiceID   int64                     `json:"service_id"`
+	ClientID    int64                     `json:"client_id"`
+	Mode        string                    `json:"mode"` // "immediate" | "end_of_term"
+	Reason      string                    `json:"reason"`
+	Status      CancellationRequestStatus `json:"status"`
+	RequestedAt time.Time                 `json:"requested_at"`
+	DecidedAt   *time.Time                `json:"decided_at"`
+	DecidedBy   *int64                    `json:"decided_by"`
+	CreatedAt   time.Time                 `json:"created_at"`
+	UpdatedAt   time.Time                 `json:"updated_at"`
+}
+
 // Registrar is a domain registrar configuration row. ResellerID/APIKeyEnc are
 // admin-configurable dynamic credentials (env vars are the fallback for
 // whichever of them is blank) - APIKeyEnc is AES-256-GCM ciphertext, never

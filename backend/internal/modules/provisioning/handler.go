@@ -38,6 +38,10 @@ type ProvisioningService interface {
 	AdminAction(ctx context.Context, actorUserID, serviceID int64, action, reason string, async bool) error
 	AdminChangePackage(ctx context.Context, actorUserID, serviceID int64, in AdminChangePackageInput) error
 	AdminUpdateService(ctx context.Context, actorUserID, serviceID int64, in AdminUpdateServiceInput) (*domain.Service, error)
+	// Admin: cancellation requests
+	ListCancellationRequests(ctx context.Context, p ports.ListParams) ([]CancellationRequestView, int64, error)
+	AcceptCancellationRequest(ctx context.Context, actorUserID, requestID int64) error
+	RejectCancellationRequest(ctx context.Context, actorUserID, requestID int64) error
 	// Admin servers
 	ListServers(ctx context.Context, p ports.ListParams) ([]domain.Server, int64, error)
 	GetServer(ctx context.Context, id int64) (*domain.Server, error)
@@ -82,6 +86,9 @@ func (h *Handler) RegisterRoutes(r fiber.Router) {
 
 	services := staff.Group("/services", h.mw.RequirePermission("services"))
 	services.Get("/", h.AdminListServices)
+	services.Get("/cancellation-requests", h.ListCancellationRequests)
+	services.Post("/cancellation-requests/:id/accept", h.AcceptCancellationRequest)
+	services.Post("/cancellation-requests/:id/reject", h.RejectCancellationRequest)
 	services.Get("/:id", h.AdminGetService)
 	services.Patch("/:id", h.AdminUpdateService)
 	services.Post("/:id/create", h.adminAction(ActionCreate))
@@ -263,6 +270,46 @@ func (h *Handler) AdminUpdateService(c fiber.Ctx) error {
 		return err
 	}
 	return httpx.OK(c, svc)
+}
+
+// Admin: cancellation requests
+
+// ListCancellationRequests lists cancellation requests, optionally filtered
+// by ?status and paginated.
+func (h *Handler) ListCancellationRequests(c fiber.Ctx) error {
+	page := httpx.ParsePage(c)
+	p := ports.ListParams{Status: c.Query("status"), Page: page.Page, PerPage: page.PerPage}
+	rows, total, err := h.svc.ListCancellationRequests(c.Context(), p)
+	if err != nil {
+		return err
+	}
+	return httpx.OK(c, rows, page.Meta(total))
+}
+
+// AcceptCancellationRequest approves a pending request.
+func (h *Handler) AcceptCancellationRequest(c fiber.Ctx) error {
+	rid, err := parseID(c)
+	if err != nil {
+		return err
+	}
+	id := httpx.MustIdentity(c)
+	if err := h.svc.AcceptCancellationRequest(c.Context(), id.UserID, rid); err != nil {
+		return err
+	}
+	return httpx.OK(c, fiber.Map{"accepted": true})
+}
+
+// RejectCancellationRequest denies a pending request.
+func (h *Handler) RejectCancellationRequest(c fiber.Ctx) error {
+	rid, err := parseID(c)
+	if err != nil {
+		return err
+	}
+	id := httpx.MustIdentity(c)
+	if err := h.svc.RejectCancellationRequest(c.Context(), id.UserID, rid); err != nil {
+		return err
+	}
+	return httpx.OK(c, fiber.Map{"rejected": true})
 }
 
 // adminAction builds the handler for one lifecycle action endpoint.

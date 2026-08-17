@@ -163,6 +163,16 @@ const (
 	ServiceCancelled  ServiceStatus = "cancelled"
 )
 
+// CancellationRequestStatus is the status of a client cancellation request.
+type CancellationRequestStatus string
+
+const (
+	CancellationPending       CancellationRequestStatus = "pending"
+	CancellationAccepted      CancellationRequestStatus = "accepted"
+	CancellationRejected      CancellationRequestStatus = "rejected"
+	CancellationAutoProcessed CancellationRequestStatus = "auto_processed"
+)
+
 // DomainStatus is the status of a registered domain.
 type DomainStatus string
 

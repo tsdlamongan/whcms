@@ -382,6 +382,8 @@ func Build(ctx context.Context, cfg config.Config, database *db.DB, rdb *redis.C
 		Tx:       txManager,
 		Audit:    auditLogger,
 		Clock:    clk,
+
+		CancellationRequests: provisioningRepo.CancellationRequests(),
 	})
 	srFwd.inner = provisioningSvc
 

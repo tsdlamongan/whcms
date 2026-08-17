@@ -180,6 +180,10 @@ type fx struct {
 	settings *mocks.MockSettingsRepo
 	audit    *mocks.MockAuditLogger
 
+	cancellations *mocks.MockCancellationRequestRepo
+	crStore       map[int64]*domain.CancellationRequest
+	crNextID      int64
+
 	service *domain.Service // row returned by GetByID
 	updated []domain.Service
 	sent    []string // notification template keys
@@ -203,6 +207,9 @@ func newFixture() *fx {
 		credit:   &creditAdderMock{},
 		settings: &mocks.MockSettingsRepo{},
 		audit:    &mocks.MockAuditLogger{},
+
+		cancellations: &mocks.MockCancellationRequestRepo{},
+		crStore:       map[int64]*domain.CancellationRequest{},
 	}
 	f.store.GetByIDFn = func(_ context.Context, id int64) (*domain.Service, error) {
 		if f.service == nil || f.service.ID != id {
@@ -210,6 +217,17 @@ func newFixture() *fx {
 		}
 		cp := *f.service
 		return &cp, nil
+	}
+	f.store.GetByIDsFn = func(_ context.Context, ids []int64) ([]domain.Service, error) {
+		if f.service == nil {
+			return nil, nil
+		}
+		for _, id := range ids {
+			if id == f.service.ID {
+				return []domain.Service{*f.service}, nil
+			}
+		}
+		return nil, nil
 	}
 	f.store.UpdateFn = func(_ context.Context, s *domain.Service) error {
 		f.updated = append(f.updated, *s)
@@ -226,6 +244,53 @@ func newFixture() *fx {
 	f.notify.SendTemplateFn = func(_ context.Context, _ int64, key string, _ map[string]any) error {
 		f.sent = append(f.sent, key)
 		return nil
+	}
+	f.cancellations.CreateFn = func(_ context.Context, cr *domain.CancellationRequest) error {
+		f.crNextID++
+		cr.ID = f.crNextID
+		cr.RequestedAt = testNow
+		cr.CreatedAt = testNow
+		cr.UpdatedAt = testNow
+		cp := *cr
+		f.crStore[cr.ID] = &cp
+		return nil
+	}
+	f.cancellations.GetByIDFn = func(_ context.Context, id int64) (*domain.CancellationRequest, error) {
+		if r, ok := f.crStore[id]; ok {
+			cp := *r
+			return &cp, nil
+		}
+		return nil, apperr.NotFound("cancellation request")
+	}
+	f.cancellations.GetPendingByServiceFn = func(_ context.Context, serviceID int64) (*domain.CancellationRequest, error) {
+		for _, r := range f.crStore {
+			if r.ServiceID == serviceID && r.Status == domain.CancellationPending {
+				cp := *r
+				return &cp, nil
+			}
+		}
+		return nil, nil
+	}
+	f.cancellations.UpdateFn = func(_ context.Context, cr *domain.CancellationRequest) error {
+		if _, ok := f.crStore[cr.ID]; !ok {
+			return apperr.NotFound("cancellation request")
+		}
+		cp := *cr
+		f.crStore[cr.ID] = &cp
+		return nil
+	}
+	f.cancellations.ListFn = func(_ context.Context, p ports.ListParams) ([]domain.CancellationRequest, int64, error) {
+		var out []domain.CancellationRequest
+		for _, r := range f.crStore {
+			if p.Status != "" && string(r.Status) != p.Status {
+				continue
+			}
+			if p.ServiceID != 0 && r.ServiceID != p.ServiceID {
+				continue
+			}
+			out = append(out, *r)
+		}
+		return out, int64(len(out)), nil
 	}
 
 	f.svc = New(Deps{
@@ -245,6 +310,8 @@ func newFixture() *fx {
 		Tx:       &mocks.MockTxManager{},
 		Audit:    f.audit,
 		Clock:    &mocks.MockClock{FixedTime: testNow},
+
+		CancellationRequests: f.cancellations,
 	})
 	return f
 }
@@ -622,6 +689,65 @@ func TestProvisionTerminatePendingBecomesCancelled(t *testing.T) {
 	require.NoError(t, f.svc.ProvisionTerminate(context.Background(), 42))
 	assert.Equal(t, domain.ServiceCancelled, f.service.Status)
 	assert.NotNil(t, f.service.TerminatedAt)
+}
+
+// TestProvisionTerminateResolvesPendingCancellation is the other half of the
+// duplicate-immediate-cancellation fix: once the worker actually completes
+// termination, the service's pending cancellation request (created by
+// CancelService, still pending up to this point) must flip to
+// auto_processed - only then does the "one pending request per service"
+// guard stop blocking a fresh request for this service.
+func TestProvisionTerminateResolvesPendingCancellation(t *testing.T) {
+	f := newFixture()
+	f.service = baseService(domain.ServiceActive)
+	f.withProduct(cpanelProduct())
+	f.withServer(cpanelServer())
+
+	_, err := f.svc.CancelService(context.Background(), 10, 7, 42, CancelServiceInput{Mode: CancelModeImmediate})
+	require.NoError(t, err)
+	var reqID int64
+	for id, cr := range f.crStore {
+		reqID = id
+		require.Equal(t, domain.CancellationPending, cr.Status)
+	}
+
+	require.NoError(t, f.svc.ProvisionTerminate(context.Background(), 42))
+
+	got := f.crStore[reqID]
+	assert.Equal(t, domain.CancellationAutoProcessed, got.Status)
+	require.NotNil(t, got.DecidedAt)
+	assert.Nil(t, got.DecidedBy, "system-resolved, not an admin decision")
+}
+
+// TestProvisionTerminatePendingBecomesCancelledResolvesPendingCancellation
+// covers the OTHER ProvisionTerminate exit path (a still-pending, never-
+// provisioned service) - an admin directly terminating a service that also
+// happens to have its own pending immediate request must resolve that
+// request too, not leave it dangling forever.
+func TestProvisionTerminatePendingBecomesCancelledResolvesPendingCancellation(t *testing.T) {
+	f := newFixture()
+	f.service = baseService(domain.ServicePending)
+
+	_, err := f.svc.CancelService(context.Background(), 10, 7, 42, CancelServiceInput{Mode: CancelModeImmediate})
+	require.NoError(t, err)
+	var reqID int64
+	for id := range f.crStore {
+		reqID = id
+	}
+
+	require.NoError(t, f.svc.ProvisionTerminate(context.Background(), 42))
+
+	assert.Equal(t, domain.CancellationAutoProcessed, f.crStore[reqID].Status)
+}
+
+func TestProvisionTerminateNoPendingCancellationIsANoop(t *testing.T) {
+	f := newFixture()
+	f.service = baseService(domain.ServiceActive)
+	f.withProduct(cpanelProduct())
+	f.withServer(cpanelServer())
+
+	require.NoError(t, f.svc.ProvisionTerminate(context.Background(), 42))
+	assert.Empty(t, f.crStore, "no cancellation request existed - nothing to resolve, no panic")
 }
 
 func TestProvisionChangePackagePushesCurrentProduct(t *testing.T) {
@@ -1135,16 +1261,74 @@ func TestCancelServiceImmediate(t *testing.T) {
 	require.Len(t, f.queue.Tasks, 1)
 	assert.Equal(t, jobs.TypeProvisionTerminate, f.queue.Tasks[0].TaskType)
 	assert.Equal(t, jobs.ProvisionTerminatePayload{ServiceID: 42}, f.queue.Tasks[0].Payload)
+
+	// Immediate mode needs no ADMIN approval, but the request still starts
+	// pending until ProvisionTerminate actually completes (see
+	// resolvePendingCancellation) - not auto_processed at submission time,
+	// so a duplicate submission is blocked while the job sits in the queue.
+	require.Len(t, f.crStore, 1)
+	for _, cr := range f.crStore {
+		assert.Equal(t, domain.CancellationPending, cr.Status)
+		assert.Equal(t, CancelModeImmediate, cr.Mode)
+		assert.Nil(t, cr.DecidedAt)
+	}
 }
 
-func TestCancelServiceEndOfTermSetsFlag(t *testing.T) {
+func TestCancelServiceEndOfTermCreatesPendingRequest(t *testing.T) {
 	f := newFixture()
 	f.service = baseService(domain.ServiceActive)
 
 	svc, err := f.svc.CancelService(context.Background(), 10, 7, 42, CancelServiceInput{Mode: CancelModeEndOfTerm})
 	require.NoError(t, err)
-	assert.True(t, metaBool(svc.PanelMeta, metaCancelAtPeriodEnd))
+	// The flag is only set once an admin accepts the request - not here.
+	assert.False(t, metaBool(svc.PanelMeta, metaCancelAtPeriodEnd))
 	assert.Empty(t, f.queue.Tasks)
+
+	require.Len(t, f.crStore, 1)
+	for _, cr := range f.crStore {
+		assert.Equal(t, domain.CancellationPending, cr.Status)
+		assert.Equal(t, CancelModeEndOfTerm, cr.Mode)
+		assert.Nil(t, cr.DecidedAt)
+	}
+}
+
+func TestCancelServiceRejectsDuplicatePending(t *testing.T) {
+	f := newFixture()
+	f.service = baseService(domain.ServiceActive)
+
+	_, err := f.svc.CancelService(context.Background(), 10, 7, 42, CancelServiceInput{Mode: CancelModeEndOfTerm})
+	require.NoError(t, err)
+
+	_, err = f.svc.CancelService(context.Background(), 10, 7, 42, CancelServiceInput{Mode: CancelModeEndOfTerm})
+	assertCode(t, err, apperr.CodeConflict)
+	require.Len(t, f.crStore, 1, "the duplicate request must not be persisted")
+}
+
+// TestCancelServiceRejectsDuplicateImmediate is the regression test for the
+// gap the user found: submitting "immediate" twice while the first
+// termination job still sits unprocessed in the queue (service status still
+// active) used to be allowed, because the first request was recorded
+// auto_processed at submission time rather than pending - so the "one
+// pending request per service" guard never saw it. Immediate now starts
+// pending too (see CancelService), so a second submission - of EITHER mode -
+// while the job hasn't run yet must conflict, same as end_of_term.
+func TestCancelServiceRejectsDuplicateImmediate(t *testing.T) {
+	f := newFixture()
+	f.service = baseService(domain.ServiceActive)
+
+	_, err := f.svc.CancelService(context.Background(), 10, 7, 42, CancelServiceInput{Mode: CancelModeImmediate})
+	require.NoError(t, err)
+	require.Len(t, f.queue.Tasks, 1, "first submission enqueues its termination job")
+
+	_, err = f.svc.CancelService(context.Background(), 10, 7, 42, CancelServiceInput{Mode: CancelModeImmediate})
+	assertCode(t, err, apperr.CodeConflict)
+	assert.Len(t, f.queue.Tasks, 1, "a rejected duplicate must not enqueue a second termination job")
+	require.Len(t, f.crStore, 1, "the duplicate request must not be persisted")
+
+	// end_of_term is blocked too, not just a second immediate.
+	_, err = f.svc.CancelService(context.Background(), 10, 7, 42, CancelServiceInput{Mode: CancelModeEndOfTerm})
+	assertCode(t, err, apperr.CodeConflict)
+	require.Len(t, f.crStore, 1)
 }
 
 func TestCancelServiceGuards(t *testing.T) {
@@ -1173,6 +1357,121 @@ func TestCancelServiceGuards(t *testing.T) {
 	f.service = baseService(domain.ServiceActive)
 	_, err = f.svc.CancelService(context.Background(), 10, 99, 42, CancelServiceInput{Mode: CancelModeImmediate})
 	assertCode(t, err, apperr.CodeNotFound)
+}
+
+func TestAcceptCancellationRequest(t *testing.T) {
+	f := newFixture()
+	f.service = baseService(domain.ServiceActive)
+	_, err := f.svc.CancelService(context.Background(), 10, 7, 42, CancelServiceInput{Mode: CancelModeEndOfTerm})
+	require.NoError(t, err)
+	var reqID int64
+	for id := range f.crStore {
+		reqID = id
+	}
+
+	require.NoError(t, f.svc.AcceptCancellationRequest(context.Background(), 1, reqID))
+
+	assert.True(t, metaBool(f.service.PanelMeta, metaCancelAtPeriodEnd))
+	got := f.crStore[reqID]
+	assert.Equal(t, domain.CancellationAccepted, got.Status)
+	require.NotNil(t, got.DecidedAt)
+	require.NotNil(t, got.DecidedBy)
+	assert.Equal(t, int64(1), *got.DecidedBy)
+
+	// Already decided -> conflict.
+	err = f.svc.AcceptCancellationRequest(context.Background(), 1, reqID)
+	assertCode(t, err, apperr.CodeConflict)
+
+	// Unknown id -> not found.
+	err = f.svc.AcceptCancellationRequest(context.Background(), 1, -1)
+	assertCode(t, err, apperr.CodeNotFound)
+}
+
+// TestAcceptRejectCancellationRequestRejectImmediateMode: an immediate
+// request's pending row is only ever "in flight, awaiting the worker" - not
+// awaiting an admin decision - so Accept/Reject must refuse it even though
+// its status is technically pending (same status end_of_term uses).
+func TestAcceptRejectCancellationRequestRejectImmediateMode(t *testing.T) {
+	f := newFixture()
+	f.service = baseService(domain.ServiceActive)
+	_, err := f.svc.CancelService(context.Background(), 10, 7, 42, CancelServiceInput{Mode: CancelModeImmediate})
+	require.NoError(t, err)
+	var reqID int64
+	for id := range f.crStore {
+		reqID = id
+	}
+
+	err = f.svc.AcceptCancellationRequest(context.Background(), 1, reqID)
+	assertCode(t, err, apperr.CodeConflict)
+	assert.Equal(t, domain.CancellationPending, f.crStore[reqID].Status, "a refused accept must not touch the request")
+
+	err = f.svc.RejectCancellationRequest(context.Background(), 1, reqID)
+	assertCode(t, err, apperr.CodeConflict)
+	assert.Equal(t, domain.CancellationPending, f.crStore[reqID].Status)
+}
+
+func TestAcceptCancellationRequestIneligibleService(t *testing.T) {
+	f := newFixture()
+	f.service = baseService(domain.ServiceActive)
+	_, err := f.svc.CancelService(context.Background(), 10, 7, 42, CancelServiceInput{Mode: CancelModeEndOfTerm})
+	require.NoError(t, err)
+	var reqID int64
+	for id := range f.crStore {
+		reqID = id
+	}
+
+	// Service moved to terminated in the meantime (e.g. an admin terminated
+	// it directly) - accepting a now-stale request must conflict, not
+	// silently flag a dead service.
+	terminated := *f.service
+	terminated.Status = domain.ServiceTerminated
+	f.service = &terminated
+
+	err = f.svc.AcceptCancellationRequest(context.Background(), 1, reqID)
+	assertCode(t, err, apperr.CodeConflict)
+	assert.Equal(t, domain.CancellationPending, f.crStore[reqID].Status, "a conflicted accept must not mark the request decided")
+}
+
+func TestRejectCancellationRequest(t *testing.T) {
+	f := newFixture()
+	f.service = baseService(domain.ServiceActive)
+	_, err := f.svc.CancelService(context.Background(), 10, 7, 42, CancelServiceInput{Mode: CancelModeEndOfTerm})
+	require.NoError(t, err)
+	var reqID int64
+	for id := range f.crStore {
+		reqID = id
+	}
+
+	require.NoError(t, f.svc.RejectCancellationRequest(context.Background(), 1, reqID))
+
+	assert.False(t, metaBool(f.service.PanelMeta, metaCancelAtPeriodEnd), "rejecting must never touch the service")
+	got := f.crStore[reqID]
+	assert.Equal(t, domain.CancellationRejected, got.Status)
+	require.NotNil(t, got.DecidedBy)
+	assert.Equal(t, int64(1), *got.DecidedBy)
+
+	// Already decided -> conflict.
+	err = f.svc.RejectCancellationRequest(context.Background(), 1, reqID)
+	assertCode(t, err, apperr.CodeConflict)
+}
+
+func TestListCancellationRequests(t *testing.T) {
+	f := newFixture()
+	f.service = baseService(domain.ServiceActive)
+	_, err := f.svc.CancelService(context.Background(), 10, 7, 42, CancelServiceInput{Mode: CancelModeEndOfTerm})
+	require.NoError(t, err)
+
+	views, total, err := f.svc.ListCancellationRequests(context.Background(), ports.ListParams{Status: "pending"})
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), total)
+	require.Len(t, views, 1)
+	assert.Equal(t, f.service.Domain, views[0].ServiceDomain)
+	assert.Equal(t, "Test", views[0].ClientName)
+
+	views, total, err = f.svc.ListCancellationRequests(context.Background(), ports.ListParams{Status: "rejected"})
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), total)
+	assert.Empty(t, views)
 }
 
 // AutoSuspend / AutoTerminate

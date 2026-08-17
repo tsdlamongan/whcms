@@ -13,6 +13,9 @@
 //	POST   /services/:id/cancel                       {mode: immediate|end_of_term} [client]
 //	POST   /services/:id/upgrade                      {product_id, cycle, specs?} prorated [client]
 //	GET    /admin/services                                                        [perm: services]
+//	GET    /admin/services/cancellation-requests      ?status&page&per_page       [perm: services]
+//	POST   /admin/services/cancellation-requests/:id/accept                      [perm: services]
+//	POST   /admin/services/cancellation-requests/:id/reject                      [perm: services]
 //	GET    /admin/services/:id                                                    [perm: services]
 //	POST   /admin/services/:id/create                 {async?}                    [perm: services]
 //	POST   /admin/services/:id/suspend                {reason?, async?}           [perm: services]
@@ -172,6 +175,8 @@ type Deps struct {
 	Tx       ports.TxManager
 	Audit    ports.AuditLogger
 	Clock    ports.Clock
+
+	CancellationRequests ports.CancellationRequestRepo
 }
 
 // Service implements the provisioning use-cases.
@@ -677,6 +682,7 @@ func (s *Service) ProvisionTerminate(ctx context.Context, serviceID int64) error
 			return wrap(err)
 		}
 		s.d.Audit.Log(ctx, 0, "service.cancel", "service", svc.ID, nil, nil)
+		s.resolvePendingCancellation(ctx, svc.ID)
 		return nil
 	}
 	if _, err := domain.TransitionService(svc.Status, domain.ServiceTerminated); err != nil {
@@ -716,7 +722,26 @@ func (s *Service) ProvisionTerminate(ctx context.Context, serviceID int64) error
 
 	s.notifyService(ctx, svc, "service_terminated", map[string]any{"ServiceName": svc.Domain})
 	s.d.Audit.Log(ctx, 0, "service.terminate", "service", svc.ID, nil, nil)
+	s.resolvePendingCancellation(ctx, svc.ID)
 	return nil
+}
+
+// resolvePendingCancellation marks the service's pending cancellation
+// request (if any) CancellationAutoProcessed now that termination has
+// actually completed - closing the window where a client's immediate-mode
+// request stays pending (and so blocks a duplicate submission via the "one
+// pending request per service" guard in CancelService) for as long as the
+// job sits in the queue. Best-effort: a lookup/update failure here must not
+// fail the termination itself, which already succeeded.
+func (s *Service) resolvePendingCancellation(ctx context.Context, serviceID int64) {
+	cr, err := s.d.CancellationRequests.GetPendingByService(ctx, serviceID)
+	if err != nil || cr == nil {
+		return
+	}
+	now := s.d.Clock.Now().UTC()
+	cr.Status = domain.CancellationAutoProcessed
+	cr.DecidedAt = &now
+	_ = s.d.CancellationRequests.Update(ctx, cr)
 }
 
 // ProvisionChangePackage pushes the service's current product package to the
@@ -980,14 +1005,22 @@ func (s *Service) ListServices(ctx context.Context, clientID int64, p ports.List
 }
 
 // GetService returns one service with ownership enforcement (clientID 0 =
-// admin), with product/server display names attached.
+// admin), with product/server display names and its pending cancellation
+// request (if any) attached. The bulk ListServices path skips the pending-
+// cancellation lookup to avoid an extra query per row.
 func (s *Service) GetService(ctx context.Context, clientID, serviceID int64) (*ServiceView, error) {
 	svc, err := s.getOwned(ctx, clientID, serviceID)
 	if err != nil {
 		return nil, err
 	}
 	views := s.serviceViews(ctx, []domain.Service{*svc})
-	return &views[0], nil
+	view := &views[0]
+	pending, err := s.d.CancellationRequests.GetPendingByService(ctx, svc.ID)
+	if err != nil {
+		return nil, wrap(err)
+	}
+	view.PendingCancellation = pending
+	return view, nil
 }
 
 // serviceViews attaches product/server display names to service rows.
@@ -1124,10 +1157,20 @@ func (s *Service) SSO(ctx context.Context, actorUserID, clientID, serviceID int6
 	return url, nil
 }
 
-// CancelService handles a client cancellation request. immediate: enqueue
-// termination and cancel open (unpaid/overdue) renewal invoices of the
-// service; end_of_term: flag cancel_at_period_end in panel_meta (honoured by
-// AutoTerminate and renewal invoice generation).
+// CancelService handles a client cancellation request. immediate: cancel open
+// (unpaid/overdue) renewal invoices and enqueue termination right away - no
+// admin approval gate - but the request still starts CancellationPending
+// (resolved to CancellationAutoProcessed by ProvisionTerminate once the
+// worker actually completes it), NOT auto_processed at submission time: the
+// termination is asynchronous, so marking it done immediately would let the
+// "one pending request per service" guard below miss a second immediate
+// submission for as long as the job sits in the queue (the service's own
+// status stays active/suspended the whole time too - only ProvisionTerminate
+// flips it). end_of_term: create a CancellationPending request and stop
+// there - panel_meta.cancel_at_period_end (honoured by AutoTerminate and
+// renewal invoice generation) is only set once an admin accepts it via
+// AcceptCancellationRequest. A service may have at most one pending request
+// at a time.
 func (s *Service) CancelService(ctx context.Context, actorUserID, clientID, serviceID int64, in CancelServiceInput) (*domain.Service, error) {
 	if err := s.val.Struct(in); err != nil {
 		return nil, err
@@ -1140,6 +1183,15 @@ func (s *Service) CancelService(ctx context.Context, actorUserID, clientID, serv
 		!(svc.Status == domain.ServicePending && in.Mode == CancelModeImmediate) {
 		return nil, apperr.Conflict("service cannot be cancelled in its current status")
 	}
+	pending, err := s.d.CancellationRequests.GetPendingByService(ctx, svc.ID)
+	if err != nil {
+		return nil, wrap(err)
+	}
+	if pending != nil {
+		return nil, apperr.Conflict("a cancellation request is already pending for this service")
+	}
+
+	cr := &domain.CancellationRequest{ServiceID: svc.ID, ClientID: svc.ClientID, Mode: in.Mode, Reason: in.Reason}
 
 	switch in.Mode {
 	case CancelModeImmediate:
@@ -1151,21 +1203,138 @@ func (s *Service) CancelService(ctx context.Context, actorUserID, clientID, serv
 			ports.WithQueue("critical")); err != nil {
 			return nil, wrap(err)
 		}
+		cr.Status = domain.CancellationPending
 	case CancelModeEndOfTerm:
-		meta := metaMap(svc.PanelMeta)
-		meta[metaCancelAtPeriodEnd] = true
-		svc.PanelMeta = marshalMeta(meta)
-		if err := s.d.Services.Update(ctx, svc); err != nil {
-			return nil, wrap(err)
-		}
+		cr.Status = domain.CancellationPending
 	default:
 		return nil, apperr.Validation("invalid cancellation mode",
 			apperr.FieldError{Field: "mode", Message: "must be immediate or end_of_term"})
 	}
 
+	if err := s.d.CancellationRequests.Create(ctx, cr); err != nil {
+		return nil, wrap(err)
+	}
+
 	s.d.Audit.Log(ctx, actorUserID, "service.cancel_request", "service", svc.ID, nil,
-		map[string]any{"mode": in.Mode, "reason": in.Reason})
+		map[string]any{"mode": in.Mode, "reason": in.Reason, "request_id": cr.ID})
 	return svc, nil
+}
+
+// ListCancellationRequests returns cancellation requests (optionally filtered
+// by p.Status/ServiceID) with service/client display names attached, for the
+// admin cancellation-requests list.
+func (s *Service) ListCancellationRequests(ctx context.Context, p ports.ListParams) ([]CancellationRequestView, int64, error) {
+	rows, total, err := s.d.CancellationRequests.List(ctx, p)
+	if err != nil {
+		return nil, 0, wrap(err)
+	}
+	if len(rows) == 0 {
+		return nil, total, nil
+	}
+
+	serviceIDs := make([]int64, 0, len(rows))
+	seen := map[int64]bool{}
+	for _, r := range rows {
+		if !seen[r.ServiceID] {
+			seen[r.ServiceID] = true
+			serviceIDs = append(serviceIDs, r.ServiceID)
+		}
+	}
+	services, err := s.d.Services.GetByIDs(ctx, serviceIDs)
+	if err != nil {
+		return nil, 0, wrap(err)
+	}
+	serviceDomains := make(map[int64]string, len(services))
+	for _, sv := range services {
+		serviceDomains[sv.ID] = sv.Domain
+	}
+
+	clientNames := map[int64]string{}
+	views := make([]CancellationRequestView, 0, len(rows))
+	for _, r := range rows {
+		if _, ok := clientNames[r.ClientID]; !ok {
+			name := ""
+			if c, err := s.d.Clients.GetByID(ctx, r.ClientID); err == nil && c != nil {
+				name = c.FullName()
+			}
+			clientNames[r.ClientID] = name
+		}
+		views = append(views, CancellationRequestView{
+			CancellationRequest: r,
+			ServiceDomain:       serviceDomains[r.ServiceID],
+			ClientName:          clientNames[r.ClientID],
+		})
+	}
+	return views, total, nil
+}
+
+// AcceptCancellationRequest approves a pending end_of_term request: flags
+// panel_meta.cancel_at_period_end on the service (honoured by AutoTerminate)
+// and marks the request accepted.
+func (s *Service) AcceptCancellationRequest(ctx context.Context, actorUserID, requestID int64) error {
+	cr, err := s.d.CancellationRequests.GetByID(ctx, requestID)
+	if err != nil {
+		return wrap(err)
+	}
+	if cr.Mode != CancelModeEndOfTerm {
+		return apperr.Conflict("only end_of_term requests can be accepted/rejected - immediate requests process automatically")
+	}
+	if _, err := domain.TransitionCancellationRequest(cr.Status, domain.CancellationAccepted); err != nil {
+		return err
+	}
+	svc, err := s.d.Services.GetByID(ctx, cr.ServiceID)
+	if err != nil {
+		return wrap(err)
+	}
+	if svc.Status != domain.ServiceActive && svc.Status != domain.ServiceSuspended {
+		return apperr.Conflict("service is no longer eligible for cancellation")
+	}
+
+	meta := metaMap(svc.PanelMeta)
+	meta[metaCancelAtPeriodEnd] = true
+	svc.PanelMeta = marshalMeta(meta)
+	if err := s.d.Services.Update(ctx, svc); err != nil {
+		return wrap(err)
+	}
+
+	now := s.d.Clock.Now().UTC()
+	cr.Status = domain.CancellationAccepted
+	cr.DecidedAt = &now
+	cr.DecidedBy = &actorUserID
+	if err := s.d.CancellationRequests.Update(ctx, cr); err != nil {
+		return wrap(err)
+	}
+
+	s.d.Audit.Log(ctx, actorUserID, "service.cancel_request_accept", "service", svc.ID, nil,
+		map[string]any{"request_id": cr.ID, "mode": cr.Mode})
+	return nil
+}
+
+// RejectCancellationRequest denies a pending request; the service is left
+// completely untouched.
+func (s *Service) RejectCancellationRequest(ctx context.Context, actorUserID, requestID int64) error {
+	cr, err := s.d.CancellationRequests.GetByID(ctx, requestID)
+	if err != nil {
+		return wrap(err)
+	}
+	if cr.Mode != CancelModeEndOfTerm {
+		return apperr.Conflict("only end_of_term requests can be accepted/rejected - immediate requests process automatically")
+	}
+	if _, err := domain.TransitionCancellationRequest(cr.Status, domain.CancellationRejected); err != nil {
+		return err
+	}
+
+	now := s.d.Clock.Now().UTC()
+	cr.Status = domain.CancellationRejected
+	cr.DecidedAt = &now
+	cr.DecidedBy = &actorUserID
+	if err := s.d.CancellationRequests.Update(ctx, cr); err != nil {
+		return wrap(err)
+	}
+
+	s.d.Audit.Log(ctx, actorUserID, "service.cancel_request_reject", "service", cr.ServiceID, nil,
+		map[string]any{"request_id": cr.ID, "mode": cr.Mode})
+	return nil
 }
 
 // cancelOpenRenewalInvoices cancels unpaid/overdue invoices that contain a

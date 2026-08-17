@@ -417,10 +417,21 @@ func TestCancelServiceInvoiceErrors(t *testing.T) {
 	_, err = f.svc.CancelService(context.Background(), 10, 7, 42, CancelServiceInput{Mode: CancelModeImmediate})
 	assertCode(t, err, apperr.CodeInternal)
 
-	// end_of_term update failure.
+	// GetPendingByService failure.
 	f = newFixture()
 	f.service = baseService(domain.ServiceActive)
-	f.store.UpdateFn = func(context.Context, *domain.Service) error { return errors.New("db down") }
+	f.cancellations.GetPendingByServiceFn = func(context.Context, int64) (*domain.CancellationRequest, error) {
+		return nil, errors.New("db down")
+	}
+	_, err = f.svc.CancelService(context.Background(), 10, 7, 42, CancelServiceInput{Mode: CancelModeEndOfTerm})
+	assertCode(t, err, apperr.CodeInternal)
+
+	// Cancellation request create failure (end_of_term).
+	f = newFixture()
+	f.service = baseService(domain.ServiceActive)
+	f.cancellations.CreateFn = func(context.Context, *domain.CancellationRequest) error {
+		return errors.New("db down")
+	}
 	_, err = f.svc.CancelService(context.Background(), 10, 7, 42, CancelServiceInput{Mode: CancelModeEndOfTerm})
 	assertCode(t, err, apperr.CodeInternal)
 }

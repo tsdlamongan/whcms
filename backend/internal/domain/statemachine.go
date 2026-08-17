@@ -8,6 +8,7 @@ import "github.com/tsdlamongan/whcms/backend/pkg/apperr"
 //	order:   pending->active|fraud|cancelled
 //	service: pending->active|cancelled; active->suspended|terminated; suspended->active|terminated
 //	domain:  pending->active|cancelled; active->expired; pending_transfer->active|cancelled; expired->active(renew)
+//	cancellation_request: pending->accepted|rejected|auto_processed
 
 var invoiceTransitions = map[InvoiceStatus][]InvoiceStatus{
 	InvoiceDraft:   {InvoiceUnpaid},
@@ -31,6 +32,16 @@ var domainTransitions = map[DomainStatus][]DomainStatus{
 	DomainActive:          {DomainExpired},
 	DomainPendingTransfer: {DomainActive, DomainCancelled},
 	DomainExpired:         {DomainActive}, // renew
+}
+
+// cancellationRequestTransitions: accepted/rejected/auto_processed are
+// terminal (no outgoing entries, same idiom as this table's other terminal
+// states). pending->auto_processed is the system (not admin) resolving an
+// immediate-mode request once ProvisionTerminate actually completes -
+// immediate requests start pending too (not auto_processed at submission
+// time) so the "one pending request per service" guard also covers them.
+var cancellationRequestTransitions = map[CancellationRequestStatus][]CancellationRequestStatus{
+	CancellationPending: {CancellationAccepted, CancellationRejected, CancellationAutoProcessed},
 }
 
 func canTransition[S comparable](table map[S][]S, from, to S) bool {
@@ -60,6 +71,12 @@ func ServiceCanTransition(from, to ServiceStatus) bool {
 // DomainCanTransition reports whether a domain may move from -> to.
 func DomainCanTransition(from, to DomainStatus) bool {
 	return canTransition(domainTransitions, from, to)
+}
+
+// CancellationRequestCanTransition reports whether a cancellation request may
+// move from -> to.
+func CancellationRequestCanTransition(from, to CancellationRequestStatus) bool {
+	return canTransition(cancellationRequestTransitions, from, to)
 }
 
 // Typed transition funcs: validate the move and return the new status, or a
@@ -93,6 +110,15 @@ func TransitionService(from, to ServiceStatus) (ServiceStatus, error) {
 func TransitionDomain(from, to DomainStatus) (DomainStatus, error) {
 	if !DomainCanTransition(from, to) {
 		return from, apperr.Newf(apperr.CodeConflict, "domain cannot transition from %s to %s", from, to)
+	}
+	return to, nil
+}
+
+// TransitionCancellationRequest validates and applies a cancellation request
+// status transition.
+func TransitionCancellationRequest(from, to CancellationRequestStatus) (CancellationRequestStatus, error) {
+	if !CancellationRequestCanTransition(from, to) {
+		return from, apperr.Newf(apperr.CodeConflict, "cancellation request cannot transition from %s to %s", from, to)
 	}
 	return to, nil
 }

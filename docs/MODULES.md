@@ -208,9 +208,22 @@ charge = target_price * (days_left/period)… use domain.Prorate helper; diff>0 
 immediately (chosen_specs rewritten in the same tx) + AddCredit(excess). ProvisionChangePackage: flat products
 push product.package_name; configurable products rebuild the dynamic package from panel_meta.chosen_specs
 (EnsurePackage, same as ProvisionCreate), update panel_meta package_name/limits, and delete the old dynamic
-package once no sibling service on the server references it (CountByServerAndPackage, same rule as terminate). Client cancel: immediate → enqueue terminate +
-cancel open renewal invoices; end_of_term → flag (services.notes/cancel_at_period_end bool in panel_meta JSON) —
-honored by AutoTerminate/renewal generation. AutoSuspend: active services whose renewal invoice overdue past
+package once no sibling service on the server references it (CountByServerAndPackage, same rule as terminate). Client cancel creates a service_cancellation_requests
+row (a first-class, admin-reviewable entity, not just a panel_meta flag): immediate → enqueue terminate + cancel
+open renewal invoices right away (no approval gate), but the request itself starts pending too, NOT
+auto_processed at submission time - ProvisionTerminate calls resolvePendingCancellation once it actually
+completes, flipping the request to auto_processed only then. This matters because termination is asynchronous
+(the worker processes the queued job) while the service's own status stays active/suspended the whole time -
+marking the request "done" at submission would let the "one pending request per service" guard miss a second
+immediate submission for as long as the job sits unprocessed, enqueuing a duplicate termination job each time
+(fixed 2026-08-18, found by manual testing with no worker running). end_of_term → create a pending request only
+- panel_meta.cancel_at_period_end (honored by AutoTerminate/renewal generation) is set only once an admin
+accepts it via AcceptCancellationRequest/RejectCancellationRequest, which both reject (CONFLICT) a request whose
+mode isn't end_of_term - an immediate request's pending row is system-resolved, never an admin decision (admin:
+GET/POST .../cancellation-requests, hp-admin page `/admin/services/cancellation-requests` + a pending-request
+banner on the service detail page, mode-aware text/no Accept-Reject buttons for a pending immediate row). A
+service may have at most one pending request at a time regardless of mode (GetPendingByService guard + a
+partial unique index backstop); rejecting leaves the service untouched. AutoSuspend: active services whose renewal invoice overdue past
 automation.suspend_after_days → enqueue suspend (reason "Overdue on payment"). AutoTerminate: suspended >
 terminate_after_days (or cancel_at_period_end past due) → enqueue terminate. ChangePassword (client+admin):
 strong-validate, adapter call sync, re-encrypt store. SSO: adapter SSOURL sync. Client endpoints per CONTRACTS §9.

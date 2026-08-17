@@ -781,6 +781,50 @@ func (m *MockServiceRepo) CountByServer(ctx context.Context, serverID int64) (in
 	return 0, nil
 }
 
+// MockCancellationRequestRepo mocks ports.CancellationRequestRepo.
+type MockCancellationRequestRepo struct {
+	CreateFn              func(ctx context.Context, r *domain.CancellationRequest) error
+	GetByIDFn             func(ctx context.Context, id int64) (*domain.CancellationRequest, error)
+	GetPendingByServiceFn func(ctx context.Context, serviceID int64) (*domain.CancellationRequest, error)
+	UpdateFn              func(ctx context.Context, r *domain.CancellationRequest) error
+	ListFn                func(ctx context.Context, p ports.ListParams) ([]domain.CancellationRequest, int64, error)
+}
+
+func (m *MockCancellationRequestRepo) Create(ctx context.Context, r *domain.CancellationRequest) error {
+	if m.CreateFn != nil {
+		return m.CreateFn(ctx, r)
+	}
+	return nil
+}
+
+func (m *MockCancellationRequestRepo) GetByID(ctx context.Context, id int64) (*domain.CancellationRequest, error) {
+	if m.GetByIDFn != nil {
+		return m.GetByIDFn(ctx, id)
+	}
+	return nil, nil
+}
+
+func (m *MockCancellationRequestRepo) GetPendingByService(ctx context.Context, serviceID int64) (*domain.CancellationRequest, error) {
+	if m.GetPendingByServiceFn != nil {
+		return m.GetPendingByServiceFn(ctx, serviceID)
+	}
+	return nil, nil
+}
+
+func (m *MockCancellationRequestRepo) Update(ctx context.Context, r *domain.CancellationRequest) error {
+	if m.UpdateFn != nil {
+		return m.UpdateFn(ctx, r)
+	}
+	return nil
+}
+
+func (m *MockCancellationRequestRepo) List(ctx context.Context, p ports.ListParams) ([]domain.CancellationRequest, int64, error) {
+	if m.ListFn != nil {
+		return m.ListFn(ctx, p)
+	}
+	return nil, 0, nil
+}
+
 // MockServerRepo mocks ports.ServerRepo.
 type MockServerRepo struct {
 	CreateFn       func(ctx context.Context, s *domain.Server) error

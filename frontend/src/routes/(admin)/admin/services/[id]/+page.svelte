@@ -11,6 +11,11 @@
 
 	const service = $derived(data.service);
 
+	const CANCELLATION_MODE_LABEL: Record<string, string> = {
+		immediate: 'immediate',
+		end_of_term: 'end-of-term'
+	};
+
 	// Confirm-only dialogs.
 	let provisionOpen = $state(false);
 	let unsuspendOpen = $state(false);
@@ -167,6 +172,23 @@
 		<a
 			href={`/admin/invoices/${service.pending_upgrade.invoice_id}`}
 			style="font-weight:600;text-decoration:underline;margin-left:4px">View Invoice</a
+		>
+	</div>
+{/if}
+
+{#if service.pending_cancellation}
+	<div class="hp-alert-yellow" data-testid="service-pending-cancellation-banner">
+		<i class="fas fa-info-circle" style="margin-right:8px"></i>
+		{#if service.pending_cancellation.mode === 'immediate'}
+			The client's immediate cancellation is being processed - no action needed, it will complete
+			automatically once the worker picks it up.
+		{:else}
+			A client cancellation request ({CANCELLATION_MODE_LABEL[service.pending_cancellation.mode] ??
+				service.pending_cancellation.mode}) is pending review.
+		{/if}
+		<a
+			href="/admin/services/cancellation-requests"
+			style="font-weight:600;text-decoration:underline;margin-left:4px">Review Requests</a
 		>
 	</div>
 {/if}

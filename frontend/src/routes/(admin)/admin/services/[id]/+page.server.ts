@@ -10,6 +10,14 @@ interface ServiceUpgrade {
 	invoice_id: number;
 }
 
+/** The service's pending cancellation request, if any (domain.CancellationRequest). */
+interface PendingCancellation {
+	id: number;
+	mode: string;
+	reason: string;
+	requested_at: string;
+}
+
 /** Admin service detail - domain.Service JSON tags (+ optional joined display fields). */
 interface AdminService {
 	id: number;
@@ -28,6 +36,7 @@ interface AdminService {
 	terminated_at: string | null;
 	suspend_reason: string;
 	pending_upgrade: ServiceUpgrade | null;
+	pending_cancellation: PendingCancellation | null;
 	notes: string;
 	created_at: string;
 	updated_at: string;
