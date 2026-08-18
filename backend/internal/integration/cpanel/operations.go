@@ -200,6 +200,35 @@ func (c *Client) DeletePackage(ctx context.Context, s ports.ServerConfig, name s
 	return err
 }
 
+// PackageInUse reports whether any account on the server still uses the named
+// package, via listaccts with a package search (searchtype=package, exact-name
+// regex). Read-only, idempotent GET, retried on transport failures. It is the
+// panel-side guard before DeletePackage: an account created outside this app
+// (or tracked under another servers row) does not appear in the DB-side
+// sibling count, but does appear here.
+func (c *Client) PackageInUse(ctx context.Context, s ports.ServerConfig, name string) (bool, error) {
+	if name == "" {
+		return false, apperr.Validation("invalid cpanel parameters",
+			apperr.FieldError{Field: "name", Message: "is required"})
+	}
+	params := url.Values{}
+	params.Set("searchtype", "package")
+	// listaccts' search is a regex; anchor and quote so e.g. "starter" never
+	// matches an account on "starter_plus".
+	params.Set("search", "^"+regexp.QuoteMeta(name)+"$")
+	resp, err := c.get(ctx, s, "listaccts", params, getRetries)
+	if err != nil {
+		return false, err
+	}
+	var data struct {
+		Acct []map[string]any `json:"acct"`
+	}
+	if err := json.Unmarshal(resp.Data, &data); err != nil {
+		return false, apperr.External(providerName, errors.New("whm listaccts: malformed response"))
+	}
+	return len(data.Acct) > 0, nil
+}
+
 // packageParams builds the addpkg/editpkg form values from a PackageSpec,
 // mapping each canonical knob to its WHM parameter via domain.PanelParam.
 func packageParams(spec ports.PackageSpec) url.Values {

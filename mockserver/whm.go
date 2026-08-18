@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"html"
 	"net/http"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -146,7 +147,7 @@ func (s *Server) handleWHM(w http.ResponseWriter, r *http.Request) {
 	case "accountsummary":
 		s.whmAccountSummary(w, param)
 	case "listaccts":
-		s.whmListAccts(w)
+		s.whmListAccts(w, param)
 	case "create_user_session":
 		s.whmCreateUserSession(w, param)
 	default:
@@ -394,7 +395,21 @@ func (s *Server) whmAccountSummary(w http.ResponseWriter, param func(...string) 
 	})
 }
 
-func (s *Server) whmListAccts(w http.ResponseWriter) {
+// whmListAccts lists accounts, honoring real listaccts' search filter:
+// `search` is a regex matched against the field selected by `searchtype`
+// (package -> plan, domain -> domain, anything else -> username). The
+// package variant is what the backend's PackageInUse guard calls before
+// deleting a dynamic package.
+func (s *Server) whmListAccts(w http.ResponseWriter, param func(...string) string) {
+	searchType := param("searchtype")
+	var re *regexp.Regexp
+	if search := param("search"); search != "" {
+		var err error
+		if re, err = regexp.Compile(search); err != nil {
+			writeWHM(w, http.StatusOK, "listaccts", 0, "invalid search regex: "+search, nil)
+			return
+		}
+	}
 	s.mu.Lock()
 	usernames := make([]string, 0, len(s.whmAccounts))
 	for u := range s.whmAccounts {
@@ -403,7 +418,20 @@ func (s *Server) whmListAccts(w http.ResponseWriter) {
 	sort.Strings(usernames)
 	accts := make([]map[string]any, 0, len(usernames))
 	for _, u := range usernames {
-		accts = append(accts, whmAcctJSON(s.whmAccounts[u]))
+		a := s.whmAccounts[u]
+		if re != nil {
+			hay := a.Username
+			switch searchType {
+			case "package":
+				hay = a.Plan
+			case "domain":
+				hay = a.Domain
+			}
+			if !re.MatchString(hay) {
+				continue
+			}
+		}
+		accts = append(accts, whmAcctJSON(a))
 	}
 	s.mu.Unlock()
 	writeWHM(w, http.StatusOK, "listaccts", 1, "OK", map[string]any{"acct": accts})

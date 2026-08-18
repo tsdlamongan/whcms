@@ -315,6 +315,136 @@ func TestProvisionTerminate_KeepsSharedPackageWhenSiblingStillUsesIt(t *testing.
 	assert.Equal(t, int64(42), countedExclude)
 }
 
+// TestProvisionTerminate_SkipsDeleteWhenPanelStillUsesPackage: the DB-side
+// sibling count can't see accounts created outside this app - the panel-side
+// PackageInUse check must veto the delete, alert the operator, and still let
+// the termination itself complete.
+func TestProvisionTerminate_SkipsDeleteWhenPanelStillUsesPackage(t *testing.T) {
+	f := newFixture()
+	svc := baseService(domain.ServiceActive)
+	svc.PanelMeta = json.RawMessage(`{"package_name":"whcms_spec_abc123"}`)
+	f.service = svc
+	f.withProduct(configurableProduct())
+	f.withServer(cpanelServer())
+
+	f.cpanel.TerminateFn = func(context.Context, ports.ServerConfig, string) error { return nil }
+	var checked string
+	f.cpanel.PackageInUseFn = func(_ context.Context, _ ports.ServerConfig, name string) (bool, error) {
+		checked = name
+		return true, nil // an out-of-band panel account still uses it
+	}
+	f.cpanel.DeletePackageFn = func(context.Context, ports.ServerConfig, string) error {
+		t.Fatal("DeletePackage must not run while the panel reports the package in use")
+		return nil
+	}
+	var alerts []string
+	f.notify.AlertAdminFn = func(_ context.Context, subject, _ string) error {
+		alerts = append(alerts, subject)
+		return nil
+	}
+
+	require.NoError(t, f.svc.ProvisionTerminate(context.Background(), 42))
+	assert.Equal(t, domain.ServiceTerminated, f.service.Status)
+	assert.Equal(t, "whcms_spec_abc123", checked)
+	require.Len(t, alerts, 1)
+	assert.Contains(t, alerts[0], "Package cleanup needs attention")
+}
+
+// TestProvisionTerminate_DeleteFailureStillTerminates: package cleanup is
+// best-effort and runs AFTER the terminated status is persisted - a killpkg
+// failure must alert the operator, never fail (and so retry) the job.
+func TestProvisionTerminate_DeleteFailureStillTerminates(t *testing.T) {
+	f := newFixture()
+	svc := baseService(domain.ServiceActive)
+	svc.PanelMeta = json.RawMessage(`{"package_name":"whcms_spec_abc123"}`)
+	f.service = svc
+	f.withProduct(configurableProduct())
+	f.withServer(cpanelServer())
+
+	f.cpanel.TerminateFn = func(context.Context, ports.ServerConfig, string) error { return nil }
+	f.cpanel.DeletePackageFn = func(context.Context, ports.ServerConfig, string) error {
+		return apperr.New(apperr.CodeExternal, "killpkg failed")
+	}
+	var alerts []string
+	f.notify.AlertAdminFn = func(_ context.Context, subject, _ string) error {
+		alerts = append(alerts, subject)
+		return nil
+	}
+
+	require.NoError(t, f.svc.ProvisionTerminate(context.Background(), 42))
+	assert.Equal(t, domain.ServiceTerminated, f.service.Status)
+	require.Len(t, alerts, 1)
+	assert.Contains(t, alerts[0], "whcms_spec_abc123")
+}
+
+// TestProvisionTerminate_PackageInUseErrorFailsSafe: when the panel-side
+// check itself errors, the package must be LEFT IN PLACE (fail safe - a
+// stranded package is recoverable, deleting an in-use one is not) and the
+// operator alerted, while the termination still completes.
+func TestProvisionTerminate_PackageInUseErrorFailsSafe(t *testing.T) {
+	f := newFixture()
+	svc := baseService(domain.ServiceActive)
+	svc.PanelMeta = json.RawMessage(`{"package_name":"whcms_spec_abc123"}`)
+	f.service = svc
+	f.withProduct(configurableProduct())
+	f.withServer(cpanelServer())
+
+	f.cpanel.TerminateFn = func(context.Context, ports.ServerConfig, string) error { return nil }
+	f.cpanel.PackageInUseFn = func(context.Context, ports.ServerConfig, string) (bool, error) {
+		return false, apperr.New(apperr.CodeExternal, "listaccts failed")
+	}
+	f.cpanel.DeletePackageFn = func(context.Context, ports.ServerConfig, string) error {
+		t.Fatal("DeletePackage must not run when the in-use check errored")
+		return nil
+	}
+	alerted := false
+	f.notify.AlertAdminFn = func(context.Context, string, string) error { alerted = true; return nil }
+
+	require.NoError(t, f.svc.ProvisionTerminate(context.Background(), 42))
+	assert.Equal(t, domain.ServiceTerminated, f.service.Status)
+	assert.True(t, alerted)
+}
+
+// TestProvisionTerminate_DirectAdminDeletesPackage drives the same
+// terminate-with-dynamic-package flow through the DirectAdmin module wiring
+// (the provisioning-service tests otherwise only exercise the cpanel mock).
+func TestProvisionTerminate_DirectAdminDeletesPackage(t *testing.T) {
+	f := newFixture()
+	f.svc.d.Modules["directadmin"] = f.da // wired per-test: other tests rely on DA being absent
+	svc := baseService(domain.ServiceActive)
+	svc.PanelMeta = json.RawMessage(`{"package_name":"whcms_spec_da1"}`)
+	f.service = svc
+	product := configurableProduct()
+	product.Module = domain.ModuleDirectAdmin
+	f.withProduct(product)
+	server := cpanelServer()
+	server.Module = domain.ModuleDirectAdmin
+	f.withServer(server)
+
+	terminated := false
+	f.da.TerminateFn = func(context.Context, ports.ServerConfig, string) error { terminated = true; return nil }
+	var checked string
+	f.da.PackageInUseFn = func(_ context.Context, _ ports.ServerConfig, name string) (bool, error) {
+		checked = name
+		return false, nil
+	}
+	var deleted string
+	f.da.DeletePackageFn = func(_ context.Context, _ ports.ServerConfig, name string) error {
+		deleted = name
+		return nil
+	}
+	f.cpanel.TerminateFn = func(context.Context, ports.ServerConfig, string) error {
+		t.Fatal("the cpanel module must not be called for a directadmin product")
+		return nil
+	}
+
+	require.NoError(t, f.svc.ProvisionTerminate(context.Background(), 42))
+	assert.True(t, terminated)
+	assert.Equal(t, "whcms_spec_da1", checked)
+	assert.Equal(t, "whcms_spec_da1", deleted)
+	assert.Equal(t, domain.ServiceTerminated, f.service.Status)
+}
+
 func TestProvisionTerminate_NoPackageNoDelete(t *testing.T) {
 	f := newFixture()
 	f.service = baseService(domain.ServiceActive) // panel_meta = {}

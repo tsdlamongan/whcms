@@ -271,6 +271,50 @@ func TestWHMListAccts(t *testing.T) {
 	wantField(t, first, "user", "alpha")
 }
 
+// TestWHMListAcctsPackageSearch covers the search filter the backend's
+// package-in-use guard relies on: searchtype=package with an anchored regex
+// must return only the accounts on that exact plan.
+func TestWHMListAcctsPackageSearch(t *testing.T) {
+	_, ts := newTestServer(t)
+	whmCreate(t, ts, "alpha", "alpha.com") // plan "starter"
+	whmCreate(t, ts, "zeta", "zeta.com")   // plan "starter"
+	// One account on a different plan, moved via changepackage.
+	whmCreate(t, ts, "beta", "beta.com")
+	if _, m := whmCall(t, ts, http.MethodPost, "changepackage",
+		url.Values{"user": {"beta"}, "pkg": {"starter_plus"}}, whmGoodAuth); m != nil {
+		if result, _ := whmMeta(t, m); result != 1 {
+			t.Fatal("changepackage failed")
+		}
+	}
+
+	list := func(search string) []any {
+		_, m := whmCall(t, ts, http.MethodGet, "listaccts",
+			url.Values{"searchtype": {"package"}, "search": {search}}, whmGoodAuth)
+		if result, _ := whmMeta(t, m); result != 1 {
+			t.Fatalf("listaccts %q failed", search)
+		}
+		return m["data"].(map[string]any)["acct"].([]any)
+	}
+
+	// The anchored exact-name regex must NOT match the "starter_plus" account.
+	if accts := list("^starter$"); len(accts) != 2 {
+		t.Fatalf("anchored search matched %d accounts, want 2", len(accts))
+	}
+	if accts := list("^starter_plus$"); len(accts) != 1 {
+		t.Fatalf("starter_plus search matched %d accounts, want 1", len(accts))
+	}
+	if accts := list("^nosuchpkg$"); len(accts) != 0 {
+		t.Fatalf("nosuchpkg search matched %d accounts, want 0", len(accts))
+	}
+
+	// An invalid regex is an API-level error (result 0), not a crash.
+	_, m := whmCall(t, ts, http.MethodGet, "listaccts",
+		url.Values{"searchtype": {"package"}, "search": {"("}}, whmGoodAuth)
+	if result, _ := whmMeta(t, m); result != 0 {
+		t.Fatal("invalid regex should have result 0")
+	}
+}
+
 func TestWHMTestConnectionProbes(t *testing.T) {
 	_, ts := newTestServer(t)
 

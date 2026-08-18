@@ -14,6 +14,7 @@
 //	ChangePassword  POST /json-api/passwd               (user, password)
 //	EnsurePackage   POST /json-api/addpkg -> editpkg     (name, featurelist, quota, bwlimit, maxaddon, maxsub, maxpark, maxpop, maxsql, maxftp)
 //	DeletePackage   POST /json-api/killpkg              (pkg)
+//	PackageInUse    GET  /json-api/listaccts            (searchtype=package, search=^<pkg>$) - read-only, retried 2x
 //	ListPackages    GET  /json-api/listpkgs             () - read-only, no account required
 //	AccountInfo     GET  /json-api/accountsummary       (user) - retried 2x on network/5xx
 //	TestConnection  GET  /json-api/version              (+ best-effort gethostname, get_nameserver_config, nvget key=nameserver[2-4]) - no account required

@@ -10,6 +10,7 @@
 //	ChangePackage  POST /CMD_API_MODIFY_USER       action=package, user, package
 //	EnsurePackage  POST /CMD_API_MANAGE_USER_PACKAGES action=create->modify, packagename, cgi, ssh, bandwidth, quota, vdomains, nsubdomains, domainptr, nemails, mysql, ftp (+u<field>=ON); when TemplatePackage is set, first GETs CMD_API_PACKAGES_USER?package=<name> and merges its raw fields as the base
 //	DeletePackage  POST /CMD_API_MANAGE_USER_PACKAGES action=delete, delete=Submit, select0=<name>
+//	PackageInUse   GET  /CMD_API_SHOW_USERS then CMD_API_SHOW_USER_CONFIG per user until a package match - read-only
 //	ListPackages   GET  /CMD_API_PACKAGES_USER        () - read-only, repeated list[]=<name> values; package=<name> instead returns that one package's full raw field set
 //	ChangePassword POST /CMD_API_USER_PASSWD       username, passwd, passwd2
 //	AccountInfo    GET  /CMD_API_SHOW_USER_CONFIG  user=<user> (raw url-encoded config dump)
@@ -390,6 +391,37 @@ func (c *Client) DeletePackage(ctx context.Context, s ports.ServerConfig, name s
 		return nil
 	}
 	return err
+}
+
+// PackageInUse reports whether any account on the server still uses the named
+// package. DirectAdmin's legacy API has no filter-by-package user listing, so
+// this lists the login's users (CMD_API_SHOW_USERS) and reads each user's
+// config (CMD_API_SHOW_USER_CONFIG) until one reports the package - O(users)
+// read-only GETs, acceptable for the rare terminate/resize cleanup path it
+// guards. A user deleted mid-scan (NotFound) is skipped, any other read
+// failure surfaces so the caller can fail safe (keep the package).
+func (c *Client) PackageInUse(ctx context.Context, s ports.ServerConfig, name string) (bool, error) {
+	if name == "" {
+		return false, apperr.Validation("invalid directadmin parameters",
+			apperr.FieldError{Field: "name", Message: "is required"})
+	}
+	users, err := c.call(ctx, s, http.MethodGet, "CMD_API_SHOW_USERS", url.Values{}, true)
+	if err != nil {
+		return false, err
+	}
+	for _, u := range users["list[]"] {
+		cfg, err := c.call(ctx, s, http.MethodGet, "CMD_API_SHOW_USER_CONFIG", url.Values{"user": {u}}, true)
+		if err != nil {
+			if apperr.From(err).Code == apperr.CodeNotFound {
+				continue
+			}
+			return false, err
+		}
+		if cfg.Get("package") == name {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // daPackageParams builds CMD_API_MANAGE_USER_PACKAGES form values from a

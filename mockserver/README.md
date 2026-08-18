@@ -105,7 +105,7 @@ Response envelope: `{"metadata":{"version":1,"reason":"OK","result":1,"command":
 | `changepackage` | `user, pkg` | |
 | `passwd` | `user, password` | |
 | `accountsummary` | `user` | `data.acct[0]` has `user, domain, plan, email, suspended (0/1), suspendreason` |
-| `listaccts` | — | all accounts, sorted by username |
+| `listaccts` | `searchtype?, search?` | all accounts, sorted by username; `search` is a regex filtered against the field `searchtype` selects (`package` → plan, `domain` → domain, else username) — the package variant backs the backend's PackageInUse guard; an invalid regex → `result:0` |
 | `create_user_session` | `user` | `data.url = http://localhost:9090/cpanel-sso/<user>` (that URL serves a stub page) |
 
 Unknown account → `result:0 "account does not exist"`. `user`/`username`

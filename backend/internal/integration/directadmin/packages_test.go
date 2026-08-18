@@ -292,6 +292,84 @@ func TestDeletePackageMissingName(t *testing.T) {
 	requireAppErr(t, err, apperr.CodeValidation)
 }
 
+// daUsersHandler answers CMD_API_SHOW_USERS with the given user list and
+// CMD_API_SHOW_USER_CONFIG with each user's raw config body.
+func daUsersHandler(users []string, configs map[string]string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		switch r.URL.Path {
+		case "/CMD_API_SHOW_USERS":
+			vals := url.Values{}
+			for _, u := range users {
+				vals.Add("list[]", u)
+			}
+			_, _ = w.Write([]byte(vals.Encode()))
+		case "/CMD_API_SHOW_USER_CONFIG":
+			body, ok := configs[r.Form.Get("user")]
+			if !ok {
+				body = "error=1&text=Error&details=User+" + r.Form.Get("user") + "+does+not+exist"
+			}
+			_, _ = w.Write([]byte(body))
+		default:
+			_, _ = w.Write([]byte("error=1&text=Error&details=unknown+command"))
+		}
+	}
+}
+
+func TestPackageInUseTrue(t *testing.T) {
+	ts := httptest.NewServer(daUsersHandler([]string{"alice", "bob"}, map[string]string{
+		"alice": "username=alice&package=other",
+		"bob":   "username=bob&package=whcms_spec_abc",
+	}))
+	defer ts.Close()
+	c, _ := newTestClient(t, testConfig())
+	inUse, err := c.PackageInUse(context.Background(), serverConfig(t, ts), "whcms_spec_abc")
+	require.NoError(t, err)
+	assert.True(t, inUse)
+}
+
+func TestPackageInUseFalse(t *testing.T) {
+	ts := httptest.NewServer(daUsersHandler([]string{"alice"}, map[string]string{
+		"alice": "username=alice&package=other",
+	}))
+	defer ts.Close()
+	c, _ := newTestClient(t, testConfig())
+	inUse, err := c.PackageInUse(context.Background(), serverConfig(t, ts), "whcms_spec_abc")
+	require.NoError(t, err)
+	assert.False(t, inUse)
+}
+
+// TestPackageInUseSkipsUserDeletedMidScan: a user listed by SHOW_USERS but
+// already gone by the time its config is read (NotFound) must be skipped,
+// not fail the whole check.
+func TestPackageInUseSkipsUserDeletedMidScan(t *testing.T) {
+	ts := httptest.NewServer(daUsersHandler([]string{"ghost", "bob"}, map[string]string{
+		"bob": "username=bob&package=whcms_spec_abc",
+	}))
+	defer ts.Close()
+	c, _ := newTestClient(t, testConfig())
+	inUse, err := c.PackageInUse(context.Background(), serverConfig(t, ts), "whcms_spec_abc")
+	require.NoError(t, err)
+	assert.True(t, inUse)
+}
+
+func TestPackageInUseErrors(t *testing.T) {
+	// Empty name is a local validation error.
+	c, _ := newTestClient(t, testConfig())
+	_, err := c.PackageInUse(context.Background(), ports.ServerConfig{Hostname: "x"}, "")
+	requireAppErr(t, err, apperr.CodeValidation)
+
+	// A non-NotFound per-user read failure surfaces (fail safe at the caller).
+	ts := httptest.NewServer(daUsersHandler([]string{"alice"}, map[string]string{
+		"alice": "error=1&text=Error&details=permission+denied",
+	}))
+	defer ts.Close()
+	c, _ = newTestClient(t, testConfig())
+	_, err = c.PackageInUse(context.Background(), serverConfig(t, ts), "whcms_spec_abc")
+	requireAppErr(t, err, apperr.CodeExternal)
+}
+
 func TestListPackagesSuccess(t *testing.T) {
 	var req http.Request
 	// Real DirectAdmin repeats the literal key "list[]" (confirmed against a

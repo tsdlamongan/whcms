@@ -646,6 +646,15 @@ type ServerModule interface {
 	EnsurePackage(ctx context.Context, s ServerConfig, spec PackageSpec) error
 	// DeletePackage removes a package by name. A missing package is not an error.
 	DeletePackage(ctx context.Context, s ServerConfig, name string) error
+	// PackageInUse reports whether any hosting account currently on the panel
+	// still uses the named package (cPanel `listaccts` searchtype=package;
+	// DirectAdmin `CMD_API_SHOW_USERS` + per-user `CMD_API_SHOW_USER_CONFIG`).
+	// Read-only, no side effects. It is the panel-side guard consulted before
+	// DeletePackage: the DB-side sibling count cannot see accounts created
+	// outside this app - or the same physical host registered as a second
+	// servers row - so a shared dynamic package is only deleted once the panel
+	// itself confirms no account references it.
+	PackageInUse(ctx context.Context, s ServerConfig, name string) (bool, error)
 	// ListPackages returns the hosting packages/plans currently defined on the
 	// panel (cpanel `listpkgs`; DA `CMD_API_MANAGE_USER_PACKAGES` GET), so the
 	// admin product form can pick an existing name instead of free-typing one.

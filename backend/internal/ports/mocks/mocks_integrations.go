@@ -65,6 +65,7 @@ type MockServerModule struct {
 	ChangePasswordFn func(ctx context.Context, s ports.ServerConfig, username, password string) error
 	EnsurePackageFn  func(ctx context.Context, s ports.ServerConfig, spec ports.PackageSpec) error
 	DeletePackageFn  func(ctx context.Context, s ports.ServerConfig, name string) error
+	PackageInUseFn   func(ctx context.Context, s ports.ServerConfig, name string) (bool, error)
 	ListPackagesFn   func(ctx context.Context, s ports.ServerConfig) ([]string, error)
 	AccountInfoFn    func(ctx context.Context, s ports.ServerConfig, username string) (*ports.AccountInfo, error)
 	TestConnectionFn func(ctx context.Context, s ports.ServerConfig) (*ports.ServerInfo, error)
@@ -132,6 +133,13 @@ func (m *MockServerModule) DeletePackage(ctx context.Context, s ports.ServerConf
 		return m.DeletePackageFn(ctx, s, name)
 	}
 	return nil
+}
+
+func (m *MockServerModule) PackageInUse(ctx context.Context, s ports.ServerConfig, name string) (bool, error) {
+	if m.PackageInUseFn != nil {
+		return m.PackageInUseFn(ctx, s, name)
+	}
+	return false, nil
 }
 
 func (m *MockServerModule) ListPackages(ctx context.Context, s ports.ServerConfig) ([]string, error) {

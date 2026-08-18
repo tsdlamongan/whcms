@@ -697,27 +697,22 @@ func (s *Service) ProvisionTerminate(ctx context.Context, serviceID int64) error
 		if err := mod.Terminate(ctx, cfg, svc.Username); err != nil {
 			return wrap(err)
 		}
-		// Dynamic packages may be shared by other services resolving to the
-		// same limits - only delete once no sibling on this server still
-		// references it.
-		if pkg, _ := metaMap(svc.PanelMeta)[domain.PanelMetaPackageName].(string); pkg != "" {
-			others, err := s.d.Services.CountByServerAndPackage(ctx, *svc.ServerID, pkg, svc.ID)
-			if err != nil {
-				return wrap(err)
-			}
-			if others == 0 {
-				if err := mod.DeletePackage(ctx, cfg, pkg); err != nil {
-					return wrap(err)
-				}
-			}
-		}
 	}
 
+	// Persist the terminated status BEFORE any package cleanup: the account is
+	// already gone from the panel, so a cleanup failure must never leave the
+	// service recorded as active and the job retrying (re-terminating a
+	// removed account is a no-op, but the inconsistent window is avoidable).
 	svc.Status = domain.ServiceTerminated
 	now := s.d.Clock.Now().UTC()
 	svc.TerminatedAt = &now
 	if err := s.d.Services.Update(ctx, svc); err != nil {
 		return wrap(err)
+	}
+
+	if hasPanel {
+		pkg, _ := metaMap(svc.PanelMeta)[domain.PanelMetaPackageName].(string)
+		s.cleanupDynamicPackage(ctx, svc, mod, cfg, pkg)
 	}
 
 	s.notifyService(ctx, svc, "service_terminated", map[string]any{"ServiceName": svc.Domain})
@@ -742,6 +737,46 @@ func (s *Service) resolvePendingCancellation(ctx context.Context, serviceID int6
 	cr.Status = domain.CancellationAutoProcessed
 	cr.DecidedAt = &now
 	_ = s.d.CancellationRequests.Update(ctx, cr)
+}
+
+// cleanupDynamicPackage best-effort deletes a dynamic (custom-spec) panel
+// package the service no longer needs, once BOTH guards confirm nothing else
+// uses it: no other non-terminal service row on this server (DB-side,
+// CountByServerAndPackage) and no account on the panel itself (panel-side,
+// ServerModule.PackageInUse - which also catches accounts created outside
+// this app, or the same physical host registered as a second servers row).
+// Deliberately returns nothing: the caller's own operation (terminate /
+// package change) has already succeeded and been persisted, so a cleanup
+// problem must never fail or retry the job - the operator is alerted instead
+// and can delete the stranded package manually.
+func (s *Service) cleanupDynamicPackage(ctx context.Context, svc *domain.Service, mod ports.ServerModule, cfg ports.ServerConfig, pkg string) {
+	if pkg == "" || svc.ServerID == nil {
+		return
+	}
+	alert := func(detail string) {
+		subject := fmt.Sprintf("Package cleanup needs attention: %s (service #%d)", pkg, svc.ID)
+		_ = s.d.Notify.AlertAdmin(ctx, subject, detail)
+	}
+	others, err := s.d.Services.CountByServerAndPackage(ctx, *svc.ServerID, pkg, svc.ID)
+	if err != nil {
+		alert(fmt.Sprintf("could not count sibling services for package %q on server %d: %v - the package was left in place, delete it manually once confirmed unused", pkg, *svc.ServerID, err))
+		return
+	}
+	if others > 0 {
+		return // still referenced by another service - expected, keep it
+	}
+	inUse, err := mod.PackageInUse(ctx, cfg, pkg)
+	if err != nil {
+		alert(fmt.Sprintf("panel-side in-use check failed for package %q: %v - the package was left in place, delete it manually once confirmed unused", pkg, err))
+		return
+	}
+	if inUse {
+		alert(fmt.Sprintf("package %q is still used by a panel account this app does not track - deletion skipped; review the server for out-of-band accounts", pkg))
+		return
+	}
+	if err := mod.DeletePackage(ctx, cfg, pkg); err != nil {
+		alert(fmt.Sprintf("deleting package %q failed: %v - delete it manually", pkg, err))
+	}
 }
 
 // ProvisionChangePackage pushes the service's current product package to the
@@ -800,19 +835,11 @@ func (s *Service) ProvisionChangePackage(ctx context.Context, serviceID int64) e
 			return wrap(err)
 		}
 
-		// Dynamic packages may be shared by other services resolving to the
-		// same limits - only delete the one we moved away from once no sibling
-		// on this server still references it.
+		// Best-effort: the package change itself already succeeded and was
+		// persisted, so cleaning up the dynamic package left behind must not
+		// fail or retry the job.
 		if oldPkg != "" && oldPkg != packageName {
-			others, err := s.d.Services.CountByServerAndPackage(ctx, *svc.ServerID, oldPkg, svc.ID)
-			if err != nil {
-				return wrap(err)
-			}
-			if others == 0 {
-				if err := mod.DeletePackage(ctx, cfg, oldPkg); err != nil {
-					return wrap(err)
-				}
-			}
+			s.cleanupDynamicPackage(ctx, svc, mod, cfg, oldPkg)
 		}
 	}
 

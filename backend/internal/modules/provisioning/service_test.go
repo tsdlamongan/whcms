@@ -172,6 +172,7 @@ type fx struct {
 	users    *mocks.MockUserRepo
 	invoices *mocks.MockInvoiceRepo
 	cpanel   *mocks.MockServerModule
+	da       *mocks.MockServerModule
 	crypt    *mocks.MockEncryptor
 	queue    *mocks.MockEnqueuer
 	notify   *mocks.MockNotificationSender
@@ -200,6 +201,7 @@ func newFixture() *fx {
 		users:    &mocks.MockUserRepo{},
 		invoices: &mocks.MockInvoiceRepo{},
 		cpanel:   &mocks.MockServerModule{},
+		da:       &mocks.MockServerModule{},
 		crypt:    &mocks.MockEncryptor{},
 		queue:    &mocks.MockEnqueuer{},
 		notify:   &mocks.MockNotificationSender{},

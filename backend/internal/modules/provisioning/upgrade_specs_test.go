@@ -361,6 +361,33 @@ func TestProvisionChangePackageKeepsSharedOldPackage(t *testing.T) {
 	assert.False(t, deleteCalled)
 }
 
+// TestProvisionChangePackageOldDeleteBestEffort: the resize itself already
+// succeeded and was persisted, so a failure cleaning up the old dynamic
+// package must alert the operator instead of failing (and retrying) the job.
+func TestProvisionChangePackageOldDeleteBestEffort(t *testing.T) {
+	f := newFixture()
+	svc := baseService(domain.ServiceActive)
+	svc.PanelMeta = json.RawMessage(`{"chosen_specs":[{"key":"disk","provision_key":"disk","unit":"gb","qty":20}],"package_name":"whcms_spec_old"}`)
+	f.service = svc
+	f.withProduct(configurableProduct())
+	f.withServer(cpanelServer())
+	f.products.ListSpecsFn = func(_ context.Context, _ int64) ([]domain.ProductSpec, error) {
+		return specDefs(), nil
+	}
+	f.cpanel.DeletePackageFn = func(context.Context, ports.ServerConfig, string) error {
+		return apperr.New(apperr.CodeExternal, "killpkg failed")
+	}
+	alerted := false
+	f.notify.AlertAdminFn = func(context.Context, string, string) error { alerted = true; return nil }
+
+	require.NoError(t, f.svc.ProvisionChangePackage(context.Background(), 42))
+	assert.True(t, alerted)
+	// The new package name was still persisted despite the cleanup failure.
+	var newMeta map[string]any
+	require.NoError(t, json.Unmarshal(f.service.PanelMeta, &newMeta))
+	assert.NotEqual(t, "whcms_spec_old", newMeta[domain.PanelMetaPackageName])
+}
+
 func TestProvisionChangePackageFlatClearsDynamicMeta(t *testing.T) {
 	f := newFixture()
 	svc := baseService(domain.ServiceActive)

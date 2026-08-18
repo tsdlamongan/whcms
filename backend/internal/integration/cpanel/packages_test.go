@@ -144,6 +144,45 @@ func TestDeletePackage_ErrorPropagates(t *testing.T) {
 	assert.Equal(t, apperr.CodeExternal, asAppErr(t, err).Code)
 }
 
+func TestPackageInUse_True(t *testing.T) {
+	c, s, rec, _ := newHarness(t, Config{}, func(w http.ResponseWriter, r *http.Request) {
+		whmOK(w, "listaccts", map[string]any{
+			"acct": []map[string]any{{"user": "alice", "plan": "whcms_spec_abc"}},
+		})
+	})
+	inUse, err := c.PackageInUse(context.Background(), s, "whcms_spec_abc")
+	require.NoError(t, err)
+	assert.True(t, inUse)
+	req := rec.req(0)
+	assert.Equal(t, http.MethodGet, req.Method)
+	assert.Equal(t, "/json-api/listaccts", req.Path)
+	assert.Equal(t, "package", req.Query.Get("searchtype"))
+	assert.Equal(t, "^whcms_spec_abc$", req.Query.Get("search"), "exact-name anchored regex")
+}
+
+func TestPackageInUse_False(t *testing.T) {
+	c, s, _, _ := newHarness(t, Config{}, func(w http.ResponseWriter, r *http.Request) {
+		whmOK(w, "listaccts", map[string]any{"acct": []map[string]any{}})
+	})
+	inUse, err := c.PackageInUse(context.Background(), s, "whcms_spec_abc")
+	require.NoError(t, err)
+	assert.False(t, inUse)
+}
+
+func TestPackageInUse_Errors(t *testing.T) {
+	// Empty name is a local validation error, no HTTP call.
+	c := New(Config{}, nil, nil, nil)
+	_, err := c.PackageInUse(context.Background(), ports.ServerConfig{}, "")
+	assert.Equal(t, apperr.CodeValidation, asAppErr(t, err).Code)
+
+	// API-level failure surfaces as EXTERNAL.
+	c, s, _, _ := newHarness(t, Config{}, func(w http.ResponseWriter, r *http.Request) {
+		whmFail(w, "listaccts", "internal error")
+	})
+	_, err = c.PackageInUse(context.Background(), s, "whcms_spec_abc")
+	assert.Equal(t, apperr.CodeExternal, asAppErr(t, err).Code)
+}
+
 func TestListPackages_Success(t *testing.T) {
 	c, s, rec, _ := newHarness(t, Config{}, func(w http.ResponseWriter, r *http.Request) {
 		// Real WHM nests the array under "pkg", not "package" - this exact
