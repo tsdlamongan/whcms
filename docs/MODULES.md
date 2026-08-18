@@ -208,7 +208,7 @@ charge = target_price * (days_left/period)… use domain.Prorate helper; diff>0 
 immediately (chosen_specs rewritten in the same tx) + AddCredit(excess). ProvisionChangePackage: flat products
 push product.package_name; configurable products rebuild the dynamic package from panel_meta.chosen_specs
 (EnsurePackage, same as ProvisionCreate), update panel_meta package_name/limits, and delete the old dynamic
-package once no sibling service on the server references it (CountByServerAndPackage, same rule as terminate). Client cancel creates a service_cancellation_requests
+package once no sibling service on the server references it AND the panel itself reports it unused (cleanupDynamicPackage: CountByServerAndPackage + ServerModule.PackageInUse, best-effort — same rule as terminate). Client cancel creates a service_cancellation_requests
 row (a first-class, admin-reviewable entity, not just a panel_meta flag): immediate → enqueue terminate + cancel
 open renewal invoices right away (no approval gate), but the request itself starts pending too, NOT
 auto_processed at submission time - ProvisionTerminate calls resolvePendingCancellation once it actually
@@ -254,10 +254,21 @@ presence in the request, not its string value — confirmed live: sending u<fiel
 clear a stale unlimited flag was itself read as "checked" and made even a modeled resource with a
 correct concrete quota come out unlimited. daPackageParams already gets this right (sets
 u<field>=ON only when truly unlimited, otherwise omits the key) — never send "OFF" as a value here,
-only ON or omitted. ProvisionTerminate only calls DeletePackage once
-ServiceRepo.CountByServerAndPackage confirms no other non-terminal service on that server still
-references the name, so a shared package survives any single owner's termination.
+only ON or omitted. ProvisionTerminate persists the terminated status FIRST (right after the
+account removal succeeds), then runs dynamic-package cleanup best-effort (cleanupDynamicPackage,
+shared with ProvisionChangePackage's old-package cleanup): DeletePackage is called only once BOTH
+guards pass — ServiceRepo.CountByServerAndPackage confirms no other non-terminal service on that
+server still references the name (DB-side), AND ServerModule.PackageInUse confirms no account on
+the panel itself still uses it (panel-side — catches accounts created outside this app, or the same
+physical host registered as a second servers row). Any cleanup problem (count error, in-use check
+error, in-use hit, delete failure) alerts the operator via Notify.AlertAdmin and never fails or
+retries the job — a stranded package is recoverable by hand, deleting an in-use one is not, and the
+termination itself already completed. A shared package thus survives any single owner's termination.
 Log service_actions into audit_logs (action prefix "service.").
+AdminCreateService (POST /admin/services, "add existing hosting"): records a pre-existing service
+directly on a client — no order, no invoice, no provisioning job, no panel call, row created active,
+client NOT notified; next_due_date required for recurring cycles; server/product module must match;
+password (optional) encrypted at rest. Audit "service.admin_create".
 
 ### M-DOMAINS `internal/modules/domains`
 FR-DOM-001..010. Owns domains+registrars repos. POST /domains/check (public, rate-limited 20/min/IP): syntax
@@ -269,7 +280,12 @@ notification. Client: list/detail, PATCH nameservers (validate 2-4 hosts) → re
 GET/PUT dns (records CRUD via registrar), GET epp (decrypt or registrar.GetEPPCode), POST renew → billing
 renewal invoice now (years=1), PATCH auto_renew + contact update. Admin: list/detail/sync (SyncDomainJob:
 registrar.SyncDomain → update status/expiry/ns), force-renew, registrar config endpoints (get/update rdash row
-config JSONB + test via account profile call). SyncAllDomains: active domains → SyncDomainJob each (bounded, log).
+config JSONB + test via account profile call). AdminCreate (POST /admin/domains, "add existing domain"): records
+an already-registered domain directly on a client — no order, no payment, no registrar call; attributed to the
+configured registrar row, created active, billing fields taken as given (next_due_date required), AdminSync pulls
+the live registrar state afterwards; audit "domain.admin_create". AdminUpdate (PATCH) also accepts the billing
+fields registration_date/expiry_date/next_due_date/recurring_amount/billing_cycle (nil untouched, empty date
+clears) so a manually-recorded domain stays billable/correctable without a registrar round-trip. SyncAllDomains: active domains → SyncDomainJob each (bounded, log).
 Auto-renew=false + expired → status expired (sync). Renewal invoice generation handled by M-BILLING using
 domains.next_due_date (billing reads DomainRepo).
 
