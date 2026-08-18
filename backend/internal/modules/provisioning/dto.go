@@ -127,6 +127,29 @@ type AdminUpdateServiceInput struct {
 	Notes            *string `json:"notes" validate:"omitempty,max=2000"`
 }
 
+// AdminCreateServiceInput is the body of POST /admin/services - the "add
+// existing hosting" path: an admin records a service that already exists (a
+// hosting account provisioned before this app, or one managed entirely by
+// hand) directly on a client, with no order, no invoice, no payment, no
+// provisioning job and no control-panel call. The row is created active;
+// panel-bound actions (suspend/terminate/SSO/change-password) work as soon as
+// server_id + username point at the real account. NextDueDate is required for
+// recurring cycles so the imported service is immediately billable by renewal
+// invoicing.
+type AdminCreateServiceInput struct {
+	ClientID         int64  `json:"client_id" validate:"required,min=1"`
+	ProductID        int64  `json:"product_id" validate:"required,min=1"`
+	ServerID         *int64 `json:"server_id" validate:"omitempty,min=1"`
+	Domain           string `json:"domain" validate:"omitempty,max=255"`
+	Username         string `json:"username" validate:"omitempty,max=64"`
+	Password         string `json:"password" validate:"omitempty,min=8,max=64"`
+	BillingCycle     string `json:"billing_cycle" validate:"required,oneof=one_time monthly quarterly semiannually annually biennially"`
+	RecurringAmount  int64  `json:"recurring_amount" validate:"min=0"`
+	NextDueDate      string `json:"next_due_date" validate:"omitempty,datetime=2006-01-02"`
+	RegistrationDate string `json:"registration_date" validate:"omitempty,datetime=2006-01-02"`
+	Notes            string `json:"notes" validate:"omitempty,max=2000"`
+}
+
 // Admin DTOs - servers & groups
 
 // ServerInput creates or updates a server. Password/APIToken are plaintext

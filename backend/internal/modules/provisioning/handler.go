@@ -35,6 +35,7 @@ type ProvisioningService interface {
 	CancelService(ctx context.Context, actorUserID, clientID, serviceID int64, in CancelServiceInput) (*domain.Service, error)
 	UpgradeService(ctx context.Context, actorUserID, clientID, serviceID int64, in UpgradeServiceInput) (*UpgradeResult, error)
 	// Admin services
+	AdminCreateService(ctx context.Context, actorUserID int64, in AdminCreateServiceInput) (*domain.Service, error)
 	AdminAction(ctx context.Context, actorUserID, serviceID int64, action, reason string, async bool) error
 	AdminChangePackage(ctx context.Context, actorUserID, serviceID int64, in AdminChangePackageInput) error
 	AdminUpdateService(ctx context.Context, actorUserID, serviceID int64, in AdminUpdateServiceInput) (*domain.Service, error)
@@ -86,6 +87,7 @@ func (h *Handler) RegisterRoutes(r fiber.Router) {
 
 	services := staff.Group("/services", h.mw.RequirePermission("services"))
 	services.Get("/", h.AdminListServices)
+	services.Post("/", h.AdminCreateService)
 	services.Get("/cancellation-requests", h.ListCancellationRequests)
 	services.Post("/cancellation-requests/:id/accept", h.AcceptCancellationRequest)
 	services.Post("/cancellation-requests/:id/reject", h.RejectCancellationRequest)
@@ -252,6 +254,21 @@ func (h *Handler) AdminGetService(c fiber.Ctx) error {
 		return err
 	}
 	return httpx.OK(c, svc)
+}
+
+// AdminCreateService records a pre-existing hosting service on a client (no
+// order, no payment, no provisioning) - POST /admin/services.
+func (h *Handler) AdminCreateService(c fiber.Ctx) error {
+	var in AdminCreateServiceInput
+	if err := c.Bind().Body(&in); err != nil {
+		return apperr.Validation("invalid request body")
+	}
+	id := httpx.MustIdentity(c)
+	svc, err := h.svc.AdminCreateService(c.Context(), id.UserID, in)
+	if err != nil {
+		return err
+	}
+	return httpx.Created(c, svc)
 }
 
 // AdminUpdateService patches a service's next_due_date and/or notes.

@@ -13,6 +13,7 @@
 //	POST   /services/:id/cancel                       {mode: immediate|end_of_term} [client]
 //	POST   /services/:id/upgrade                      {product_id, cycle, specs?} prorated [client]
 //	GET    /admin/services                                                        [perm: services]
+//	POST   /admin/services                            add existing service (no provisioning) [perm: services]
 //	GET    /admin/services/cancellation-requests      ?status&page&per_page       [perm: services]
 //	POST   /admin/services/cancellation-requests/:id/accept                      [perm: services]
 //	POST   /admin/services/cancellation-requests/:id/reject                      [perm: services]
@@ -1823,6 +1824,86 @@ func (s *Service) AdminChangePackage(ctx context.Context, actorUserID, serviceID
 		return nil
 	}
 	return s.ProvisionChangePackage(ctx, serviceID)
+}
+
+// AdminCreateService records a pre-existing hosting service directly on a
+// client (WHMCS-style "add existing service"): no order, no invoice, no
+// provisioning job and no control-panel call - the row is simply created
+// active so renewal billing and the usual lifecycle actions work against the
+// account it points at. The client is deliberately NOT notified: nothing new
+// was provisioned for them.
+func (s *Service) AdminCreateService(ctx context.Context, actorUserID int64, in AdminCreateServiceInput) (*domain.Service, error) {
+	if err := s.val.Struct(in); err != nil {
+		return nil, err
+	}
+	cycle := domain.BillingCycle(in.BillingCycle)
+	if cycle != domain.CycleOneTime && in.NextDueDate == "" {
+		return nil, apperr.Validation("invalid service parameters", apperr.FieldError{
+			Field: "next_due_date", Message: "is required for recurring billing cycles",
+		})
+	}
+	client, err := s.d.Clients.GetByID(ctx, in.ClientID)
+	if err != nil {
+		return nil, wrap(err)
+	}
+	if client == nil {
+		return nil, apperr.NotFound("client")
+	}
+	product, err := s.d.Products.GetByID(ctx, in.ProductID)
+	if err != nil {
+		return nil, wrap(err)
+	}
+	if in.ServerID != nil {
+		server, err := s.d.Servers.GetServerByID(ctx, *in.ServerID)
+		if err != nil {
+			return nil, wrap(err)
+		}
+		if product.Module != domain.ModuleNone && server.Module != product.Module {
+			return nil, apperr.Validation("invalid service parameters", apperr.FieldError{
+				Field: "server_id", Message: "server module does not match the product's module",
+			})
+		}
+	}
+
+	passwordEnc := ""
+	if in.Password != "" {
+		passwordEnc, err = s.d.Crypt.Encrypt(in.Password)
+		if err != nil {
+			return nil, apperr.Internal(fmt.Errorf("provisioning: encrypt service password: %w", err))
+		}
+	}
+
+	reg := s.today()
+	if in.RegistrationDate != "" {
+		reg, _ = time.Parse("2006-01-02", in.RegistrationDate) // format validated above
+	}
+	svc := &domain.Service{
+		ClientID:         in.ClientID,
+		ProductID:        in.ProductID,
+		ServerID:         in.ServerID,
+		Domain:           in.Domain,
+		Username:         in.Username,
+		PasswordEnc:      passwordEnc,
+		Status:           domain.ServiceActive,
+		BillingCycle:     cycle,
+		RecurringAmount:  in.RecurringAmount,
+		RegistrationDate: &reg,
+		Notes:            in.Notes,
+	}
+	if in.NextDueDate != "" {
+		due, _ := time.Parse("2006-01-02", in.NextDueDate) // format validated above
+		svc.NextDueDate = &due
+	}
+	if err := s.d.Services.Create(ctx, svc); err != nil {
+		return nil, wrap(err)
+	}
+
+	s.d.Audit.Log(ctx, actorUserID, "service.admin_create", "service", svc.ID, nil, map[string]any{
+		"client_id": svc.ClientID, "product_id": svc.ProductID, "server_id": svc.ServerID,
+		"domain": svc.Domain, "username": svc.Username, "billing_cycle": svc.BillingCycle,
+		"recurring_amount": svc.RecurringAmount, "status": svc.Status,
+	})
+	return svc, nil
 }
 
 // AdminUpdateService patches a service's plain-field record - domain,

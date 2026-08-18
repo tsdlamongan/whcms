@@ -43,6 +43,7 @@ type fakeService struct {
 	sso                       func(ctx context.Context, actorUserID, clientID, serviceID int64) (string, error)
 	cancelService             func(ctx context.Context, actorUserID, clientID, serviceID int64, in CancelServiceInput) (*domain.Service, error)
 	upgradeService            func(ctx context.Context, actorUserID, clientID, serviceID int64, in UpgradeServiceInput) (*UpgradeResult, error)
+	adminCreateService        func(ctx context.Context, actorUserID int64, in AdminCreateServiceInput) (*domain.Service, error)
 	adminAction               func(ctx context.Context, actorUserID, serviceID int64, action, reason string, async bool) error
 	adminChangePackage        func(ctx context.Context, actorUserID, serviceID int64, in AdminChangePackageInput) error
 	adminUpdateService        func(ctx context.Context, actorUserID, serviceID int64, in AdminUpdateServiceInput) (*domain.Service, error)
@@ -61,6 +62,13 @@ type fakeService struct {
 	updateGroup               func(ctx context.Context, actorUserID, id int64, in ServerGroupInput) (*domain.ServerGroup, error)
 	deleteGroup               func(ctx context.Context, actorUserID, id int64) error
 	listPackages              func(ctx context.Context, groupID int64) (*PackageListResult, error)
+}
+
+func (f *fakeService) AdminCreateService(ctx context.Context, actorUserID int64, in AdminCreateServiceInput) (*domain.Service, error) {
+	if f.adminCreateService != nil {
+		return f.adminCreateService(ctx, actorUserID, in)
+	}
+	return nil, nil
 }
 
 func (f *fakeService) ListServices(ctx context.Context, clientID int64, p ports.ListParams) ([]ServiceView, int64, error) {
@@ -718,6 +726,34 @@ func TestHandlerAcceptRejectCancellationRequest(t *testing.T) {
 	resp, err = app.Test(httptest.NewRequest("POST", "/api/v1/admin/services/cancellation-requests/5/accept", nil))
 	require.NoError(t, err)
 	assert.Equal(t, 409, resp.StatusCode)
+}
+
+func TestHandlerAdminCreateService(t *testing.T) {
+	fs := &fakeService{
+		adminCreateService: func(_ context.Context, actorUserID int64, in AdminCreateServiceInput) (*domain.Service, error) {
+			assert.Equal(t, int64(1), actorUserID)
+			assert.Equal(t, int64(7), in.ClientID)
+			assert.Equal(t, int64(5), in.ProductID)
+			assert.Equal(t, "imported.example.com", in.Domain)
+			assert.Equal(t, "monthly", in.BillingCycle)
+			return &domain.Service{ID: 77, ClientID: in.ClientID, Status: domain.ServiceActive}, nil
+		},
+	}
+	app := newApp(fs, adminIdentity())
+
+	req := httptest.NewRequest("POST", "/api/v1/admin/services",
+		strings.NewReader(`{"client_id":7,"product_id":5,"domain":"imported.example.com","billing_cycle":"monthly","recurring_amount":150000,"next_due_date":"2026-08-01"}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := app.Test(req)
+	require.NoError(t, err)
+	assert.Equal(t, 201, resp.StatusCode)
+
+	// Malformed body -> 422.
+	req = httptest.NewRequest("POST", "/api/v1/admin/services", strings.NewReader(`{`))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err = app.Test(req)
+	require.NoError(t, err)
+	assert.Equal(t, 422, resp.StatusCode)
 }
 
 func TestHandlerAdminUpdateService(t *testing.T) {
