@@ -19,8 +19,9 @@
 //	POST   /domains/:id/renew                   client (creates renewal invoice)
 //	POST   /domains/:id/addons                  client (replace active addons, adjusts recurring amount)
 //	GET    /admin/domains                       admin/staff (permission: domains)
+//	POST   /admin/domains                       admin/staff (permission: domains) - add existing domain (no registrar call)
 //	GET    /admin/domains/:id                   admin/staff (permission: domains)
-//	PATCH  /admin/domains/:id                   admin/staff (permission: domains) (status, auto_renew, nameservers)
+//	PATCH  /admin/domains/:id                   admin/staff (permission: domains) (status, auto_renew, nameservers, billing fields)
 //	POST   /admin/domains/:id/sync              admin/staff (permission: domains)
 //	POST   /admin/domains/:id/renew             admin/staff (permission: domains)
 //	GET    /admin/registrars                    admin
@@ -53,6 +54,7 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/tsdlamongan/whcms/backend/internal/domain"
 	"github.com/tsdlamongan/whcms/backend/internal/jobs"
@@ -68,6 +70,10 @@ const (
 
 // syncBatchLimit bounds one SyncAllDomains run.
 const syncBatchLimit = 200
+
+// registrarName is the registrars.name row every domain is attributed to
+// (single-registrar setup, same constant the orders module resolves).
+const registrarName = "rdash"
 
 // dateFormat renders DATE values in notifications.
 const dateFormat = "2006-01-02"
@@ -784,6 +790,85 @@ func (s *Service) AdminForceRenew(ctx context.Context, actorUserID, id int64) er
 	return nil
 }
 
+// AdminCreate records an already-registered domain directly on a client
+// (WHMCS-style "add existing domain"): no order, no invoice, no payment and
+// no registrar call - the row is attributed to the configured registrar and
+// created active, so renewal invoicing works immediately and AdminSync can
+// pull the real registrar-side status/expiry/nameservers afterwards. Audited.
+func (s *Service) AdminCreate(ctx context.Context, actorUserID int64, in AdminCreateDomainRequest) (*domain.Domain, error) {
+	name := NormalizeDomainName(in.Name)
+	if err := ValidateDomainName(name); err != nil {
+		return nil, err
+	}
+	client, err := s.d.Clients.GetByID(ctx, in.ClientID)
+	if err != nil {
+		return nil, err
+	}
+	if client == nil {
+		return nil, apperr.NotFound("client")
+	}
+	registrar, err := s.d.Registrars.GetByName(ctx, registrarName)
+	if err != nil {
+		return nil, err
+	}
+	if registrar == nil {
+		return nil, apperr.NotFound("registrar")
+	}
+
+	cycle := domain.CycleAnnually
+	if in.BillingCycle != "" {
+		cycle = domain.BillingCycle(in.BillingCycle)
+	}
+	autoRenew := true
+	if in.AutoRenew != nil {
+		autoRenew = *in.AutoRenew
+	}
+	var nsJSON json.RawMessage
+	if in.Nameservers != nil {
+		hosts, err := ValidateNameservers(in.Nameservers)
+		if err != nil {
+			return nil, err
+		}
+		raw, err := json.Marshal(hosts)
+		if err != nil {
+			return nil, apperr.Internal(err)
+		}
+		nsJSON = raw
+	}
+
+	dom := &domain.Domain{
+		ClientID:         in.ClientID,
+		RegistrarID:      registrar.ID,
+		Name:             name,
+		Status:           domain.DomainActive,
+		RegistrationDate: dateOrNil(in.RegistrationDate),
+		ExpiryDate:       dateOrNil(in.ExpiryDate),
+		NextDueDate:      dateOrNil(in.NextDueDate),
+		RecurringAmount:  in.RecurringAmount,
+		BillingCycle:     cycle,
+		AutoRenew:        autoRenew,
+		Nameservers:      nsJSON,
+	}
+	if err := s.d.Domains.Create(ctx, dom); err != nil {
+		return nil, err
+	}
+	s.d.Audit.Log(ctx, actorUserID, "domain.admin_create", "domain", dom.ID, nil, dom)
+	return dom, nil
+}
+
+// dateOrNil parses an already-format-validated YYYY-MM-DD string; empty (or,
+// defensively, unparseable) becomes nil.
+func dateOrNil(s string) *time.Time {
+	if s == "" {
+		return nil
+	}
+	t, err := time.Parse(dateFormat, s)
+	if err != nil {
+		return nil
+	}
+	return &t
+}
+
 // AdminUpdate patches admin-editable domain fields: status (moved through
 // the domain state machine - a status equal to the current one is a no-op,
 // since the admin settings form always resubmits the current value),
@@ -795,7 +880,9 @@ func (s *Service) AdminUpdate(ctx context.Context, actorUserID, domainID int64, 
 	if err != nil {
 		return nil, err
 	}
-	if in.Status == nil && in.AutoRenew == nil && in.Nameservers == nil {
+	if in.Status == nil && in.AutoRenew == nil && in.Nameservers == nil &&
+		in.RegistrationDate == nil && in.ExpiryDate == nil && in.NextDueDate == nil &&
+		in.RecurringAmount == nil && in.BillingCycle == nil {
 		return nil, apperr.Validation("nothing to update")
 	}
 	before := *dom
@@ -813,6 +900,23 @@ func (s *Service) AdminUpdate(ctx context.Context, actorUserID, domainID int64, 
 	}
 	if in.AutoRenew != nil {
 		dom.AutoRenew = *in.AutoRenew
+	}
+	// Billing fields: a nil pointer leaves the field untouched; an explicit
+	// empty date string clears it.
+	if in.RegistrationDate != nil {
+		dom.RegistrationDate = dateOrNil(*in.RegistrationDate)
+	}
+	if in.ExpiryDate != nil {
+		dom.ExpiryDate = dateOrNil(*in.ExpiryDate)
+	}
+	if in.NextDueDate != nil {
+		dom.NextDueDate = dateOrNil(*in.NextDueDate)
+	}
+	if in.RecurringAmount != nil {
+		dom.RecurringAmount = *in.RecurringAmount
+	}
+	if in.BillingCycle != nil && *in.BillingCycle != "" {
+		dom.BillingCycle = domain.BillingCycle(*in.BillingCycle)
 	}
 	if in.Status != nil {
 		target := domain.DomainStatus(*in.Status)

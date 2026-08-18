@@ -102,6 +102,20 @@ export const actions: Actions = {
 
 		const body: Record<string, unknown> = { auto_renew: autoRenew };
 		if (status) body.status = status;
+		// Billing fields (added for manually-recorded existing domains): the
+		// backend treats an absent field as untouched and an empty date string
+		// as "clear", so always send whatever the form carries.
+		for (const key of ['registration_date', 'expiry_date', 'next_due_date'] as const) {
+			const v = form.get(key);
+			if (v !== null) body[key] = String(v).trim();
+		}
+		const amountRaw = form.get('recurring_amount');
+		if (amountRaw !== null && String(amountRaw).trim() !== '') {
+			const amount = Math.trunc(Number(amountRaw));
+			if (Number.isFinite(amount) && amount >= 0) body.recurring_amount = amount;
+		}
+		const cycle = String(form.get('billing_cycle') ?? '').trim();
+		if (cycle) body.billing_cycle = cycle;
 
 		const res = await apiFetch<unknown>(event, `/api/v1/admin/domains/${event.params.id}`, {
 			method: 'PATCH',

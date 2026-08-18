@@ -1147,6 +1147,137 @@ func TestAdminUpdate(t *testing.T) {
 	})
 }
 
+func TestAdminCreate(t *testing.T) {
+	stubRegistrar := func(d *deps) {
+		d.registrars.GetByNameFn = func(_ context.Context, name string) (*domain.Registrar, error) {
+			assert.Equal(t, "rdash", name)
+			return &domain.Registrar{ID: 1, Name: "rdash"}, nil
+		}
+	}
+	baseReq := func() domains.AdminCreateDomainRequest {
+		return domains.AdminCreateDomainRequest{
+			ClientID:         5,
+			Name:             "Imported-Example.COM",
+			RegistrationDate: "2024-03-01",
+			ExpiryDate:       "2027-03-01",
+			NextDueDate:      "2027-03-01",
+			RecurringAmount:  180_000,
+			Nameservers:      []string{"ns1.example.net", "ns2.example.net"},
+		}
+	}
+
+	t.Run("happy path: active row, no registrar call, audited", func(t *testing.T) {
+		d := newFixture()
+		stubClientUser(d)
+		stubRegistrar(d)
+		var created *domain.Domain
+		d.domains.CreateFn = func(_ context.Context, x *domain.Domain) error {
+			x.ID = 33
+			created = x
+			return nil
+		}
+		d.registrar.RegisterFn = func(context.Context, ports.RegisterDomainRequest) (*ports.DomainResult, error) {
+			t.Fatal("adding an existing domain must never call the registrar")
+			return nil, nil
+		}
+		d.enqueuer.EnqueueFn = func(_ context.Context, taskType string, _ any, _ ...ports.JobOption) error {
+			t.Fatalf("adding an existing domain must not enqueue jobs (got %s)", taskType)
+			return nil
+		}
+
+		got, err := d.svc().AdminCreate(context.Background(), 1, baseReq())
+		require.NoError(t, err)
+		require.NotNil(t, created)
+		assert.Equal(t, int64(33), got.ID)
+		assert.Equal(t, "imported-example.com", created.Name, "name is normalized")
+		assert.Equal(t, domain.DomainActive, created.Status)
+		assert.Equal(t, int64(1), created.RegistrarID)
+		assert.Equal(t, domain.CycleAnnually, created.BillingCycle, "defaults to annually")
+		assert.True(t, created.AutoRenew, "defaults to auto-renew on")
+		require.NotNil(t, created.NextDueDate)
+		assert.Equal(t, "2027-03-01", created.NextDueDate.Format("2006-01-02"))
+		var ns []string
+		require.NoError(t, json.Unmarshal(created.Nameservers, &ns))
+		assert.Equal(t, []string{"ns1.example.net", "ns2.example.net"}, ns)
+		require.Len(t, d.audit.Entries, 1)
+		assert.Equal(t, "domain.admin_create", d.audit.Entries[0].Action)
+	})
+
+	t.Run("invalid name", func(t *testing.T) {
+		d := newFixture()
+		req := baseReq()
+		req.Name = "not_a_domain"
+		_, err := d.svc().AdminCreate(context.Background(), 1, req)
+		assertCode(t, err, apperr.CodeValidation)
+	})
+
+	t.Run("invalid nameservers", func(t *testing.T) {
+		d := newFixture()
+		stubClientUser(d)
+		stubRegistrar(d)
+		req := baseReq()
+		req.Nameservers = []string{"only-one.example.net"}
+		_, err := d.svc().AdminCreate(context.Background(), 1, req)
+		assertCode(t, err, apperr.CodeValidation)
+	})
+
+	t.Run("unknown client", func(t *testing.T) {
+		d := newFixture()
+		d.clients.GetByIDFn = func(context.Context, int64) (*domain.Client, error) {
+			return nil, apperr.NotFound("client")
+		}
+		_, err := d.svc().AdminCreate(context.Background(), 1, baseReq())
+		assertCode(t, err, apperr.CodeNotFound)
+	})
+
+	t.Run("duplicate name surfaces the repo CONFLICT", func(t *testing.T) {
+		d := newFixture()
+		stubClientUser(d)
+		stubRegistrar(d)
+		d.domains.CreateFn = func(context.Context, *domain.Domain) error {
+			return apperr.Conflict("domain imported-example.com already exists")
+		}
+		_, err := d.svc().AdminCreate(context.Background(), 1, baseReq())
+		assertCode(t, err, apperr.CodeConflict)
+	})
+}
+
+func TestAdminUpdateBillingFields(t *testing.T) {
+	d := newFixture()
+	stubGet(d, testDomain(nil))
+	d.domains.UpdateFn = func(ctx context.Context, x *domain.Domain) error { return nil }
+
+	amount := int64(275_000)
+	cycle := "annually"
+	regDate := "2024-03-01"
+	expiry := "2028-03-01"
+	nextDue := "2028-03-01"
+	got, err := d.svc().AdminUpdate(context.Background(), 1, 10, domains.AdminUpdateDomainRequest{
+		RecurringAmount:  &amount,
+		BillingCycle:     &cycle,
+		RegistrationDate: &regDate,
+		ExpiryDate:       &expiry,
+		NextDueDate:      &nextDue,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, int64(275_000), got.RecurringAmount)
+	assert.Equal(t, domain.CycleAnnually, got.BillingCycle)
+	require.NotNil(t, got.ExpiryDate)
+	assert.Equal(t, "2028-03-01", got.ExpiryDate.Format("2006-01-02"))
+	require.NotNil(t, got.NextDueDate)
+	assert.Equal(t, "2028-03-01", got.NextDueDate.Format("2006-01-02"))
+	require.NotNil(t, got.RegistrationDate)
+	assert.Equal(t, "2024-03-01", got.RegistrationDate.Format("2006-01-02"))
+
+	// An explicit empty date clears the stored value.
+	clear := ""
+	got, err = d.svc().AdminUpdate(context.Background(), 1, 10, domains.AdminUpdateDomainRequest{
+		ExpiryDate: &clear,
+	})
+	require.NoError(t, err)
+	assert.Nil(t, got.ExpiryDate)
+}
+
 func TestAdminListAndGet(t *testing.T) {
 	d := newFixture()
 	d.domains.ListFn = func(ctx context.Context, p ports.ListParams) ([]domain.Domain, int64, error) {

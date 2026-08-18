@@ -148,13 +148,40 @@ func toRegistrarResponses(regs []domain.Registrar, envAPIKeyPresent bool) []Regi
 	return out
 }
 
+// AdminCreateDomainRequest is the body of POST /admin/domains - the "add
+// existing domain" path: an admin records a domain that is already registered
+// (at the registrar or elsewhere) directly on a client, with no order, no
+// payment and no registrar call. The row is created active; POST
+// /admin/domains/:id/sync can then pull the real status/expiry/nameservers
+// from the registrar. Billing fields are taken as given so the imported
+// domain is immediately billable by renewal invoicing.
+type AdminCreateDomainRequest struct {
+	ClientID         int64    `json:"client_id" validate:"required,min=1"`
+	Name             string   `json:"name" validate:"required,max=253"`
+	RegistrationDate string   `json:"registration_date" validate:"omitempty,datetime=2006-01-02"`
+	ExpiryDate       string   `json:"expiry_date" validate:"omitempty,datetime=2006-01-02"`
+	NextDueDate      string   `json:"next_due_date" validate:"required,datetime=2006-01-02"`
+	RecurringAmount  int64    `json:"recurring_amount" validate:"min=0"`
+	BillingCycle     string   `json:"billing_cycle" validate:"omitempty,oneof=one_time monthly quarterly semiannually annually biennially"`
+	AutoRenew        *bool    `json:"auto_renew"`
+	Nameservers      []string `json:"nameservers" validate:"omitempty,min=2,max=4,dive,required"`
+}
+
 // AdminUpdateDomainRequest patches admin-editable domain fields: status
-// (moved through the domain state machine), auto_renew and/or nameservers
-// (validated the same way as the client-facing nameserver update).
+// (moved through the domain state machine), auto_renew, nameservers
+// (validated the same way as the client-facing nameserver update), and/or
+// the billing fields (dates, recurring amount, cycle) - the latter so a
+// manually-added existing domain can have its renewal billing corrected
+// without a registrar round-trip.
 type AdminUpdateDomainRequest struct {
-	Status      *string  `json:"status" validate:"omitempty,oneof=pending active pending_transfer expired cancelled"`
-	AutoRenew   *bool    `json:"auto_renew"`
-	Nameservers []string `json:"nameservers" validate:"omitempty,min=2,max=4,dive,required"`
+	Status           *string  `json:"status" validate:"omitempty,oneof=pending active pending_transfer expired cancelled"`
+	AutoRenew        *bool    `json:"auto_renew"`
+	Nameservers      []string `json:"nameservers" validate:"omitempty,min=2,max=4,dive,required"`
+	RegistrationDate *string  `json:"registration_date" validate:"omitempty,datetime=2006-01-02"`
+	ExpiryDate       *string  `json:"expiry_date" validate:"omitempty,datetime=2006-01-02"`
+	NextDueDate      *string  `json:"next_due_date" validate:"omitempty,datetime=2006-01-02"`
+	RecurringAmount  *int64   `json:"recurring_amount" validate:"omitempty,min=0"`
+	BillingCycle     *string  `json:"billing_cycle" validate:"omitempty,oneof=one_time monthly quarterly semiannually annually biennially"`
 }
 
 // EPPResponse carries a domain's transfer auth code.

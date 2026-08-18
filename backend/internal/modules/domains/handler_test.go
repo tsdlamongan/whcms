@@ -106,6 +106,7 @@ type fakeService struct {
 	GetContactFn             func(ctx context.Context, clientID, domainID int64) (*ports.RegistrantContact, error)
 	RenewNowFn               func(ctx context.Context, clientID, domainID int64) (*domain.Invoice, error)
 	AdminListFn              func(ctx context.Context, p ports.ListParams) ([]domain.Domain, int64, error)
+	AdminCreateFn            func(ctx context.Context, actorUserID int64, in domains.AdminCreateDomainRequest) (*domain.Domain, error)
 	AdminGetFn               func(ctx context.Context, id int64) (*domain.Domain, error)
 	AdminUpdateFn            func(ctx context.Context, actorUserID, id int64, in domains.AdminUpdateDomainRequest) (*domain.Domain, error)
 	AdminSyncFn              func(ctx context.Context, actorUserID, id int64) (*domain.Domain, error)
@@ -218,6 +219,13 @@ func (f *fakeService) AdminList(ctx context.Context, p ports.ListParams) ([]doma
 		return f.AdminListFn(ctx, p)
 	}
 	return nil, 0, nil
+}
+
+func (f *fakeService) AdminCreate(ctx context.Context, actorUserID int64, in domains.AdminCreateDomainRequest) (*domain.Domain, error) {
+	if f.AdminCreateFn != nil {
+		return f.AdminCreateFn(ctx, actorUserID, in)
+	}
+	return &domain.Domain{}, nil
 }
 
 func (f *fakeService) AdminGet(ctx context.Context, id int64) (*domain.Domain, error) {
@@ -709,6 +717,33 @@ func TestHandlerAdminDomains(t *testing.T) {
 	status, env := doJSON(t, app, "POST", "/api/v1/admin/domains/10/renew", "")
 	assert.Equal(t, 200, status)
 	assert.Equal(t, true, env["data"].(map[string]any)["enqueued"])
+}
+
+func TestHandlerAdminCreate(t *testing.T) {
+	svc := &fakeService{
+		AdminCreateFn: func(ctx context.Context, actorUserID int64, in domains.AdminCreateDomainRequest) (*domain.Domain, error) {
+			assert.EqualValues(t, 1, actorUserID)
+			assert.EqualValues(t, 5, in.ClientID)
+			assert.Equal(t, "imported.example.com", in.Name)
+			assert.EqualValues(t, 180000, in.RecurringAmount)
+			return &domain.Domain{ID: 33, Name: in.Name, Status: domain.DomainActive}, nil
+		},
+	}
+	app := newApp(svc, &fakeMW{identity: adminIdentity()})
+
+	status, env := doJSON(t, app, "POST", "/api/v1/admin/domains/",
+		`{"client_id":5,"name":"imported.example.com","next_due_date":"2027-03-01","recurring_amount":180000}`)
+	assert.Equal(t, 201, status)
+	assert.EqualValues(t, 33, env["data"].(map[string]any)["id"])
+
+	// DTO validation happens in the handler: a missing next_due_date -> 422.
+	status, _ = doJSON(t, app, "POST", "/api/v1/admin/domains/",
+		`{"client_id":5,"name":"imported.example.com"}`)
+	assert.Equal(t, 422, status)
+
+	// Malformed body -> 422.
+	status, _ = doJSON(t, app, "POST", "/api/v1/admin/domains/", `{`)
+	assert.Equal(t, 422, status)
 }
 
 func TestHandlerAdminUpdate(t *testing.T) {

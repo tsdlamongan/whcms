@@ -46,7 +46,10 @@
 	</div>
 {/if}
 
-<div style="margin-bottom:10px">
+<div style="margin-bottom:10px;display:flex;gap:8px">
+	<a href="/admin/domains/new" class="hp-btn hp-btn-primary" data-testid="domain-add-new">
+		<i class="fas fa-plus"></i>Add Existing Domain
+	</a>
 	<button class="hp-btn" onclick={() => (filterOpen = !filterOpen)}>Search/Filter</button>
 </div>
 

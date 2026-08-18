@@ -43,6 +43,7 @@ type DomainService interface {
 	UpdateDomainAddons(ctx context.Context, clientID, domainID int64, keys []string) (*domain.Domain, error)
 
 	AdminList(ctx context.Context, p ports.ListParams) ([]domain.Domain, int64, error)
+	AdminCreate(ctx context.Context, actorUserID int64, in AdminCreateDomainRequest) (*domain.Domain, error)
 	AdminGet(ctx context.Context, id int64) (*domain.Domain, error)
 	AdminUpdate(ctx context.Context, actorUserID, id int64, in AdminUpdateDomainRequest) (*domain.Domain, error)
 	AdminSync(ctx context.Context, actorUserID, id int64) (*domain.Domain, error)
@@ -115,6 +116,7 @@ func (h *Handler) RegisterRoutes(r fiber.Router) {
 	ad := r.Group("/admin/domains",
 		h.mw.RequireAuth(), h.mw.RequireRole("admin", "staff"), h.mw.RequirePermission("domains"))
 	ad.Get("/", h.AdminList)
+	ad.Post("/", h.AdminCreate)
 	ad.Get("/:id", h.AdminGet)
 	ad.Patch("/:id", h.AdminUpdate)
 	ad.Post("/:id/sync", h.AdminSync)
@@ -380,6 +382,24 @@ func (h *Handler) AdminList(c fiber.Ctx) error {
 		return err
 	}
 	return httpx.OK(c, items, page.Meta(total))
+}
+
+// AdminCreate handles POST /admin/domains - records an already-registered
+// domain on a client with no order, payment, or registrar call.
+func (h *Handler) AdminCreate(c fiber.Ctx) error {
+	actor := httpx.MustIdentity(c)
+	var req AdminCreateDomainRequest
+	if err := c.Bind().Body(&req); err != nil {
+		return apperr.Validation("invalid request body")
+	}
+	if err := h.val.Struct(req); err != nil {
+		return err
+	}
+	dom, err := h.svc.AdminCreate(c.Context(), actor.UserID, req)
+	if err != nil {
+		return err
+	}
+	return httpx.Created(c, dom)
 }
 
 // AdminGet handles GET /admin/domains/:id.

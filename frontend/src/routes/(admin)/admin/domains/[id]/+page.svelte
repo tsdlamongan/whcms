@@ -27,6 +27,20 @@
 
 	let status = $state(untrack(() => data.domain.status));
 	let autoRenew = $state(untrack(() => data.domain.auto_renew));
+	let registrationDate = $state(untrack(() => (data.domain.registration_date ?? '').slice(0, 10)));
+	let expiryDate = $state(untrack(() => (data.domain.expiry_date ?? '').slice(0, 10)));
+	let nextDueDate = $state(untrack(() => (data.domain.next_due_date ?? '').slice(0, 10)));
+	let recurringAmount = $state(untrack(() => data.domain.recurring_amount ?? 0));
+	let billingCycle = $state(untrack(() => data.domain.billing_cycle));
+
+	const cycleOptions = [
+		{ value: 'one_time', label: 'One Time' },
+		{ value: 'monthly', label: 'Monthly' },
+		{ value: 'quarterly', label: 'Quarterly' },
+		{ value: 'semiannually', label: 'Semi-Annually' },
+		{ value: 'annually', label: 'Annually' },
+		{ value: 'biennially', label: 'Biennially' }
+	];
 
 	const statusOptions = [
 		{ value: 'pending', label: 'Pending' },
@@ -199,6 +213,74 @@
 						/>
 						Auto Renew
 					</label>
+				</div>
+			</div>
+			<div class="hp-formrow">
+				<label for="field-registration_date">Registration Date</label>
+				<div class="hp-field">
+					<input
+						id="field-registration_date"
+						name="registration_date"
+						type="date"
+						class="hp-input"
+						bind:value={registrationDate}
+					/>
+				</div>
+			</div>
+			<div class="hp-formrow">
+				<label for="field-expiry_date">Expiry Date</label>
+				<div class="hp-field">
+					<input
+						id="field-expiry_date"
+						name="expiry_date"
+						type="date"
+						class="hp-input"
+						bind:value={expiryDate}
+						data-testid="domain-settings-expiry"
+					/>
+				</div>
+			</div>
+			<div class="hp-formrow">
+				<label for="field-next_due_date">Next Due Date</label>
+				<div class="hp-field">
+					<input
+						id="field-next_due_date"
+						name="next_due_date"
+						type="date"
+						class="hp-input"
+						bind:value={nextDueDate}
+						data-testid="domain-settings-next-due"
+					/>
+				</div>
+			</div>
+			<div class="hp-formrow">
+				<label for="field-recurring_amount">Renewal Price (IDR)</label>
+				<div class="hp-field">
+					<input
+						id="field-recurring_amount"
+						name="recurring_amount"
+						type="number"
+						min="0"
+						step="1"
+						class="hp-input"
+						bind:value={recurringAmount}
+						data-testid="domain-settings-amount"
+					/>
+				</div>
+			</div>
+			<div class="hp-formrow">
+				<label for="field-billing_cycle">Billing Cycle</label>
+				<div class="hp-field">
+					<select
+						id="field-billing_cycle"
+						name="billing_cycle"
+						class="hp-select"
+						bind:value={billingCycle}
+					>
+						{#each cycleOptions as opt (opt.value)}
+							<option value={opt.value}>{opt.label}</option>
+						{/each}
+					</select>
 				</div>
 			</div>
 			<div class="hp-form-actions" style="justify-content:flex-end">
