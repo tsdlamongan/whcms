@@ -33,6 +33,12 @@ test.describe('small invoice: per-channel minimum handling', () => {
 	let invoiceId = 0;
 
 	test.beforeAll(async () => {
+		// beforeAll has its own timeout budget (default 30s from playwright.config;
+		// the describe-level configure() timeout above covers tests only) and
+		// registerVerifyLogin shares the /auth/* 30/min/IP rate-limit bucket with
+		// every concurrently-running spec — its retry backoff alone can exceed 30s
+		// under full-suite load.
+		test.setTimeout(120_000);
 		api = await newApi();
 		client = await registerVerifyLogin(api, 'smallinv');
 

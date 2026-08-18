@@ -244,6 +244,9 @@ test.describe('cart tax preview', () => {
 	let originalBilling: Record<string, unknown>;
 
 	test.beforeAll(async () => {
+		// beforeAll has its own 30s default timeout and registerVerifyLogin/
+		// adminToken share the /auth/* rate-limit bucket with concurrent specs.
+		test.setTimeout(120_000);
 		api = await newApi();
 		client = await registerVerifyLogin(api, 'carttax');
 		adminTok = await adminToken(api);
