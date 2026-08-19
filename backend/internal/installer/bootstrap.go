@@ -13,6 +13,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -402,9 +403,13 @@ func firstNonEmpty(vals ...string) string {
 	return ""
 }
 
+// randReader defaults to crypto/rand's Reader; overridable in tests to force
+// randomToken's error branch deterministically.
+var randReader io.Reader = rand.Reader
+
 func randomToken(numBytes int) (string, error) {
 	b := make([]byte, numBytes)
-	if _, err := rand.Read(b); err != nil {
+	if _, err := io.ReadFull(randReader, b); err != nil {
 		return "", fmt.Errorf("installer: generate random token: %w", err)
 	}
 	return base64.StdEncoding.EncodeToString(b), nil

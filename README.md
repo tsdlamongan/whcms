@@ -29,7 +29,7 @@ tickets, and familiar admin + client areas.
 - **Support** — departments, tickets with S3-stored attachments, internal notes, email notifications, per-client email delivery history.
 - **Portal** — public knowledgebase with search, announcements, network status, and contact pages.
 - **Admin area** — WHMCS-style dashboard and KPI cards, revenue/orders/services reports with CSV export, audit + email + integration logs, stuck-job module queue, staff RBAC per module, live gateway/registrar configuration (AES-256-GCM at rest).
-- **Ops** — asynq job queue with cron schedules, health probes, structured JSON logs, first-run `/install` wizard, >90% enforced backend coverage, full Playwright E2E suite.
+- **Ops** — asynq job queue with cron schedules, health probes, structured JSON logs, first-run `/install` wizard, a `whcms` CLI for one-command bare-metal install/backup/restore/update/uninstall, >90% enforced backend coverage, full Playwright E2E suite.
 
 ## Architecture
 
@@ -164,6 +164,42 @@ docker compose -f deploy/docker-compose.yml --profile dev up -d --build
   local instance already uses it.
 - Dev-only secret defaults are baked in; override via environment or an
   `.env` file next to the compose file.
+
+## Production install — one-command CLI installer
+
+For a bare Linux VPS (Ubuntu, Debian, CentOS, RHEL, Rocky, Alma, or Fedora),
+skip Docker Compose entirely and let the `whcms` CLI provision
+Postgres/Redis/RustFS, fetch (or build) binaries, generate secrets, run
+migrations, and register systemd services in one shot:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/tsdlamongan/whcms/main/scripts/install.sh \
+  | sudo bash -s -- --domain billing.example.com
+```
+
+That runs [`scripts/install.sh`](scripts/install.sh), which detects your
+OS/arch, installs Docker (+ Go if `WHCMS_VERSION=source`), downloads a release
+archive (or builds from source), writes `~/.whcms/config/whcms.env` with
+freshly generated secrets, brings up Postgres/Redis/RustFS via a generated
+Compose file, runs migrations, installs `whcms-api`/`whcms-worker` as systemd
+services, and drops the `whcms` CLI at `/usr/local/bin/whcms`. Override
+`WHCMS_VERSION` (`latest` / a release tag / `source`) or `WHCMS_HOME`
+(default `~/.whcms`) as environment variables before the pipe.
+
+Once installed, manage the deployment with the `whcms` CLI
+(`backend/cmd/cli`, implementation in `backend/internal/cli`):
+
+| Command | What it does |
+|---|---|
+| `whcms status [--json]` | Show status of the API/worker services |
+| `whcms logs [--api\|--worker]` | Tail service logs |
+| `whcms backup [--output <path>] [--no-storage]` | Dump the database (and RustFS storage) to a `.tar.gz` |
+| `whcms restore --input <path>` | Restore from a backup archive |
+| `whcms update [--version <tag>] [--check]` | Update binaries from a GitHub release, with automatic rollback on failure |
+| `whcms reset-admin --email <email> --password <password>` | Reset an admin/staff password directly in the database |
+| `whcms uninstall` | Stop services and remove the installation |
+
+Run `whcms help` at any time for the full flag reference.
 
 ## Environment configuration
 
