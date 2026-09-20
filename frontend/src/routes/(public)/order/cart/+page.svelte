@@ -45,6 +45,7 @@
 	let regPhone = $state(untrack(() => form?.registerValues?.phone ?? ''));
 	let regAddress = $state(untrack(() => form?.registerValues?.address1 ?? ''));
 	let regCity = $state(untrack(() => form?.registerValues?.city ?? ''));
+	let regState = $state(untrack(() => form?.registerValues?.state ?? ''));
 	let regPostcode = $state(untrack(() => form?.registerValues?.postcode ?? ''));
 	let regCountry = $state(untrack(() => form?.registerValues?.country ?? 'ID'));
 	let registering = $state(false);
@@ -64,6 +65,7 @@
 	const checkoutError = $derived(
 		form?.checkoutErrorKey ? t(form.checkoutErrorKey) : (form?.checkoutErrorMessage ?? null)
 	);
+	const checkoutProfileIncomplete = $derived(form?.checkoutErrorKey === 'orderfe.cart.profileIncomplete');
 
 	function itemTitle(index: number): string {
 		const item = cart.items[index];
@@ -330,6 +332,13 @@
 			{#if checkoutError}
 				<Alert type="error" title={t('orderfe.cart.checkoutFailed')}>
 					<span data-testid="checkout-error">{checkoutError}</span>
+					{#if checkoutProfileIncomplete}
+						<div style="margin-top:8px;">
+							<a href="/account" data-testid="checkout-complete-profile-link" style="color:var(--ca-primary);font-weight:600;">
+								{t('orderfe.cart.completeProfileLink')}
+							</a>
+						</div>
+					{/if}
 				</Alert>
 			{/if}
 
@@ -494,19 +503,31 @@
 									name="address1"
 									bind:value={regAddress}
 									autocomplete="street-address"
+									required
 								/>
-								<div class="grid grid-cols-1 gap-x-3 sm:grid-cols-3">
+								<div class="grid grid-cols-1 gap-x-3 sm:grid-cols-2">
 									<FormField
 										label={t('orderfe.register.city')}
 										name="city"
 										bind:value={regCity}
 										autocomplete="address-level2"
+										required
 									/>
+									<FormField
+										label={t('orderfe.register.state')}
+										name="state"
+										bind:value={regState}
+										autocomplete="address-level1"
+										required
+									/>
+								</div>
+								<div class="grid grid-cols-1 gap-x-3 sm:grid-cols-2">
 									<FormField
 										label={t('orderfe.register.postcode')}
 										name="postcode"
 										bind:value={regPostcode}
 										autocomplete="postal-code"
+										required
 									/>
 									<FormField
 										label={t('orderfe.register.country')}

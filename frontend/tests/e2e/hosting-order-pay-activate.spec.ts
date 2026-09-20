@@ -52,6 +52,7 @@ test.describe('hosting order → pay → activate', () => {
 		await page.locator('#field-last_name').fill('Hosting');
 		await page.locator('#field-address1').fill('Jl. Testing No. 1');
 		await page.locator('#field-city').fill('Jakarta');
+		await page.locator('#field-state').fill('DKI Jakarta');
 		await page.locator('#field-postcode').fill('12345');
 		await page.locator('#field-country').selectOption('ID');
 		await page.locator('#field-phone').fill('+6281234567890');

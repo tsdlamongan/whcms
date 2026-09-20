@@ -44,6 +44,20 @@ func allAutoSetupOnOrder(plans []itemPlan) bool {
 	return true
 }
 
+// requiresRegistrantContact reports whether any item needs a registrant
+// contact built from the client profile at registration/transfer time
+// (domains.Service.registrantContact) - checked at checkout so an incomplete
+// profile is rejected before payment instead of failing opaquely, post-
+// payment, in the async registrar job.
+func requiresRegistrantContact(plans []itemPlan) bool {
+	for _, p := range plans {
+		if p.itemType == domain.ItemDomainRegister || p.itemType == domain.ItemDomainTransfer {
+			return true
+		}
+	}
+	return false
+}
+
 // buildPlans validates and prices every requested item. Per-item problems are
 // collected into one VALIDATION error with items[i].field details.
 func (s *Service) buildPlans(ctx context.Context, items []OrderItemRequest) ([]itemPlan, error) {

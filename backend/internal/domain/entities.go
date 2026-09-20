@@ -45,6 +45,14 @@ type Client struct {
 	UpdatedAt     time.Time    `json:"updated_at"`
 }
 
+// HasRegistrantAddress reports whether the profile carries the
+// address/city/state/postcode a domain registrar requires for the
+// registrant contact on a domain register/transfer (CONTRACTS.md domain
+// registration).
+func (c Client) HasRegistrantAddress() bool {
+	return c.Address1 != "" && c.City != "" && c.State != "" && c.Postcode != ""
+}
+
 // FullName returns "First Last" trimmed.
 func (c Client) FullName() string {
 	if c.FirstName == "" {

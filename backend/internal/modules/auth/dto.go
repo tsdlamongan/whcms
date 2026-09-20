@@ -9,18 +9,22 @@ import (
 // RegisterRequest is the POST /auth/register body. Locale is optional and
 // defaults to "id" (users.locale column default). CaptchaToken is verified only
 // when CAPTCHA is enabled (security.captcha_enabled). IP is filled by the
-// handler (never from the body).
+// handler (never from the body). Address1/City/State/Postcode are required at
+// registration (not just profile-edit time): a registrar needs a complete
+// registrant contact to register or transfer a domain, and rejecting an
+// incomplete address here is cheaper than failing that job asynchronously,
+// post-payment (domains.Service.registrantContact).
 type RegisterRequest struct {
 	Email        string `json:"email" validate:"required,email,max=255"`
 	Password     string `json:"password" validate:"required,min=8,max=72"`
 	FirstName    string `json:"first_name" validate:"required,max=100"`
 	LastName     string `json:"last_name" validate:"required,max=100"`
 	Company      string `json:"company" validate:"max=150"`
-	Address1     string `json:"address1" validate:"max=200"`
+	Address1     string `json:"address1" validate:"required,max=200"`
 	Address2     string `json:"address2" validate:"max=200"`
-	City         string `json:"city" validate:"max=100"`
-	State        string `json:"state" validate:"max=100"`
-	Postcode     string `json:"postcode" validate:"max=20"`
+	City         string `json:"city" validate:"required,max=100"`
+	State        string `json:"state" validate:"required,max=100"`
+	Postcode     string `json:"postcode" validate:"required,max=20"`
 	Country      string `json:"country" validate:"omitempty,len=2"`
 	Phone        string `json:"phone" validate:"max=30"`
 	Locale       string `json:"locale" validate:"omitempty,oneof=id en"`

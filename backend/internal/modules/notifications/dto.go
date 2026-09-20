@@ -38,6 +38,8 @@ package notifications
 //	service_terminated  .ServiceName .Domain
 //	domain_registered   .Domain .ExpiryDate
 //	domain_renewed      .Domain .ExpiryDate
+//	domain_profile_incomplete .Domain (sent when registrantContact fails: the
+//	                    client profile is missing address/city/state/postcode)
 //	ticket_opened       .TicketNumber .Subject .TicketURL
 //	ticket_replied      .TicketNumber .Subject .TicketURL
 //	admin_alert         .Subject .Detail (sent by AlertAdmin)

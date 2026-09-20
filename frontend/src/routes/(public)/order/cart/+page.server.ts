@@ -209,6 +209,7 @@ export const actions: Actions = {
 			company: value('company'),
 			address1: value('address1'),
 			city: value('city'),
+			state: value('state'),
 			postcode: value('postcode'),
 			country: value('country') || 'ID',
 			phone: value('phone')
@@ -322,8 +323,13 @@ export const actions: Actions = {
 		});
 
 		if (res.error || !res.data) {
+			const details = res.error?.details ?? [];
+			const profileIncomplete = details.some(
+				(d) => (d as { field?: string })?.field === 'profile_address'
+			);
 			return fail(res.status >= 400 ? res.status : 400, {
-				checkoutErrorMessage: res.error?.message ?? 'error',
+				checkoutErrorKey: profileIncomplete ? 'orderfe.cart.profileIncomplete' : undefined,
+				checkoutErrorMessage: profileIncomplete ? undefined : (res.error?.message ?? 'error'),
 				checkoutErrorCode: res.error?.code
 			});
 		}

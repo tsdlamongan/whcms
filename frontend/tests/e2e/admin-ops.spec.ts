@@ -127,6 +127,7 @@ async function createActiveService(
 		last_name: 'Fixture',
 		address1: 'Jl. Test No. 1',
 		city: 'Jakarta',
+		state: 'DKI Jakarta',
 		postcode: '12345',
 		country: 'ID',
 		phone: '081200000000'
