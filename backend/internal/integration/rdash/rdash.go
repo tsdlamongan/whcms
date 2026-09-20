@@ -827,6 +827,33 @@ func (c *Client) detailsByName(ctx context.Context, name string) (*domainPayload
 	return &data, nil
 }
 
+// rdashMinNameLen is the minimum length Dewabiz's validator accepts for a
+// customer/contact "name" or "organization" field (its rejection reads
+// "The organization must be at least 3 characters."). Neither field is
+// optional in WHCMS's own client profile, so a real Company/name value can
+// legitimately be shorter than this - resolve both with an escalating
+// fallback (full name -> email) that is always long enough, rather than
+// making Company a required, real-company-name field for every individual
+// client.
+const rdashMinNameLen = 3
+
+// contactNameAndOrg resolves the "name" and "organization" registrar fields
+// from a registrant contact, guaranteeing both meet rdashMinNameLen: name
+// falls back full-name -> email, and organization falls back
+// company -> (already-resolved) name - which is itself guaranteed long
+// enough because a validated email address is always well over 3 characters.
+func contactNameAndOrg(contact ports.RegistrantContact) (name, org string) {
+	name = strings.TrimSpace(contact.FirstName + " " + contact.LastName)
+	if len(name) < rdashMinNameLen {
+		name = contact.Email
+	}
+	org = contact.Company
+	if len(org) < rdashMinNameLen {
+		org = name
+	}
+	return name, org
+}
+
 // ensureCustomer returns the registrar customer id for contact's email,
 // reusing an existing one when the reseller already has a customer under
 // that email (Dewabiz rejects POST /customers outright for a duplicate email
@@ -846,14 +873,7 @@ func (c *Client) ensureCustomer(ctx context.Context, contact ports.RegistrantCon
 	if err != nil {
 		return 0, apperr.Internal(fmt.Errorf("rdash: generate customer credential: %w", err))
 	}
-	name := strings.TrimSpace(contact.FirstName + " " + contact.LastName)
-	if name == "" {
-		name = contact.Email
-	}
-	org := contact.Company
-	if org == "" {
-		org = name
-	}
+	name, org := contactNameAndOrg(contact)
 	form := url.Values{
 		"name":                  {name},
 		"email":                 {contact.Email},
@@ -900,14 +920,7 @@ func (c *Client) findCustomerByEmail(ctx context.Context, email string) (int64, 
 // registrant contact (used to apply a fresh contact to all four domain
 // contact roles in UpdateContact).
 func (c *Client) createContact(ctx context.Context, customerID int64, contact ports.RegistrantContact) (int64, error) {
-	name := strings.TrimSpace(contact.FirstName + " " + contact.LastName)
-	if name == "" {
-		name = contact.Email
-	}
-	org := contact.Company
-	if org == "" {
-		org = name
-	}
+	name, org := contactNameAndOrg(contact)
 	form := url.Values{
 		"label":        {"Default"},
 		"name":         {name},
