@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
@@ -18,7 +19,7 @@
 </script>
 
 <svelte:head>
-	<title>Services Report — HostPanel Admin</title>
+	<title>Services Report — {appName} Admin</title>
 </svelte:head>
 
 <h1 class="hp-h1">Services Report</h1>

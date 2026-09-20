@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
 	import { enhance } from '$app/forms';
 	import { invalidateAll } from '$app/navigation';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
@@ -82,7 +83,7 @@
 </script>
 
 <svelte:head>
-	<title>Pending Module Actions — HostPanel Admin</title>
+	<title>Pending Module Actions — {appName} Admin</title>
 </svelte:head>
 
 <h1 class="hp-h1">Pending Module Actions</h1>
@@ -128,7 +129,10 @@
 	</button>
 </form>
 
-<div class="hp-listbar" style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+<div
+	class="hp-listbar"
+	style="display:flex;align-items:center;justify-content:space-between;gap:12px"
+>
 	<div class="hp-count">{total} Records Found, Showing {from} to {to}</div>
 	{#if total > 0}
 		<button

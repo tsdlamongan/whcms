@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
 	import { enhance } from '$app/forms';
 	import { DateText, MoneyText } from '$lib/components';
 	import HpModal from '$lib/components/hp/HpModal.svelte';
@@ -113,7 +114,7 @@
 </script>
 
 <svelte:head>
-	<title>{invoice ? invoice.invoice_number : 'Invoice'} — WHCMS</title>
+	<title>{invoice ? invoice.invoice_number : 'Invoice'} — {appName}</title>
 </svelte:head>
 
 {#if !invoice}

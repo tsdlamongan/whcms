@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
 	import { enhance } from '$app/forms';
 	import { toast } from '$lib/stores/toast.svelte';
 	import { untrack } from 'svelte';
@@ -57,7 +58,7 @@
 </script>
 
 <svelte:head>
-	<title>Payment Gateways — HostPanel Admin</title>
+	<title>Payment Gateways — {appName} Admin</title>
 </svelte:head>
 
 <h1 class="hp-h1">Payment Gateways</h1>
@@ -263,7 +264,9 @@
 						style="border:1px solid #e5e5e5;border-radius:3px;padding:10px;margin-bottom:8px"
 						data-testid={`gateway-manual-account-${i}`}
 					>
-						<div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:8px;align-items:end">
+						<div
+							style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:8px;align-items:end"
+						>
 							<div class="hp-field">
 								<label for={`gw-manual-bank-${i}`}>Bank Name</label>
 								<input
@@ -333,8 +336,7 @@
 						name="instructions"
 						rows="3"
 						bind:value={manualInstructions}
-						placeholder="Include the invoice number in your transfer note."
-					></textarea>
+						placeholder="Include the invoice number in your transfer note."></textarea>
 				</div>
 			</div>
 

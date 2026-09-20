@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
 	import { goto } from '$app/navigation';
 	import { Alert, Breadcrumb, EmptyState, MoneyText } from '$lib/components';
 	import CaPanel from '$lib/components/ca/CaPanel.svelte';
@@ -261,7 +262,7 @@
 </script>
 
 <svelte:head>
-	<title>{product ? product.name : t('orderfe.product.configure')} — WHCMS</title>
+	<title>{product ? product.name : t('orderfe.product.configure')} — {appName}</title>
 </svelte:head>
 
 <Breadcrumb

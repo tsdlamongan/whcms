@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
 	import { enhance } from '$app/forms';
 	import { toast } from '$lib/stores/toast.svelte';
 	import { untrack } from 'svelte';
@@ -67,7 +68,7 @@
 </script>
 
 <svelte:head>
-	<title>Edit Template — HostPanel Admin</title>
+	<title>Edit Template — {appName} Admin</title>
 </svelte:head>
 
 <h1 class="hp-h1">Edit Email Template</h1>
@@ -191,8 +192,8 @@
 								<div class="hp-info" style="margin-top:8px;font-size:12px">
 									<i class="fas fa-info-circle" style="margin-right:6px"></i>This is the
 									<strong>global layout</strong>: it wraps the body of every other email.
-									<code>{'{{.Content}}'}</code> is the slot each template body is rendered into and
-									must stay present. Editing this restyles all outbound email at once.
+									<code>{'{{.Content}}'}</code> is the slot each template body is rendered into and must
+									stay present. Editing this restyles all outbound email at once.
 								</div>
 							{:else}
 								<div class="hp-help" style="margin-top:6px">

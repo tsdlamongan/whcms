@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
 	import HpModal from '$lib/components/hp/HpModal.svelte';
 	import HpPager from '$lib/components/hp/HpPager.svelte';
 	import { fmtDate } from '$lib/date';
@@ -82,7 +83,7 @@
 </script>
 
 <svelte:head>
-	<title>Clients — HostPanel Admin</title>
+	<title>Clients — {appName} Admin</title>
 </svelte:head>
 
 <h1 class="hp-h1">View/Search Clients</h1>

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
 	import { enhance } from '$app/forms';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import DateText from '$lib/components/DateText.svelte';
@@ -39,7 +40,7 @@
 </script>
 
 <svelte:head>
-	<title>Network Status — HostPanel Admin</title>
+	<title>Network Status — {appName} Admin</title>
 </svelte:head>
 
 <h1 class="hp-h1">Network Status</h1>

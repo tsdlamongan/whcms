@@ -13,7 +13,7 @@ const messages: Partial<Record<Locale, Record<string, unknown>>> = {
 				transactions: 'Transaksi'
 			},
 			dashboard: {
-				subtitle: 'Ringkasan operasional WHCMS',
+				subtitle: 'Ringkasan operasional {name}',
 				incomeToday: 'Pendapatan Hari Ini',
 				incomeMonth: 'Pendapatan Bulan Ini',
 				ordersToday: 'Order Hari Ini',
@@ -165,7 +165,7 @@ const messages: Partial<Record<Locale, Record<string, unknown>>> = {
 				transactions: 'Transactions'
 			},
 			dashboard: {
-				subtitle: 'WHCMS operations overview',
+				subtitle: '{name} operations overview',
 				incomeToday: 'Income Today',
 				incomeMonth: 'Income This Month',
 				ordersToday: 'Orders Today',

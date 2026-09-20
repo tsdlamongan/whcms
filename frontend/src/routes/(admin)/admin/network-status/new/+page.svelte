@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
 	import { t } from '$lib/i18n';
 	import NetworkForm from '../NetworkForm.svelte';
 	import type { PageProps } from './$types';
@@ -9,7 +10,7 @@
 </script>
 
 <svelte:head>
-	<title>New Network Status Entry — HostPanel Admin</title>
+	<title>New Network Status Entry — {appName} Admin</title>
 </svelte:head>
 
 <h1 class="hp-h1">Add Network Status Entry</h1>

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
 	import { browser } from '$app/environment';
 	import type { PageProps } from './$types';
 
@@ -105,7 +106,7 @@
 			title: 'Administrator Users',
 			href: '/admin/staff',
 			icon: 'fas fa-user-shield',
-			desc: 'Manage admin and staff accounts that can sign in to HostPanel.',
+			desc: `Manage admin and staff accounts that can sign in to ${appName}.`,
 			category: 'users'
 		},
 		{
@@ -126,7 +127,7 @@
 			title: 'Servers',
 			href: '/admin/servers',
 			icon: 'fas fa-server',
-			desc: 'Servers HostPanel provisions on for automatic setup.',
+			desc: `Servers ${appName} provisions on for automatic setup.`,
 			category: 'products'
 		},
 		{
@@ -244,13 +245,13 @@
 </script>
 
 <svelte:head>
-	<title>System Settings — HostPanel Admin</title>
+	<title>System Settings — {appName} Admin</title>
 </svelte:head>
 
 <div class="ov-header">
 	<div class="ov-header-main">
 		<h1 class="ov-title">System Settings</h1>
-		<p class="ov-subtitle">Set up and configure your WHCMS installation.</p>
+		<p class="ov-subtitle">Set up and configure your {appName} installation.</p>
 	</div>
 
 	<div class="ov-header-setup" data-testid="setup-progress">

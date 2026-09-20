@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
 	import { Alert, EmptyState, MoneyText } from '$lib/components';
 	import CaPanel from '$lib/components/ca/CaPanel.svelte';
 	import { t } from '$lib/i18n';
@@ -106,7 +107,7 @@
 </script>
 
 <svelte:head>
-	<title>{t('orderfe.domain.title')} — WHCMS</title>
+	<title>{t('orderfe.domain.title')} — {appName}</title>
 </svelte:head>
 
 <h1 class="ca-h1">{t('orderfe.domain.title')}</h1>
@@ -325,7 +326,11 @@
 
 {#if cart.count > 0}
 	<div style="margin-top:24px;text-align:right;">
-		<a href="/order/cart" class="ca-btn ca-btn-success ca-btn-lg" data-testid="domain-continue-to-cart">
+		<a
+			href="/order/cart"
+			class="ca-btn ca-btn-success ca-btn-lg"
+			data-testid="domain-continue-to-cart"
+		>
 			{t('orderfe.domain.continueToCart')}
 			<i class="fas fa-arrow-right" aria-hidden="true"></i>
 		</a>

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
 	import { enhance } from '$app/forms';
 	import { invalidateAll } from '$app/navigation';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
@@ -60,7 +61,7 @@
 </script>
 
 <svelte:head>
-	<title>Support Departments — HostPanel Admin</title>
+	<title>Support Departments — {appName} Admin</title>
 </svelte:head>
 
 <h1 class="hp-h1">Support Departments</h1>

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
 	import ServerForm from '../ServerForm.svelte';
 	import type { PageProps } from './$types';
 
@@ -15,7 +16,7 @@
 </script>
 
 <svelte:head>
-	<title>Add Server — HostPanel Admin</title>
+	<title>Add Server — {appName} Admin</title>
 </svelte:head>
 
 <h1 class="hp-h1">Add Server</h1>

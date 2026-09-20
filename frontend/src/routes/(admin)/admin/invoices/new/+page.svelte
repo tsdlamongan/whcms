@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
 	import { enhance } from '$app/forms';
 	import MoneyText from '$lib/components/MoneyText.svelte';
 	import { untrack } from 'svelte';
@@ -80,7 +81,7 @@
 </script>
 
 <svelte:head>
-	<title>Create Manual Invoice — HostPanel Admin</title>
+	<title>Create Manual Invoice — {appName} Admin</title>
 </svelte:head>
 
 <h1 class="hp-h1">Create Manual Invoice</h1>

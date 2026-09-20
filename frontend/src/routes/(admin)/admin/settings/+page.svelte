@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
 	import { enhance } from '$app/forms';
 	import { invalidateAll } from '$app/navigation';
 	import { toast } from '$lib/stores/toast.svelte';
@@ -103,7 +104,7 @@
 {/snippet}
 
 <svelte:head>
-	<title>General Settings — HostPanel Admin</title>
+	<title>General Settings — {appName} Admin</title>
 </svelte:head>
 
 <h1 class="hp-h1">General Settings</h1>
@@ -308,10 +309,11 @@
 			<div class="hp-alert-red" data-testid="settings-error-mail">{errorText}</div>
 		{/if}
 		<div class="hp-info">
-			<i class="fas fa-info-circle" style="margin-right:8px"></i>The mail transport
-			(<code>MAIL_DRIVER</code>, <code>SMTP_HOST</code>, <code>SMTP_PORT</code>,
-			<code>SMTP_ENCRYPTION</code>, <code>SMTP_AUTH</code>) is configured via environment
-			variables. The sender identity below is stored in the database and applies immediately.
+			<i class="fas fa-info-circle" style="margin-right:8px"></i>The mail transport (<code
+				>MAIL_DRIVER</code
+			>, <code>SMTP_HOST</code>, <code>SMTP_PORT</code>,
+			<code>SMTP_ENCRYPTION</code>, <code>SMTP_AUTH</code>) is configured via environment variables.
+			The sender identity below is stored in the database and applies immediately.
 		</div>
 		<form
 			method="POST"
@@ -351,9 +353,9 @@
 			<div class="hp-panel-hd"><span class="title">Send Test Email</span></div>
 			<div style="padding:14px 12px">
 				<p class="hp-help" style="margin:0 0 12px">
-					Delivers a diagnostic message through the configured mail driver right now,
-					bypassing the queue, so a wrong host, port, TLS mode, credential or sender address
-					reports back immediately.
+					Delivers a diagnostic message through the configured mail driver right now, bypassing the
+					queue, so a wrong host, port, TLS mode, credential or sender address reports back
+					immediately.
 				</p>
 
 				{#if form?.testEmailSent}
@@ -363,7 +365,8 @@
 					</div>
 				{:else if form?.testEmailError}
 					<div class="hp-alert-red" data-testid="settings-test-email-error">
-						<i class="fas fa-exclamation-triangle" style="margin-right:8px"></i>{form.testEmailError}
+						<i class="fas fa-exclamation-triangle" style="margin-right:8px"
+						></i>{form.testEmailError}
 					</div>
 				{/if}
 

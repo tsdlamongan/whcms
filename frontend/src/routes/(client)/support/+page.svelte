@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import Alert from '$lib/components/Alert.svelte';
@@ -63,7 +64,7 @@
 </script>
 
 <svelte:head>
-	<title>{t('supportfe.list.title')} — WHCMS</title>
+	<title>{t('supportfe.list.title')} — {appName}</title>
 </svelte:head>
 
 <Breadcrumb items={[{ label: t('nav.home'), href: '/dashboard' }, { label: t('nav.support') }]} />

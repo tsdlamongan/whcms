@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
 	import { enhance } from '$app/forms';
 	import DateText from '$lib/components/DateText.svelte';
 	import MoneyText from '$lib/components/MoneyText.svelte';
@@ -90,7 +91,7 @@
 </script>
 
 <svelte:head>
-	<title>Transactions — HostPanel Admin</title>
+	<title>Transactions — {appName} Admin</title>
 </svelte:head>
 
 <h1 class="hp-h1">Transactions</h1>

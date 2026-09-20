@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
 	import { enhance } from '$app/forms';
 	import HpPager from '$lib/components/hp/HpPager.svelte';
 	import { toast } from '$lib/stores/toast.svelte';
@@ -143,7 +144,7 @@
 </script>
 
 <svelte:head>
-	<title>Products/Services — HostPanel Admin</title>
+	<title>Products/Services — {appName} Admin</title>
 </svelte:head>
 
 <h1 class="hp-h1">Products/Services</h1>

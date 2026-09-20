@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
 	import { enhance } from '$app/forms';
 	import { untrack } from 'svelte';
 	import type { PageProps } from './$types';
@@ -46,7 +47,7 @@
 {/snippet}
 
 <svelte:head>
-	<title>Create New Client — HostPanel Admin</title>
+	<title>Create New Client — {appName} Admin</title>
 </svelte:head>
 
 <h1 class="hp-h1">Create New Client</h1>

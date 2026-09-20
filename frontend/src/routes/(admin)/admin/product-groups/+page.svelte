@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
 	import { enhance } from '$app/forms';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import FormField from '$lib/components/FormField.svelte';
@@ -77,7 +78,7 @@
 </script>
 
 <svelte:head>
-	<title>Product Groups — HostPanel Admin</title>
+	<title>Product Groups — {appName} Admin</title>
 </svelte:head>
 
 <h1 class="hp-h1">Product Groups</h1>

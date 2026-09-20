@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
 	import { enhance } from '$app/forms';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import FormField from '$lib/components/FormField.svelte';
@@ -123,14 +124,14 @@
 </script>
 
 <svelte:head>
-	<title>Servers — HostPanel Admin</title>
+	<title>Servers — {appName} Admin</title>
 </svelte:head>
 
 <h1 class="hp-h1">Servers</h1>
 
 <p class="hp-lead">
-	Configure all your servers so that HostPanel can communicate with them. You must select a default
-	server for automatic setup to function correctly.
+	Configure all your servers so that {appName} can communicate with them. You must select a default server
+	for automatic setup to function correctly.
 </p>
 
 {#if errorText}
