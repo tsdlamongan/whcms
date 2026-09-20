@@ -920,7 +920,7 @@ func TestSyncDomainUnknownMapsNotFound(t *testing.T) {
 func TestAccountInfo(t *testing.T) {
 	f := newFixture(t, routes(t, map[string]http.HandlerFunc{
 		"GET /account/profile": func(w http.ResponseWriter, r *http.Request) {
-			writeEnv(w, http.StatusOK, "ok", map[string]any{"id": 584, "name": "PT Example"})
+			writeEnv(w, http.StatusOK, "ok", map[string]any{"id": 1001, "name": "PT Example"})
 		},
 		"GET /account/balance": func(w http.ResponseWriter, r *http.Request) {
 			writeEnv(w, http.StatusOK, "ok", map[string]any{"currency": "IDR", "balance": "1013000.00"})
@@ -928,7 +928,7 @@ func TestAccountInfo(t *testing.T) {
 	}))
 	info, err := f.client.AccountInfo(context.Background())
 	require.NoError(t, err)
-	assert.Equal(t, "584", info.AccountID)
+	assert.Equal(t, "1001", info.AccountID)
 	assert.Equal(t, "PT Example", info.Name)
 	assert.Equal(t, "IDR", info.Currency)
 	assert.Equal(t, int64(1013000), info.Balance)

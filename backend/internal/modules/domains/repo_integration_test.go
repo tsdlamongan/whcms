@@ -330,14 +330,14 @@ func TestRegistrarRepo(t *testing.T) {
 
 	marker := uuid.NewString()
 	reg.Config = json.RawMessage(`{"it_marker":"` + marker + `"}`)
-	reg.ResellerID = "584"
+	reg.ResellerID = "test-reseller-1"
 	reg.APIKeyEnc = "ciphertext-" + marker
 	reg.BaseURL = "https://mock-endpoint-" + marker + ".test/v1"
 	require.NoError(t, repo.Update(ctx, reg))
 	got, err := repo.GetByID(ctx, reg.ID)
 	require.NoError(t, err)
 	assert.Contains(t, string(got.Config), marker)
-	assert.Equal(t, "584", got.ResellerID)
+	assert.Equal(t, "test-reseller-1", got.ResellerID)
 	assert.Equal(t, "ciphertext-"+marker, got.APIKeyEnc)
 	assert.Equal(t, "https://mock-endpoint-"+marker+".test/v1", got.BaseURL)
 
