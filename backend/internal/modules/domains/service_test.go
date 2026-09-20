@@ -1376,11 +1376,11 @@ func TestRegistrarAdmin(t *testing.T) {
 			stored = &cp
 			return nil
 		}
-		resellerID := "584"
+		resellerID := "test-reseller-1"
 		reg, err := d.svc().UpdateRegistrar(context.Background(), 1, 1, domains.UpdateRegistrarRequest{ResellerID: &resellerID})
 		require.NoError(t, err)
-		assert.Equal(t, "584", reg.ResellerID)
-		assert.Equal(t, "584", stored.ResellerID)
+		assert.Equal(t, "test-reseller-1", reg.ResellerID)
+		assert.Equal(t, "test-reseller-1", stored.ResellerID)
 	})
 
 	t.Run("api key encrypted on save, never touched when nil, cleared by explicit empty string", func(t *testing.T) {
@@ -1405,7 +1405,7 @@ func TestRegistrarAdmin(t *testing.T) {
 		assert.Equal(t, "existing-ciphertext", stored.APIKeyEnc)
 
 		// Non-empty APIKey: encrypted and stored.
-		newKey := "UBJZusY7HHxaEdaUyTFhykGUEGEHwaXN"
+		newKey := "fake-test-api-key-0000000000000"
 		_, err = d.svc().UpdateRegistrar(context.Background(), 1, 1, domains.UpdateRegistrarRequest{APIKey: &newKey})
 		require.NoError(t, err)
 		assert.Equal(t, "enc:"+newKey, stored.APIKeyEnc)

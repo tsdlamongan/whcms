@@ -54,7 +54,7 @@ jobs:
         run: |
           docker run -d --name s3 -p 9000:9000 \
             -e MINIO_ROOT_USER=rustfsadmin -e MINIO_ROOT_PASSWORD=rustfsadmin \
-            minio/minio:latest server /data
+            quay.io/minio/minio:latest server /data
           for i in $(seq 1 30); do
             curl -fsS http://127.0.0.1:9000/minio/health/live && break
             sleep 1
@@ -183,7 +183,7 @@ jobs:
         run: |
           docker run -d --name s3 -p 9000:9000 \
             -e MINIO_ROOT_USER=rustfsadmin -e MINIO_ROOT_PASSWORD=rustfsadmin \
-            minio/minio:latest server /data
+            quay.io/minio/minio:latest server /data
           for i in $(seq 1 30); do
             curl -fsS http://127.0.0.1:9000/minio/health/live && break
             sleep 1
