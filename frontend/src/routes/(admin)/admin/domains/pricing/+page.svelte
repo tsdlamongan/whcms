@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
 	import { enhance } from '$app/forms';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import FormField from '$lib/components/FormField.svelte';
@@ -317,7 +318,7 @@
 </script>
 
 <svelte:head>
-	<title>Domain Pricing — HostPanel Admin</title>
+	<title>Domain Pricing — {appName} Admin</title>
 </svelte:head>
 
 <h1 class="hp-h1">Domain Pricing</h1>

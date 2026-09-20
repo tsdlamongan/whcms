@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
 	import { toast } from '$lib/stores/toast.svelte';
 	import type { PageProps } from './$types';
 	import type { EmailTemplateRow } from './+page.server';
@@ -126,7 +127,7 @@
 {/snippet}
 
 <svelte:head>
-	<title>Email Templates — HostPanel Admin</title>
+	<title>Email Templates — {appName} Admin</title>
 </svelte:head>
 
 <h1 class="hp-h1">Email Templates</h1>

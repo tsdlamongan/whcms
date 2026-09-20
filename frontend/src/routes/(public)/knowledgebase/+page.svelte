@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
 	import { Alert, EmptyState } from '$lib/components';
 	import CaTile from '$lib/components/ca/CaTile.svelte';
 	import { t } from '$lib/i18n';
@@ -12,7 +13,7 @@
 </script>
 
 <svelte:head>
-	<title>{t('portal.kb.title')} — WHCMS</title>
+	<title>{t('portal.kb.title')} — {appName}</title>
 </svelte:head>
 
 <div data-testid="kb-home">

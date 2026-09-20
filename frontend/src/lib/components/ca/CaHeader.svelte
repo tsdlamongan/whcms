@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { env } from '$env/dynamic/public';
+	import { appName } from '$lib/appName';
 	import { t } from '$lib/i18n';
 	import { cart } from '$lib/stores/cart.svelte';
 
@@ -29,8 +29,6 @@
 		cartCountTestid = 'cart-count'
 	}: Props = $props();
 
-	const appName = env.PUBLIC_APP_NAME || 'WHCMS';
-
 	// Load the persisted cart after hydration so the badge count is accurate on
 	// every page (SSR always renders an empty cart - idempotent + browser-guarded).
 	$effect(() => {
@@ -44,7 +42,7 @@
 		     the app-name text brand. -->
 		<a class="ca-brand" href={brandHref} data-testid={brandTestid}>
 			<span class="ca-brand-badge">{appName.slice(0, 1)}</span>
-			<span>{appName}</span>
+			<span data-testid="app-name">{appName}</span>
 		</a>
 
 		<!-- KB search (hidden below xl via .ca-search) -->

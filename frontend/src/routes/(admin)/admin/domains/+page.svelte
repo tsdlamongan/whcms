@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
 	import HpPager from '$lib/components/hp/HpPager.svelte';
 	import { fmtDate } from '$lib/date';
 	import { formatIDR } from '$lib/money';
@@ -29,7 +30,7 @@
 </script>
 
 <svelte:head>
-	<title>Domains — HostPanel Admin</title>
+	<title>Domains — {appName} Admin</title>
 </svelte:head>
 
 <h1 class="hp-h1">Domains/TLDs</h1>

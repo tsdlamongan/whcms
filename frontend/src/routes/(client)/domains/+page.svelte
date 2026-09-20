@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
 	import { enhance } from '$app/forms';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
@@ -69,7 +70,7 @@
 </script>
 
 <svelte:head>
-	<title>{t('clientDomains.list.title')} — WHCMS</title>
+	<title>{t('clientDomains.list.title')} — {appName}</title>
 </svelte:head>
 
 <Breadcrumb items={breadcrumb} />

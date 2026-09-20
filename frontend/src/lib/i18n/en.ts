@@ -1,9 +1,11 @@
+import { appName } from '../appName';
+
 import type id from './id';
 
 /** English dictionary - must mirror the shape of the `id` (default) dictionary. */
 const en: typeof id = {
 	common: {
-		appName: 'WHCMS',
+		appName,
 		loading: 'Loading…',
 		search: 'Search',
 		searchPlaceholder: 'Search clients, invoices, domains…',

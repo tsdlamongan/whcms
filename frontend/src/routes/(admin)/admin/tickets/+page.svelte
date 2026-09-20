@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
 	import HpPager from '$lib/components/hp/HpPager.svelte';
 	import { fmtDateTime } from '$lib/date';
 	import { toast } from '$lib/stores/toast.svelte';
@@ -41,7 +42,7 @@
 </script>
 
 <svelte:head>
-	<title>Support Tickets — HostPanel Admin</title>
+	<title>Support Tickets — {appName} Admin</title>
 </svelte:head>
 
 <h1 class="hp-h1">Support Tickets</h1>

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
 	import { enhance } from '$app/forms';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import HpPager from '$lib/components/hp/HpPager.svelte';
@@ -39,7 +40,7 @@
 </script>
 
 <svelte:head>
-	<title>Knowledgebase Articles — HostPanel Admin</title>
+	<title>Knowledgebase Articles — {appName} Admin</title>
 </svelte:head>
 
 <h1 class="hp-h1">Knowledgebase Articles</h1>

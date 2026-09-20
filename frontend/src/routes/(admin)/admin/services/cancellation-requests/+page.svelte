@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
 	import { enhance } from '$app/forms';
 	import { invalidateAll } from '$app/navigation';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
@@ -59,15 +60,15 @@
 </script>
 
 <svelte:head>
-	<title>Cancellation Requests — HostPanel Admin</title>
+	<title>Cancellation Requests — {appName} Admin</title>
 </svelte:head>
 
 <h1 class="hp-h1">Cancellation Requests</h1>
 <p style="margin-top:-8px;margin-bottom:14px;color:#888;font-size:13px">
 	Client-submitted service cancellation requests. End-of-term requests wait here for review —
-	accepting flags the service to stop at the end of its current billing period; rejecting leaves
-	the service untouched. Immediate requests are processed automatically and listed here for
-	history only.
+	accepting flags the service to stop at the end of its current billing period; rejecting leaves the
+	service untouched. Immediate requests are processed automatically and listed here for history
+	only.
 </p>
 
 {#if data.listError}
@@ -92,7 +93,11 @@
 			{/each}
 		</select>
 	</div>
-	<button class="hp-btn hp-btn-primary" type="submit" data-testid="cancellation-requests-filter-submit">
+	<button
+		class="hp-btn hp-btn-primary"
+		type="submit"
+		data-testid="cancellation-requests-filter-submit"
+	>
 		<i class="fas fa-search"></i>Filter
 	</button>
 </form>
@@ -126,14 +131,21 @@
 					</td>
 					<td>{row.client_name || `#${row.client_id}`}</td>
 					<td>{MODE_LABEL[row.mode] ?? row.mode}</td>
-					<td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
-						title={row.reason}>{row.reason || '—'}</td>
+					<td
+						style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+						title={row.reason}>{row.reason || '—'}</td
+					>
 					<td>
 						<span class={`hp-badge ${STATUS_BADGE[row.status] ?? 'inactive'}`}
 							>{STATUS_LABEL[row.status] ?? row.status}</span
 						>
 					</td>
-					<td>{#if row.decided_at}<DateText value={row.decided_at} mode="datetime" />{:else}—{/if}</td>
+					<td
+						>{#if row.decided_at}<DateText
+								value={row.decided_at}
+								mode="datetime"
+							/>{:else}—{/if}</td
+					>
 					<td class="r">
 						{#if row.status === 'pending' && row.mode === 'end_of_term'}
 							<button

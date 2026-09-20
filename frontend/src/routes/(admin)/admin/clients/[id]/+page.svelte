@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
 	import { enhance } from '$app/forms';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import DateText from '$lib/components/DateText.svelte';
@@ -207,7 +208,8 @@
 	let invoiceSelectedSubmitting = $state(false);
 
 	const allServicesChecked = $derived(
-		(data.services?.length ?? 0) > 0 && (data.services ?? []).every((r) => selectedServices.has(r.id))
+		(data.services?.length ?? 0) > 0 &&
+			(data.services ?? []).every((r) => selectedServices.has(r.id))
 	);
 	const allDomainsChecked = $derived(
 		(data.domains?.length ?? 0) > 0 && (data.domains ?? []).every((r) => selectedDomains.has(r.id))
@@ -231,7 +233,9 @@
 		selectedDomains = next;
 	}
 	function toggleAllDomains() {
-		selectedDomains = allDomainsChecked ? new Set() : new Set((data.domains ?? []).map((r) => r.id));
+		selectedDomains = allDomainsChecked
+			? new Set()
+			: new Set((data.domains ?? []).map((r) => r.id));
 	}
 
 	function invoiceSelectedSummary(result: GenerateSelectedInvoicesResult): string {
@@ -267,7 +271,7 @@
 </script>
 
 <svelte:head>
-	<title>{clientName || 'Clients'} — WHCMS Admin</title>
+	<title>{clientName || 'Clients'} — {appName} Admin</title>
 </svelte:head>
 
 {#if !client}

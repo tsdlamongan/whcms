@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
 	import { t } from '$lib/i18n';
 	import ProductForm from '../ProductForm.svelte';
 	import type { PageProps } from './$types';
@@ -9,7 +10,7 @@
 </script>
 
 <svelte:head>
-	<title>Create New Product — HostPanel Admin</title>
+	<title>Create New Product — {appName} Admin</title>
 </svelte:head>
 
 <h1 class="hp-h1">Create New Product</h1>

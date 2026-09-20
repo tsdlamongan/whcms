@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
 	import { enhance } from '$app/forms';
 	import { untrack } from 'svelte';
 	import type { PageProps } from './$types';
@@ -28,7 +29,7 @@
 </script>
 
 <svelte:head>
-	<title>Add Existing Domain — HostPanel Admin</title>
+	<title>Add Existing Domain — {appName} Admin</title>
 </svelte:head>
 
 <h1 class="hp-h1">Add Existing Domain</h1>

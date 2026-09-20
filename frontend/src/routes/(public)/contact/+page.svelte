@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
 	import { enhance } from '$app/forms';
 	import { FormField } from '$lib/components';
 	import type { SelectOption } from '$lib/components/types';
@@ -24,7 +25,7 @@
 </script>
 
 <svelte:head>
-	<title>{t('portal.contact.title')} — WHCMS</title>
+	<title>{t('portal.contact.title')} — {appName}</title>
 </svelte:head>
 
 <h1 class="ca-h1">{t('portal.contact.title')}</h1>

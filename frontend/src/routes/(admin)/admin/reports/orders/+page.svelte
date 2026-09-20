@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
 	import { formatIDR } from '$lib/money';
 	import type { PageProps } from './$types';
 	import BarChart from '../BarChart.svelte';
@@ -21,7 +22,7 @@
 </script>
 
 <svelte:head>
-	<title>Orders Report — HostPanel Admin</title>
+	<title>Orders Report — {appName} Admin</title>
 </svelte:head>
 
 <h1 class="hp-h1">Orders Report</h1>

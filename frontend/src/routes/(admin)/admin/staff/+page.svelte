@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
 	import { enhance } from '$app/forms';
 	import { invalidateAll } from '$app/navigation';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
@@ -206,7 +207,7 @@
 {/snippet}
 
 <svelte:head>
-	<title>Administrators — HostPanel Admin</title>
+	<title>Administrators — {appName} Admin</title>
 </svelte:head>
 
 {#if !unlocked}

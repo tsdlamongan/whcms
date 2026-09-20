@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
 	import { enhance } from '$app/forms';
 	import DateText from '$lib/components/DateText.svelte';
 	import HpModal from '$lib/components/hp/HpModal.svelte';
@@ -88,7 +89,7 @@
 </script>
 
 <svelte:head>
-	<title>{domain.name} — HostPanel Admin</title>
+	<title>{domain.name} — {appName} Admin</title>
 </svelte:head>
 
 <div

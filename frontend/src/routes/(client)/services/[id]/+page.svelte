@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
 	import { enhance } from '$app/forms';
 	import Alert from '$lib/components/Alert.svelte';
 	import Breadcrumb from '$lib/components/Breadcrumb.svelte';
@@ -125,7 +126,10 @@
 		for (const spec of p.specs ?? []) {
 			const cur = current[spec.key];
 			out[spec.key] = cur
-				? { qty: cur.unlimited || cur.qty < 0 ? spec.default_qty : cur.qty, unlimited: cur.unlimited }
+				? {
+						qty: cur.unlimited || cur.qty < 0 ? spec.default_qty : cur.qty,
+						unlimited: cur.unlimited
+					}
 				: { qty: spec.default_qty, unlimited: false };
 		}
 		return out;
@@ -202,7 +206,7 @@
 {/snippet}
 
 <svelte:head>
-	<title>{service ? productLabel(service) : t('clientsvc.detail.title')} — WHCMS</title>
+	<title>{service ? productLabel(service) : t('clientsvc.detail.title')} — {appName}</title>
 </svelte:head>
 
 <Breadcrumb items={breadcrumbs} />

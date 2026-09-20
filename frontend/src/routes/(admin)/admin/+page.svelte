@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
 	import { invalidateAll } from '$app/navigation';
 	import HpPanel from '$lib/components/hp/HpPanel.svelte';
 	import HpStatCard from '$lib/components/hp/HpStatCard.svelte';
@@ -154,7 +155,7 @@
 </script>
 
 <svelte:head>
-	<title>Dashboard — HostPanel Admin</title>
+	<title>Dashboard — {appName} Admin</title>
 </svelte:head>
 
 <h1 class="hp-h1">Dashboard</h1>

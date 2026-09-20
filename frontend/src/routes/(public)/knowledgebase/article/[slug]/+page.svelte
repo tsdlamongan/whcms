@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
 	import { Alert, EmptyState } from '$lib/components';
 	import { t } from '$lib/i18n';
 	import type { PageProps } from './$types';
@@ -8,7 +9,7 @@
 </script>
 
 <svelte:head>
-	<title>{art ? art.title : t('portal.kb.notFoundArticle')} — WHCMS</title>
+	<title>{art ? art.title : t('portal.kb.notFoundArticle')} — {appName}</title>
 </svelte:head>
 
 {#if data.loadError}

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { env } from '$env/dynamic/public';
+	import { appName } from '$lib/appName';
 	import { i18n, LOCALES, t } from '$lib/i18n';
 	import CaLanguageModal from './CaLanguageModal.svelte';
 
@@ -17,7 +17,6 @@
 
 	let { localeTestidPrefix = 'locale-switch' }: Props = $props();
 
-	const appName = env.PUBLIC_APP_NAME || 'WHCMS';
 	const year = new Date().getFullYear();
 
 	let langOpen = $state(false);

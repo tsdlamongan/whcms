@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
 	import RegistrarCard from './RegistrarCard.svelte';
 	import type { PageProps } from './$types';
 
@@ -14,7 +15,7 @@
 </script>
 
 <svelte:head>
-	<title>Domain Registrars — HostPanel Admin</title>
+	<title>Domain Registrars — {appName} Admin</title>
 </svelte:head>
 
 <h1 class="hp-h1">Domain Registrars</h1>

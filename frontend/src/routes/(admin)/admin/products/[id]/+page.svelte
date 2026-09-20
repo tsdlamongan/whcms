@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
 	import { enhance } from '$app/forms';
 	import HpModal from '$lib/components/hp/HpModal.svelte';
 	import { t } from '$lib/i18n';
@@ -34,7 +35,7 @@
 </script>
 
 <svelte:head>
-	<title>{title} — WHCMS Admin</title>
+	<title>{title} — {appName} Admin</title>
 </svelte:head>
 
 {#if data.loadError || !data.product}
@@ -71,14 +72,23 @@
 					};
 				}}
 			>
-				<button type="submit" class="hp-btn" disabled={duplicating} data-testid="product-duplicate-button">
+				<button
+					type="submit"
+					class="hp-btn"
+					disabled={duplicating}
+					data-testid="product-duplicate-button"
+				>
 					<i class="fas fa-copy" style="color:#5b9bd5"></i>{duplicating
 						? 'Duplicating…'
 						: 'Duplicate Product'}
 				</button>
 			</form>
 			<span data-testid="product-delete-button">
-				<button type="button" class="hp-btn hp-btn-danger" onclick={() => (confirmDeleteOpen = true)}>
+				<button
+					type="button"
+					class="hp-btn hp-btn-danger"
+					onclick={() => (confirmDeleteOpen = true)}
+				>
 					<i class="fas fa-trash-alt"></i>Delete Product
 				</button>
 			</span>
@@ -93,8 +103,8 @@
 
 	{#if data.duplicated}
 		<div class="hp-alert-green" data-testid="product-duplicated-alert">
-			<i class="fas fa-check-circle" style="margin-right:8px"></i>Product duplicated as "{data.product.name}".
-			It's hidden — review the name, slug and pricing, then unhide it when ready.
+			<i class="fas fa-check-circle" style="margin-right:8px"></i>Product duplicated as "{data
+				.product.name}". It's hidden — review the name, slug and pricing, then unhide it when ready.
 		</div>
 	{/if}
 

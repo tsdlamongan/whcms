@@ -64,8 +64,20 @@ test.describe('admin read pages', () => {
 				await expect(page.getByTestId(p.testid)).toBeVisible({ timeout: 15_000 });
 			} else {
 				// Collapsed-filter list pages: assert the page rendered for admin.
-				await expect(page.getByRole('heading', { level: 1 }).first()).toBeVisible({ timeout: 15_000 });
+				await expect(page.getByRole('heading', { level: 1 }).first()).toBeVisible({
+					timeout: 15_000
+				});
 			}
 		});
 	}
+
+	test('admin page title follows the HostPanel nav brand (PUBLIC_APP_NAME), not a hardcoded name', async ({
+		page
+	}) => {
+		await page.goto('/admin');
+		const brand = await page.getByTestId('app-name').innerText();
+		expect(brand.length).toBeGreaterThan(0);
+		const title = await page.title();
+		expect(title.endsWith(` — ${brand} Admin`)).toBe(true);
+	});
 });

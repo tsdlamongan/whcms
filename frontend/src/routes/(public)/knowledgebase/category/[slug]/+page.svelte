@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
 	import { Alert, EmptyState } from '$lib/components';
 	import { t } from '$lib/i18n';
 	import type { PageProps } from './$types';
@@ -11,7 +12,7 @@
 </script>
 
 <svelte:head>
-	<title>{cat ? cat.name : t('portal.kb.notFoundCategory')} — WHCMS</title>
+	<title>{cat ? cat.name : t('portal.kb.notFoundCategory')} — {appName}</title>
 </svelte:head>
 
 {#if data.loadError}

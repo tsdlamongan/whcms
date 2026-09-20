@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { Alert, DateText, EmptyState } from '$lib/components';
@@ -31,7 +32,7 @@
 </script>
 
 <svelte:head>
-	<title>{t('portal.announcements.title')} — WHCMS</title>
+	<title>{t('portal.announcements.title')} — {appName}</title>
 </svelte:head>
 
 <h1 class="ca-h1">{t('portal.announcements.title')}</h1>
