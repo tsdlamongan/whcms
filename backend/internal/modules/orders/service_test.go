@@ -126,6 +126,7 @@ func newFixture() *testEnv {
 		return &domain.Client{
 			ID: id, UserID: 3, FirstName: "Budi", LastName: "Santoso",
 			Address1: "Jl. Melati 1", City: "Lamongan", State: "Jawa Timur", Postcode: "62211",
+			Phone: "081234567890",
 		}, nil
 	}
 	e.users.GetByIDFn = func(_ context.Context, id int64) (*domain.User, error) {
@@ -537,6 +538,29 @@ func TestCreateOrderDomainRequiresCompleteProfile(t *testing.T) {
 			assert.Equal(t, "profile_address", ae.Details[0].Field)
 		})
 	}
+}
+
+// A registrant contact with a full address but a blank phone still fails:
+// RDash rejects a customer/contact with a blank "voice" field.
+func TestCreateOrderDomainRequiresPhone(t *testing.T) {
+	e := newFixture()
+	e.clients.GetByIDFn = func(_ context.Context, id int64) (*domain.Client, error) {
+		return &domain.Client{
+			ID: id, UserID: 3, FirstName: "Budi", LastName: "Santoso",
+			Address1: "Jl. Melati 1", City: "Lamongan", State: "Jawa Timur", Postcode: "62211",
+		}, nil
+	}
+	svc := orders.New(e.deps)
+
+	_, err := svc.CreateOrder(context.Background(), 7, "ip", orders.CreateOrderRequest{
+		Items: []orders.OrderItemRequest{{ItemType: "domain_register", Domain: "x.com"}},
+	})
+
+	require.Error(t, err)
+	ae := apperr.From(err)
+	assert.Equal(t, apperr.CodeValidation, ae.Code)
+	require.Len(t, ae.Details, 1)
+	assert.Equal(t, "profile_address", ae.Details[0].Field)
 }
 
 func TestCreateOrderNonDomainItemIgnoresIncompleteProfile(t *testing.T) {

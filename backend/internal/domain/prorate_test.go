@@ -90,14 +90,17 @@ func TestClientFullName(t *testing.T) {
 }
 
 func TestClientHasRegistrantAddress(t *testing.T) {
-	complete := domain.Client{Address1: "Jl. Melati 1", City: "Lamongan", State: "Jawa Timur", Postcode: "62211"}
+	complete := domain.Client{
+		Address1: "Jl. Melati 1", City: "Lamongan", State: "Jawa Timur", Postcode: "62211", Phone: "081234567890",
+	}
 	assert.True(t, complete.HasRegistrantAddress())
 
 	cases := []domain.Client{
-		{City: "Lamongan", State: "Jawa Timur", Postcode: "62211"},
-		{Address1: "Jl. Melati 1", State: "Jawa Timur", Postcode: "62211"},
-		{Address1: "Jl. Melati 1", City: "Lamongan", Postcode: "62211"},
-		{Address1: "Jl. Melati 1", City: "Lamongan", State: "Jawa Timur"},
+		{City: "Lamongan", State: "Jawa Timur", Postcode: "62211", Phone: "081234567890"},
+		{Address1: "Jl. Melati 1", State: "Jawa Timur", Postcode: "62211", Phone: "081234567890"},
+		{Address1: "Jl. Melati 1", City: "Lamongan", Postcode: "62211", Phone: "081234567890"},
+		{Address1: "Jl. Melati 1", City: "Lamongan", State: "Jawa Timur", Phone: "081234567890"},
+		{Address1: "Jl. Melati 1", City: "Lamongan", State: "Jawa Timur", Postcode: "62211"},
 		{},
 	}
 	for _, c := range cases {

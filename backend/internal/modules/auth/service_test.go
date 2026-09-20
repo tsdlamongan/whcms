@@ -303,6 +303,7 @@ func TestRegisterValidation(t *testing.T) {
 		"no city":        func(r *auth.RegisterRequest) { r.City = "" },
 		"no state":       func(r *auth.RegisterRequest) { r.State = "" },
 		"no postcode":    func(r *auth.RegisterRequest) { r.Postcode = "" },
+		"no phone":       func(r *auth.RegisterRequest) { r.Phone = "" },
 	}
 	for name, mutate := range cases {
 		t.Run(name, func(t *testing.T) {
