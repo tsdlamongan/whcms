@@ -801,7 +801,7 @@ func TestHandlerAdminUpdate(t *testing.T) {
 func TestHandlerRegistrars(t *testing.T) {
 	svc := &fakeService{
 		ListRegistrarsFn: func(ctx context.Context) ([]domain.Registrar, error) {
-			return []domain.Registrar{{ID: 1, Name: "rdash", Active: true, ResellerID: "584", BaseURL: "http://localhost:9090/v1"}}, nil
+			return []domain.Registrar{{ID: 1, Name: "rdash", Active: true, ResellerID: "test-reseller-1", BaseURL: "http://localhost:9090/v1"}}, nil
 		},
 		UpdateRegistrarFn: func(ctx context.Context, actorUserID, id int64, in domains.UpdateRegistrarRequest) (*domain.Registrar, error) {
 			assert.EqualValues(t, 1, actorUserID)
@@ -821,7 +821,7 @@ func TestHandlerRegistrars(t *testing.T) {
 	list := env["data"].([]any)
 	assert.Len(t, list, 1)
 	assert.Equal(t, true, list[0].(map[string]any)["api_key_present"])
-	assert.Equal(t, "584", list[0].(map[string]any)["reseller_id"])
+	assert.Equal(t, "test-reseller-1", list[0].(map[string]any)["reseller_id"])
 	assert.Equal(t, "http://localhost:9090/v1", list[0].(map[string]any)["base_url"])
 
 	status, env = doJSON(t, app, "GET", "/api/v1/admin/registrars/1", "")
