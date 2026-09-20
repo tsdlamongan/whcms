@@ -6,6 +6,12 @@
 	 * enclosing form, and re-arms after a failed submit (tokens are single-use).
 	 * Only render this when captcha is enabled.
 	 *
+	 * `appearance: 'interaction-only'` + `size: 'flexible'`: stays invisible
+	 * (0 height, full container width) when Cloudflare can verify silently,
+	 * only expanding to show its challenge UI when one is actually needed.
+	 * Without this the "Berhasil!" success badge always renders full-size,
+	 * dwarfing the compact login/register/checkout panels it sits in.
+	 *
 	 * Automation fast-path: when running under a WebDriver-controlled browser
 	 * (Playwright/Selenium set `navigator.webdriver`) AND the configured sitekey
 	 * is one of Cloudflare's documented TEST sitekeys (only ever used in dev/CI,
@@ -124,6 +130,8 @@
 				widgetId = ts.render(container, {
 					sitekey: siteKey,
 					theme,
+					size: 'flexible',
+					appearance: 'interaction-only',
 					callback: (tok: string) => {
 						token = tok;
 					},
