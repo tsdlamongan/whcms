@@ -197,11 +197,13 @@ func (s *Server) handleRDashAvailability(w http.ResponseWriter, r *http.Request)
 		available = 1
 		message = "available"
 	}
-	writeRDash(w, http.StatusOK, "Success", []map[string]any{{
+	// Single-resource endpoint (one domain per call) - the real Dewabiz API
+	// returns `data` as a plain object here, not wrapped in an array.
+	writeRDash(w, http.StatusOK, "Success", map[string]any{
 		"name":      name,
 		"available": available,
 		"message":   message,
-	}})
+	})
 }
 
 // GET /v1/domains/details?domain_name=X

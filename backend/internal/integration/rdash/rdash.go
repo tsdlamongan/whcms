@@ -357,7 +357,10 @@ func (c *Client) CheckAvailability(ctx context.Context, names []string) ([]ports
 		go func(i int, name string) {
 			defer wg.Done()
 
-			var data []struct {
+			// This is a single-resource endpoint (one domain per call), so the
+			// real API returns `data` as a single object, not an array -
+			// unlike list endpoints such as GET /domains.
+			var data struct {
 				Name      string `json:"name"`
 				Available int    `json:"available"`
 			}
@@ -367,11 +370,9 @@ func (c *Client) CheckAvailability(ctx context.Context, names []string) ([]ports
 				return
 			}
 			avail := ports.DomainAvailability{Name: name}
-			if len(data) > 0 {
-				avail.Available = data[0].Available != 0
-				if data[0].Name != "" {
-					avail.Name = data[0].Name
-				}
+			avail.Available = data.Available != 0
+			if data.Name != "" {
+				avail.Name = data.Name
 			}
 
 			ext := extensionOf(name)
