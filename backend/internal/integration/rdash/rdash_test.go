@@ -533,6 +533,72 @@ func TestRegisterCustomerNameFallsBackToEmail(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestContactNameAndOrg(t *testing.T) {
+	cases := []struct {
+		name     string
+		contact  ports.RegistrantContact
+		wantName string
+		wantOrg  string
+	}{
+		{
+			name:     "full name and company kept as-is",
+			contact:  ports.RegistrantContact{FirstName: "Budi", LastName: "Santoso", Company: "PT Test", Email: "budi@example.test"},
+			wantName: "Budi Santoso",
+			wantOrg:  "PT Test",
+		},
+		{
+			name:     "blank name and company fall back to email",
+			contact:  ports.RegistrantContact{Email: "jane@example.test"},
+			wantName: "jane@example.test",
+			wantOrg:  "jane@example.test",
+		},
+		{
+			// RDash rejects "The organization must be at least 3 characters."
+			// for a real but short company name (e.g. "PT", "CV").
+			name:     "short company falls back to the resolved name",
+			contact:  ports.RegistrantContact{FirstName: "Budi", LastName: "Santoso", Company: "PT", Email: "budi@example.test"},
+			wantName: "Budi Santoso",
+			wantOrg:  "Budi Santoso",
+		},
+		{
+			name:     "short name with no company falls back to email for both",
+			contact:  ports.RegistrantContact{FirstName: "Al", Email: "al@example.test"},
+			wantName: "al@example.test",
+			wantOrg:  "al@example.test",
+		},
+		{
+			name:     "short name and short company both fall back to email",
+			contact:  ports.RegistrantContact{FirstName: "Al", Company: "CV", Email: "al@example.test"},
+			wantName: "al@example.test",
+			wantOrg:  "al@example.test",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			name, org := contactNameAndOrg(tc.contact)
+			assert.Equal(t, tc.wantName, name)
+			assert.Equal(t, tc.wantOrg, org)
+		})
+	}
+}
+
+func TestRegisterCustomerShortCompanyFallsBackToName(t *testing.T) {
+	f := newFixture(t, routes(t, map[string]http.HandlerFunc{
+		"POST /customers": func(w http.ResponseWriter, r *http.Request) {
+			form := requireForm(t, r)
+			assert.Equal(t, "Budi Santoso", form.Get("name"))
+			assert.Equal(t, "Budi Santoso", form.Get("organization"))
+			writeEnv(w, http.StatusOK, "ok", map[string]any{"id": 1})
+		},
+		"POST /domains": func(w http.ResponseWriter, r *http.Request) {
+			writeEnv(w, http.StatusOK, "ok", map[string]any{"id": 1, "name": "x.id", "status_label": "Active"})
+		},
+	}))
+	contact := ports.RegistrantContact{FirstName: "Budi", LastName: "Santoso", Company: "PT", Email: "budi@example.test"}
+	_, err := f.client.Register(context.Background(), ports.RegisterDomainRequest{Name: "x.id", Contact: contact})
+	require.NoError(t, err)
+}
+
 // Transfer
 
 func TestTransferSuccess(t *testing.T) {
