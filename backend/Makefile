@@ -8,7 +8,7 @@ endif
 
 DATABASE_URL ?= postgres://root:postgres@localhost:5432/whmcs_e2e?sslmode=disable
 
-.PHONY: build test test-integration cover cover-gate guard-test-db run-api run-worker migrate-up migrate-down vet fmt lint
+.PHONY: build test test-integration cover cover-gate guard-test-db run-api run-worker run-cli migrate-up migrate-down vet fmt lint
 
 build:
 	go build ./...
@@ -72,6 +72,12 @@ run-api:
 
 run-worker:
 	go run ./cmd/worker
+
+run-cli:
+	go run ./cmd/cli
+
+build-cli:
+	go build -o ../whcms ./cmd/cli
 
 # Migrations run automatically on API start; these targets are for manual ops.
 migrate-up:
