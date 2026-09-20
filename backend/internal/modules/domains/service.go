@@ -1320,12 +1320,12 @@ func cycleYears(c domain.BillingCycle) int {
 // registrantContact builds the registrar contact from the client profile and
 // the owning user's email; also returns the user id for notifications.
 //
-// Address/city/state/postcode are optional on the client profile, but the
-// registrar requires all four for the registrant contact - fail fast with an
-// actionable message (and a client-facing email pointing at their account
-// profile) rather than a raw registrar validation error. The user id is
-// still returned alongside this error so the caller can be notified without
-// a second client lookup.
+// Address/city/state/postcode/phone are optional on the client profile, but
+// the registrar requires all five for the registrant contact - fail fast
+// with an actionable message (and a client-facing email pointing at their
+// account profile) rather than a raw registrar validation error. The user id
+// is still returned alongside this error so the caller can be notified
+// without a second client lookup.
 func (s *Service) registrantContact(ctx context.Context, dom *domain.Domain) (ports.RegistrantContact, int64, error) {
 	cl, err := s.d.Clients.GetByID(ctx, dom.ClientID)
 	if err != nil {
@@ -1338,7 +1338,7 @@ func (s *Service) registrantContact(ctx context.Context, dom *domain.Domain) (po
 	if !cl.HasRegistrantAddress() {
 		s.notify(ctx, cl.UserID, tplDomainProfileIncomplete, dom)
 		return ports.RegistrantContact{}, cl.UserID, apperr.Validation(
-			"client profile is missing address details (address, city, state, postal code) required for domain registration")
+			"client profile is missing registrant details (address, city, state, postal code, phone) required for domain registration")
 	}
 	contact := ports.RegistrantContact{
 		FirstName: cl.FirstName,

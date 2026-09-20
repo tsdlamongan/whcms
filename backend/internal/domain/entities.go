@@ -46,11 +46,12 @@ type Client struct {
 }
 
 // HasRegistrantAddress reports whether the profile carries the
-// address/city/state/postcode a domain registrar requires for the
+// address/city/state/postcode/phone a domain registrar requires for the
 // registrant contact on a domain register/transfer (CONTRACTS.md domain
-// registration).
+// registration). Phone is included because RDash rejects a registrant
+// contact with a blank "voice" field.
 func (c Client) HasRegistrantAddress() bool {
-	return c.Address1 != "" && c.City != "" && c.State != "" && c.Postcode != ""
+	return c.Address1 != "" && c.City != "" && c.State != "" && c.Postcode != "" && c.Phone != ""
 }
 
 // FullName returns "First Last" trimmed.

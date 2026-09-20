@@ -9,11 +9,12 @@ import (
 // RegisterRequest is the POST /auth/register body. Locale is optional and
 // defaults to "id" (users.locale column default). CaptchaToken is verified only
 // when CAPTCHA is enabled (security.captcha_enabled). IP is filled by the
-// handler (never from the body). Address1/City/State/Postcode are required at
-// registration (not just profile-edit time): a registrar needs a complete
-// registrant contact to register or transfer a domain, and rejecting an
-// incomplete address here is cheaper than failing that job asynchronously,
-// post-payment (domains.Service.registrantContact).
+// handler (never from the body). Address1/City/State/Postcode/Phone are
+// required at registration (not just profile-edit time): a registrar needs a
+// complete registrant contact (including phone, RDash's "voice" field) to
+// register or transfer a domain, and rejecting an incomplete profile here is
+// cheaper than failing that job asynchronously, post-payment
+// (domains.Service.registrantContact).
 type RegisterRequest struct {
 	Email        string `json:"email" validate:"required,email,max=255"`
 	Password     string `json:"password" validate:"required,min=8,max=72"`
@@ -26,7 +27,7 @@ type RegisterRequest struct {
 	State        string `json:"state" validate:"required,max=100"`
 	Postcode     string `json:"postcode" validate:"required,max=20"`
 	Country      string `json:"country" validate:"omitempty,len=2"`
-	Phone        string `json:"phone" validate:"max=30"`
+	Phone        string `json:"phone" validate:"required,max=30"`
 	Locale       string `json:"locale" validate:"omitempty,oneof=id en"`
 	CaptchaToken string `json:"captcha_token"`
 	IP           string `json:"-"`

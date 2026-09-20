@@ -453,4 +453,47 @@ test.describe('checkout blocks domain purchases for an incomplete profile', () =
 		// Never charged: still on the cart, not redirected to an invoice.
 		await expect(page).toHaveURL(/\/order\/cart$/);
 	});
+
+	// RDash rejects a registrant contact with a blank "voice" (phone) field,
+	// so a profile with a full address but no phone must also be blocked here
+	// - not just fail later in the async registrar job.
+	test('a client with a full address but no phone on file is also blocked', async ({ page, context }) => {
+		test.setTimeout(60_000);
+
+		const email = `${unique('e2e-nophone')}@e2e.test`;
+		const password = 'IncompleteE2E!2026';
+		const created = await api.post(`${API_BASE}/api/v1/admin/clients`, {
+			headers: authHeaders(adminTok),
+			data: {
+				email,
+				password,
+				first_name: 'NoPhone',
+				last_name: 'Profile',
+				address1: 'Jl. Melati 1',
+				city: 'Lamongan',
+				state: 'Jawa Timur',
+				postcode: '62211',
+				country: 'ID'
+			}
+		});
+		expect(created.ok(), `create client: ${await created.text()}`).toBeTruthy();
+
+		const client = await loginApi(api, email, password);
+		await setSessionCookies(context, client.accessToken, client.refreshToken);
+
+		const domainName = `${uniqueDomainLabel()}.com`;
+		await page.goto(`/order/domain?q=${encodeURIComponent(domainName)}`);
+		await page.waitForLoadState('networkidle');
+		await expect(page.getByTestId(`domain-result-${domainName}`)).toBeVisible({ timeout: 15_000 });
+		await page.getByTestId(`domain-register-${domainName}`).click();
+		await expect(page.getByTestId(`domain-in-cart-${domainName}`)).toBeVisible({ timeout: 5_000 });
+		await page.getByTestId('domain-continue-to-cart').click();
+		await expect(page).toHaveURL(/\/order\/cart$/, { timeout: 15_000 });
+
+		await page.getByTestId('checkout-submit').click();
+		await expect(page.getByTestId('checkout-error')).toBeVisible({ timeout: 15_000 });
+		await expect(page.getByTestId('checkout-complete-profile-link')).toBeVisible();
+		await expect(page.getByTestId('checkout-complete-profile-link')).toHaveAttribute('href', '/account');
+		await expect(page).toHaveURL(/\/order\/cart$/);
+	});
 });
