@@ -19,24 +19,47 @@ import {
  * Custom-spec (configurable) service upgrade through the client area:
  *
  * an admin defines a configurable cPanel product (disk knob, per-GB pricing);
- * a client orders it at 20 GB and pays (API-driven setup - the order/configure
- * UI itself is covered by configure-custom-product.spec.ts); then - the flow
- * this spec owns - the client opens the service page, resizes the disk to
- * 50 GB in the upgrade modal, sees the live estimate, submits, lands on the
- * prorated diff invoice, pays it via the mock Duitku gateway, and the worker
- * rebuilds the panel package: the service's recurring amount and chosen specs
- * update, a new dynamic package (quota 51200 MB) exists on the mock WHM, and
- * the old dynamic package (no longer referenced) is deleted.
+ * a client orders it and pays (API-driven setup - the order/configure UI
+ * itself is covered by configure-custom-product.spec.ts); then - the flow
+ * this spec owns - the client opens the service page, resizes the disk in
+ * the upgrade modal, sees the live estimate, submits, lands on the prorated
+ * diff invoice, pays it via the mock Duitku gateway, and the worker rebuilds
+ * the panel package: the service's recurring amount and chosen specs update,
+ * a new dynamic package (matching the resized quota) exists on the mock WHM,
+ * and the old dynamic package (no longer referenced) is deleted.
+ *
+ * The disk sizes are randomized (not a fixed 20→50) because the dynamic
+ * panel package name is a deterministic hash of (server prefix, resolved
+ * limits, toggles) - unlike the domain/email/product slug, it is NOT
+ * something `unique()` already randomizes. A fixed size would always hash to
+ * the exact same package name as every past run of this spec, so a single
+ * earlier run that failed/aborted before completing its own resize (leaving
+ * its service stuck forever on the "pre-resize" package) would permanently
+ * poison the "old package deleted" assertion below for every later run
+ * against the persistent whmcs_e2e DB.
  *
  * Runs against the live stack (mockserver:9090, api:8080, worker, frontend).
  */
 
 test.describe.configure({ mode: 'serial', timeout: 120_000 });
 
+function randStep(min: number, max: number, step: number): number {
+	const n = Math.floor((max - min) / step) + 1;
+	return min + step * Math.floor(Math.random() * n);
+}
+
 test.describe('custom-spec upgrade: resize via client area → pay → package rebuilt', () => {
 	const suffix = unique('upspec');
 	const slug = `e2e-${suffix}`;
 	const hostingDomain = `${uniqueDomainLabel()}.upspec.e2e.test`;
+
+	const includedQty = 5;
+	const pricePerGB = 1_000;
+	const basePrice = 50_000;
+	const originalDiskGB = randStep(20, 70, 5);
+	const resizedDiskGB = originalDiskGB + randStep(20, 30, 5);
+	const originalRecurring = basePrice + (originalDiskGB - includedQty) * pricePerGB;
+	const resizedRecurring = basePrice + (resizedDiskGB - includedQty) * pricePerGB;
 
 	let api: APIRequestContext;
 	let client: Client;
@@ -102,7 +125,7 @@ test.describe('custom-spec upgrade: resize via client area → pay → package r
 			(
 				await api.put(`${API_BASE}/api/v1/admin/products/${productId}/pricing`, {
 					headers: adminAuth,
-					data: { cycle: 'monthly', price: 50_000, setup_fee: 0 }
+					data: { cycle: 'monthly', price: basePrice, setup_fee: 0 }
 				})
 			).ok()
 		).toBeTruthy();
@@ -114,7 +137,7 @@ test.describe('custom-spec upgrade: resize via client area → pay → package r
 				label: 'Disk space',
 				provision_key: 'disk',
 				unit: 'gb',
-				included_qty: 5,
+				included_qty: includedQty,
 				min_qty: 5,
 				max_qty: 100,
 				step_qty: 5,
@@ -127,12 +150,12 @@ test.describe('custom-spec upgrade: resize via client area → pay → package r
 			(
 				await api.put(`${API_BASE}/api/v1/admin/product-specs/${specId}/pricing`, {
 					headers: adminAuth,
-					data: { cycle: 'monthly', unit_price: 1_000, unlimited_price: 0 }
+					data: { cycle: 'monthly', unit_price: pricePerGB, unlimited_price: 0 }
 				})
 			).ok()
 		).toBeTruthy();
 
-		// --- Client: order at 20 GB (50k + 15×1k = 65k/mo) and pay ------------
+		// --- Client: order at the randomized original disk size and pay -------
 		client = await registerVerifyLogin(api, 'upspec');
 		const invoiceId = await createOrder(api, client.accessToken, [
 			{
@@ -140,7 +163,7 @@ test.describe('custom-spec upgrade: resize via client area → pay → package r
 				product_id: productId,
 				cycle: 'monthly',
 				domain: hostingDomain,
-				specs: [{ key: 'disk', qty: 20 }]
+				specs: [{ key: 'disk', qty: originalDiskGB }]
 			}
 		]);
 		await payInvoiceViaMock(api, client.accessToken, invoiceId);
@@ -153,7 +176,7 @@ test.describe('custom-spec upgrade: resize via client area → pay → package r
 			'active'
 		);
 		serviceId = svc.id as number;
-		expect(svc.recurring_amount, 'order must price base + chargeable disk').toBe(65_000);
+		expect(svc.recurring_amount, 'order must price base + chargeable disk').toBe(originalRecurring);
 		originalPackage = ((svc.panel_meta as { package_name?: string }) ?? {}).package_name ?? '';
 		expect(originalPackage, 'configurable service must record its dynamic package').not.toBe('');
 	});
@@ -166,7 +189,7 @@ test.describe('custom-spec upgrade: resize via client area → pay → package r
 		await setSessionCookies(context, client.accessToken, client.refreshToken);
 	});
 
-	test('resize disk 20→50 GB, pay the prorated invoice, and the panel package is rebuilt', async ({
+	test('resize the disk spec, pay the prorated invoice, and the panel package is rebuilt', async ({
 		page
 	}) => {
 		// --- Upgrade modal: pick the same product, resize the disk knob -------
@@ -177,14 +200,16 @@ test.describe('custom-spec upgrade: resize via client area → pay → package r
 		await page.locator('select[name="cycle"]').selectOption('monthly');
 
 		// Resizing the service's own product prefills the knob from its current
-		// chosen specs (20 GB), not the product default (10 GB).
+		// chosen specs, not the product default (10 GB).
 		const disk = page.getByTestId('spec-disk-input');
-		await expect(disk).toHaveValue('20');
-		await disk.fill('50');
-		await expect(disk).toHaveValue('50');
+		await expect(disk).toHaveValue(String(originalDiskGB));
+		await disk.fill(String(resizedDiskGB));
+		await expect(disk).toHaveValue(String(resizedDiskGB));
 
-		// Live estimate: 50k base + (50-5)×1k = 95k/mo.
-		await expect(page.getByTestId('service-upgrade-price')).toContainText('95.000');
+		// Live estimate: base + (resized - included) × per-GB price.
+		await expect(page.getByTestId('service-upgrade-price')).toContainText(
+			resizedRecurring.toLocaleString('id-ID')
+		);
 
 		await page.getByTestId('service-upgrade-submit').click();
 		await page.waitForURL(/\/billing\/invoices\/\d+/, { timeout: 20_000 });
@@ -196,7 +221,7 @@ test.describe('custom-spec upgrade: resize via client area → pay → package r
 			headers: authHeaders(client.accessToken)
 		});
 		expect(invRes.ok()).toBeTruthy();
-		expect(JSON.stringify(await invRes.json())).toContain('50GB disk');
+		expect(JSON.stringify(await invRes.json())).toContain(`${resizedDiskGB}GB disk`);
 
 		// Until it is paid, the service shows the pending upgrade + invoice link.
 		await page.goto(`/services/${serviceId}`);
@@ -225,7 +250,7 @@ test.describe('custom-spec upgrade: resize via client area → pay → package r
 				},
 				{ timeout: 30_000, message: 'waiting for the paid upgrade to be applied' }
 			)
-			.toBe(95_000);
+			.toBe(resizedRecurring);
 		expect(pendingUpgrade, 'pending_upgrade must clear once applied').toBeFalsy();
 
 		// --- Worker rebuilds the panel package from the new chosen specs ------
@@ -261,7 +286,7 @@ test.describe('custom-spec upgrade: resize via client area → pay → package r
 				},
 				{ timeout: 20_000, message: 'waiting for the resized dynamic package' }
 			)
-			.toBe(String(50 * 1024)); // 50 GB → 51200 MB
+			.toBe(String(resizedDiskGB * 1024));
 
 		const pkgsRes = await api.get(`${MOCK_BASE}/mock/whm/packages`);
 		const names = (((await pkgsRes.json()).packages ?? []) as Array<{ name: string }>).map(
