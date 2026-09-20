@@ -798,6 +798,35 @@ func TestRegisterDomainJob(t *testing.T) {
 		}
 		assert.NoError(t, d.svc().RegisterDomainJob(context.Background(), 10))
 	})
+
+	t.Run("incomplete client profile fails validation and notifies the client", func(t *testing.T) {
+		d := newFixture()
+		stubGet(d, testDomain(func(x *domain.Domain) { x.Status = domain.DomainPending }))
+		d.clients.GetByIDFn = func(ctx context.Context, id int64) (*domain.Client, error) {
+			return &domain.Client{ID: id, UserID: 77, FirstName: "Budi", Address1: "Jl. Melati 1", City: "Lamongan"}, nil
+		}
+		d.users.GetByIDFn = func(ctx context.Context, id int64) (*domain.User, error) {
+			return &domain.User{ID: id, Email: "budi@example.com"}, nil
+		}
+		registered := false
+		d.registrar.RegisterFn = func(ctx context.Context, r ports.RegisterDomainRequest) (*ports.DomainResult, error) {
+			registered = true
+			return nil, nil
+		}
+		var notifiedUser int64
+		var notifiedTpl string
+		d.notifier.SendTemplateFn = func(ctx context.Context, userID int64, key string, data map[string]any) error {
+			notifiedUser, notifiedTpl = userID, key
+			assert.Equal(t, "example.com", data["Domain"])
+			return nil
+		}
+
+		err := d.svc().RegisterDomainJob(context.Background(), 10)
+		assertCode(t, err, apperr.CodeValidation)
+		assert.False(t, registered, "registrar must not be called with an incomplete contact")
+		assert.EqualValues(t, 77, notifiedUser)
+		assert.Equal(t, "domain_profile_incomplete", notifiedTpl)
+	})
 }
 
 // TransferDomainJob
@@ -860,6 +889,29 @@ func TestTransferDomainJob(t *testing.T) {
 		}
 		err := d.svc().TransferDomainJob(context.Background(), 10)
 		assertCode(t, err, apperr.CodeExternal)
+	})
+
+	t.Run("incomplete client profile fails validation", func(t *testing.T) {
+		d := newFixture()
+		stubGet(d, testDomain(func(x *domain.Domain) {
+			x.Status = domain.DomainPendingTransfer
+			x.EPPCodeEnc = "enc:epp-secret"
+		}))
+		d.clients.GetByIDFn = func(ctx context.Context, id int64) (*domain.Client, error) {
+			return &domain.Client{ID: id, UserID: 77, FirstName: "Budi"}, nil
+		}
+		d.users.GetByIDFn = func(ctx context.Context, id int64) (*domain.User, error) {
+			return &domain.User{ID: id, Email: "budi@example.com"}, nil
+		}
+		transferred := false
+		d.registrar.TransferFn = func(ctx context.Context, r ports.TransferDomainRequest) (*ports.DomainResult, error) {
+			transferred = true
+			return nil, nil
+		}
+
+		err := d.svc().TransferDomainJob(context.Background(), 10)
+		assertCode(t, err, apperr.CodeValidation)
+		assert.False(t, transferred, "registrar must not be called with an incomplete contact")
 	})
 }
 

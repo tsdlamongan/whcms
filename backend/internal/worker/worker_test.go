@@ -308,6 +308,44 @@ func TestOneOffTask_MissingIDSkipsRetry(t *testing.T) {
 	}
 }
 
+// A VALIDATION error (e.g. a client profile permanently missing address
+// details) means retrying can never succeed - domainRegister/domainTransfer
+// skip retry on it instead of burning asynq's exponential backoff.
+func TestDomainJobs_ValidationErrorSkipsRetry(t *testing.T) {
+	cases := []struct {
+		taskType string
+		payload  any
+		method   string
+	}{
+		{jobs.TypeDomainRegister, jobs.DomainRegisterPayload{DomainID: 13}, "RegisterDomainJob"},
+		{jobs.TypeDomainTransfer, jobs.DomainTransferPayload{DomainID: 14}, "TransferDomainJob"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.taskType, func(t *testing.T) {
+			e := newFixture()
+			e.deps.errs[tc.method] = apperr.Validation("client profile is missing address details")
+
+			err := e.process(t, tc.taskType, tc.payload)
+
+			require.Error(t, err)
+			assert.ErrorIs(t, err, asynq.SkipRetry)
+			assert.Len(t, e.deps.alerts, 1, "a skipped-retry validation failure still alerts the admin immediately")
+		})
+	}
+}
+
+// Other one-off tasks must not get this treatment: a VALIDATION error from,
+// say, ProvisionCreate is not necessarily permanent, so it stays retryable.
+func TestOneOffTask_ValidationErrorStaysRetryableOutsideDomainJobs(t *testing.T) {
+	e := newFixture()
+	e.deps.errs["ProvisionCreate"] = apperr.Validation("bad input")
+
+	err := e.process(t, jobs.TypeProvisionCreate, jobs.ProvisionCreatePayload{ServiceID: 5})
+
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, asynq.SkipRetry)
+}
+
 // Cron routing + locking
 
 func TestRegisterHandlers_RoutesEveryCronUnderLock(t *testing.T) {

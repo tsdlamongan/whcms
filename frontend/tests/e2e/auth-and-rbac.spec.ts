@@ -65,6 +65,7 @@ interface RegisterFields {
 	lastName: string;
 	address1: string;
 	city: string;
+	state: string;
 	postcode: string;
 	phone: string;
 }
@@ -102,6 +103,7 @@ async function submitRegisterForm(page: Page, fields: RegisterFields): Promise<v
 		await page.locator('#field-last_name').fill(fields.lastName);
 		await page.locator('#field-address1').fill(fields.address1);
 		await page.locator('#field-city').fill(fields.city);
+		await page.locator('#field-state').fill(fields.state);
 		await page.locator('#field-postcode').fill(fields.postcode);
 		await page.locator('#field-country').selectOption('ID');
 		await page.locator('#field-phone').fill(fields.phone);
@@ -181,6 +183,7 @@ test.describe('Flow 1 — register, verify email, login', () => {
 			lastName: 'Santoso',
 			address1: 'Jl. Merdeka No. 1',
 			city: 'Jakarta',
+			state: 'DKI Jakarta',
 			postcode: '10110',
 			phone: '+6281234567890'
 		});
@@ -199,6 +202,7 @@ test.describe('Flow 1 — register, verify email, login', () => {
 			lastName: 'Santoso',
 			address1: 'Jl. Merdeka No. 1',
 			city: 'Jakarta',
+			state: 'DKI Jakarta',
 			postcode: '10110',
 			phone: '+6281234567890'
 		});
@@ -271,6 +275,7 @@ test.describe('Flow 8 — RBAC', () => {
 					last_name: 'Rahayu',
 					address1: 'Jl. Sudirman No. 5',
 					city: 'Bandung',
+					state: 'Jawa Barat',
 					postcode: '40111',
 					country: 'ID',
 					phone: '+6281298765432'

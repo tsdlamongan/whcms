@@ -4,6 +4,7 @@ import {
 	API_BASE,
 	authHeaders,
 	createOrder,
+	loginApi,
 	newApi,
 	payInvoiceViaMock,
 	pollListStatus,
@@ -380,5 +381,76 @@ test.describe('checkout email verification gate', () => {
 		await addHostingToCart(page);
 		await page.getByTestId('checkout-submit').click();
 		await expect(page).toHaveURL(/\/billing\/invoices\/\d+/, { timeout: 15_000 });
+	});
+});
+
+/**
+ * A client profile missing the registrant address details a registrar
+ * requires (address/city/state/postcode) must be blocked at checkout time -
+ * before payment - rather than failing opaquely in the post-payment async
+ * registrar job. Admin-created clients (POST /admin/clients) don't require
+ * an address, unlike self-registration, so that's the realistic way such a
+ * profile exists.
+ */
+test.describe('checkout blocks domain purchases for an incomplete profile', () => {
+	let api: APIRequestContext;
+	let adminTok: string;
+	let originalRequireVerify: boolean;
+
+	test.beforeAll(async () => {
+		api = await newApi();
+		adminTok = await adminToken(api);
+		const res = await api.get(`${API_BASE}/api/v1/admin/settings`, { headers: authHeaders(adminTok) });
+		const security = (await res.json()).data.security as Record<string, unknown>;
+		originalRequireVerify = security.require_email_verification !== false;
+		// Isolate this test from the (unrelated) email-verification gate.
+		const put = await api.put(`${API_BASE}/api/v1/admin/settings`, {
+			headers: authHeaders(adminTok),
+			data: { 'security.require_email_verification': false }
+		});
+		expect(put.ok()).toBeTruthy();
+	});
+
+	test.afterAll(async () => {
+		const res = await api.put(`${API_BASE}/api/v1/admin/settings`, {
+			headers: authHeaders(adminTok),
+			data: { 'security.require_email_verification': originalRequireVerify }
+		});
+		expect(res.ok(), 'restore original require_email_verification setting').toBeTruthy();
+		await api?.dispose();
+	});
+
+	test('a client with no address on file sees a clear message and a link to complete their profile', async ({
+		page,
+		context
+	}) => {
+		test.setTimeout(60_000);
+
+		const email = `${unique('e2e-incomplete')}@e2e.test`;
+		const password = 'IncompleteE2E!2026';
+		const created = await api.post(`${API_BASE}/api/v1/admin/clients`, {
+			headers: authHeaders(adminTok),
+			data: { email, password, first_name: 'Incomplete', last_name: 'Profile' }
+		});
+		expect(created.ok(), `create client: ${await created.text()}`).toBeTruthy();
+
+		const client = await loginApi(api, email, password);
+		await setSessionCookies(context, client.accessToken, client.refreshToken);
+
+		const domainName = `${uniqueDomainLabel()}.com`;
+		await page.goto(`/order/domain?q=${encodeURIComponent(domainName)}`);
+		await page.waitForLoadState('networkidle');
+		await expect(page.getByTestId(`domain-result-${domainName}`)).toBeVisible({ timeout: 15_000 });
+		await page.getByTestId(`domain-register-${domainName}`).click();
+		await expect(page.getByTestId(`domain-in-cart-${domainName}`)).toBeVisible({ timeout: 5_000 });
+		await page.getByTestId('domain-continue-to-cart').click();
+		await expect(page).toHaveURL(/\/order\/cart$/, { timeout: 15_000 });
+
+		await page.getByTestId('checkout-submit').click();
+		await expect(page.getByTestId('checkout-error')).toBeVisible({ timeout: 15_000 });
+		await expect(page.getByTestId('checkout-complete-profile-link')).toBeVisible();
+		await expect(page.getByTestId('checkout-complete-profile-link')).toHaveAttribute('href', '/account');
+		// Never charged: still on the cart, not redirected to an invoice.
+		await expect(page).toHaveURL(/\/order\/cart$/);
 	});
 });

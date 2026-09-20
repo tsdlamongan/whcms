@@ -62,10 +62,11 @@ import (
 	"github.com/tsdlamongan/whcms/backend/pkg/apperr"
 )
 
-// Notification template keys (seeded in 000002_seed_core).
+// Notification template keys (seeded in 000002_seed_core / 000023).
 const (
-	tplDomainRegistered = "domain_registered"
-	tplDomainRenewed    = "domain_renewed"
+	tplDomainRegistered        = "domain_registered"
+	tplDomainRenewed           = "domain_renewed"
+	tplDomainProfileIncomplete = "domain_profile_incomplete"
 )
 
 // syncBatchLimit bounds one SyncAllDomains run.
@@ -586,7 +587,7 @@ func (s *Service) RegisterDomainJob(ctx context.Context, domainID int64) error {
 	if dom.Status != domain.DomainPending {
 		return apperr.Newf(apperr.CodeConflict, "domain %s is %s, cannot register", dom.Name, dom.Status)
 	}
-	contact, userID, err := s.registrantContact(ctx, dom.ClientID)
+	contact, userID, err := s.registrantContact(ctx, dom)
 	if err != nil {
 		return err
 	}
@@ -630,7 +631,7 @@ func (s *Service) TransferDomainJob(ctx context.Context, domainID int64) error {
 	if err != nil {
 		return apperr.Internal(err)
 	}
-	contact, userID, err := s.registrantContact(ctx, dom.ClientID)
+	contact, userID, err := s.registrantContact(ctx, dom)
 	if err != nil {
 		return err
 	}
@@ -1318,14 +1319,26 @@ func cycleYears(c domain.BillingCycle) int {
 
 // registrantContact builds the registrar contact from the client profile and
 // the owning user's email; also returns the user id for notifications.
-func (s *Service) registrantContact(ctx context.Context, clientID int64) (ports.RegistrantContact, int64, error) {
-	cl, err := s.d.Clients.GetByID(ctx, clientID)
+//
+// Address/city/state/postcode are optional on the client profile, but the
+// registrar requires all four for the registrant contact - fail fast with an
+// actionable message (and a client-facing email pointing at their account
+// profile) rather than a raw registrar validation error. The user id is
+// still returned alongside this error so the caller can be notified without
+// a second client lookup.
+func (s *Service) registrantContact(ctx context.Context, dom *domain.Domain) (ports.RegistrantContact, int64, error) {
+	cl, err := s.d.Clients.GetByID(ctx, dom.ClientID)
 	if err != nil {
 		return ports.RegistrantContact{}, 0, err
 	}
 	u, err := s.d.Users.GetByID(ctx, cl.UserID)
 	if err != nil {
 		return ports.RegistrantContact{}, 0, err
+	}
+	if !cl.HasRegistrantAddress() {
+		s.notify(ctx, cl.UserID, tplDomainProfileIncomplete, dom)
+		return ports.RegistrantContact{}, cl.UserID, apperr.Validation(
+			"client profile is missing address details (address, city, state, postal code) required for domain registration")
 	}
 	contact := ports.RegistrantContact{
 		FirstName: cl.FirstName,
@@ -1338,13 +1351,6 @@ func (s *Service) registrantContact(ctx context.Context, clientID int64) (ports.
 		State:     cl.State,
 		Postcode:  cl.Postcode,
 		Country:   cl.Country,
-	}
-	// Address/city/state/postcode are optional on the client profile, but the
-	// registrar requires all four for the registrant contact - fail fast with
-	// an actionable message rather than a raw registrar validation error.
-	if contact.Address1 == "" || contact.City == "" || contact.State == "" || contact.Postcode == "" {
-		return ports.RegistrantContact{}, 0, apperr.Validation(
-			"client profile is missing address details (address, city, state, postal code) required for domain registration")
 	}
 	return contact, cl.UserID, nil
 }

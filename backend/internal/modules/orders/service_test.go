@@ -123,7 +123,10 @@ func newFixture() *testEnv {
 
 	// Default fixtures ------------------------------------------------------
 	e.clients.GetByIDFn = func(_ context.Context, id int64) (*domain.Client, error) {
-		return &domain.Client{ID: id, UserID: 3, FirstName: "Budi", LastName: "Santoso"}, nil
+		return &domain.Client{
+			ID: id, UserID: 3, FirstName: "Budi", LastName: "Santoso",
+			Address1: "Jl. Melati 1", City: "Lamongan", State: "Jawa Timur", Postcode: "62211",
+		}, nil
 	}
 	e.users.GetByIDFn = func(_ context.Context, id int64) (*domain.User, error) {
 		return &domain.User{ID: id, Email: "budi@example.com", EmailVerifiedAt: verifiedAt(testNow)}, nil
@@ -505,6 +508,47 @@ func TestCreateOrderRegistrarDown(t *testing.T) {
 	})
 	require.Error(t, err)
 	assert.Equal(t, apperr.CodeExternal, apperr.From(err).Code)
+}
+
+func TestCreateOrderDomainRequiresCompleteProfile(t *testing.T) {
+	cases := []struct {
+		name     string
+		itemType string
+	}{
+		{"domain register", "domain_register"},
+		{"domain transfer", "domain_transfer"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newFixture()
+			e.clients.GetByIDFn = func(_ context.Context, id int64) (*domain.Client, error) {
+				return &domain.Client{ID: id, UserID: 3, FirstName: "Budi", LastName: "Santoso"}, nil
+			}
+			svc := orders.New(e.deps)
+
+			_, err := svc.CreateOrder(context.Background(), 7, "ip", orders.CreateOrderRequest{
+				Items: []orders.OrderItemRequest{{ItemType: tc.itemType, Domain: "x.com", EPPCode: "epp"}},
+			})
+
+			require.Error(t, err)
+			ae := apperr.From(err)
+			assert.Equal(t, apperr.CodeValidation, ae.Code)
+			require.Len(t, ae.Details, 1)
+			assert.Equal(t, "profile_address", ae.Details[0].Field)
+		})
+	}
+}
+
+func TestCreateOrderNonDomainItemIgnoresIncompleteProfile(t *testing.T) {
+	e := newFixture()
+	e.clients.GetByIDFn = func(_ context.Context, id int64) (*domain.Client, error) {
+		return &domain.Client{ID: id, UserID: 3, FirstName: "Budi", LastName: "Santoso"}, nil
+	}
+	svc := orders.New(e.deps)
+
+	_, err := svc.CreateOrder(context.Background(), 7, "ip",
+		orders.CreateOrderRequest{Items: []orders.OrderItemRequest{productItem()}})
+	require.NoError(t, err, "a plain product order must not require registrant address details")
 }
 
 // Coupons

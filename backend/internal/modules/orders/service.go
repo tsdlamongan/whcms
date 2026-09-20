@@ -174,6 +174,13 @@ func (s *Service) CreateOrder(ctx context.Context, clientID int64, ip string, in
 	if err != nil {
 		return nil, err
 	}
+	if requiresRegistrantContact(plans) && !client.HasRegistrantAddress() {
+		return nil, apperr.Validation(
+			"your profile is missing address details (address, city, province, postal code) required to "+
+				"register or transfer a domain - please complete your profile before checking out",
+			apperr.FieldError{Field: "profile_address", Message: "incomplete"},
+		)
+	}
 
 	var subtotal int64
 	for _, p := range plans {
