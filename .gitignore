@@ -38,3 +38,5 @@ npm-debug.log*
 *.log
 tmp/
 /.e2e-logs/
+/whcms
+/whcms.exe
