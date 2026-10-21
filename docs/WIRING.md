@@ -225,7 +225,7 @@ approximation — use `worker.Schedules()`, don't hand-merge.
 3. `go vet ./...` — clean.
 4. `go test -race ./...` — all packages green (existing per-module tests must still pass unmodified).
 5. Boot test: run `cmd/api` against the local services (DATABASE_URL, JWT_SECRET, APP_ENCRYPTION_KEY,
-   RUSTFS_* env vars — see backend/.env.example) in the background, `curl localhost:8080/healthz` (200) and
+   RUSTFS_* env vars — see .env.example) in the background, `curl localhost:8080/healthz` (200) and
    `/readyz` (all `ok`), then hit 2-3 real endpoints to prove wiring end-to-end, e.g.:
    - `GET /api/v1/products` → 200 with envelope (empty list is fine, catalog has no seed products yet)
    - `POST /api/v1/auth/register` with a throwaway email → 201

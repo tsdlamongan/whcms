@@ -22,7 +22,7 @@ backend/internal/modules/<mod>/          package <mod>
 - Cross-module calls go through **interfaces declared in ports.go** (already curated) or narrow consumer-side
   interfaces declared in YOUR package with the EXACT signatures pinned in §2 below (they are satisfied implicitly at wiring time).
 - Do NOT edit casually: ports/, domain/, migrations/, platform/, pkg/, other modules' dirs, cmd/, transport/http (except reading middleware helpers). If something you need is missing there, extend it in a focused, contract-conscious change (new ports method + mock, forward-only migration) rather than working around it inside the module.
-- Fast inner loop: `go build ./internal/modules/<mod>/... && go vet ./internal/modules/<mod>/... && go test ./internal/modules/<mod>/...`; the real gate before "done" is the full `make test-backend` from the repo root.
+- Fast inner loop: `go build ./internal/modules/<mod>/... && go vet ./internal/modules/<mod>/... && go test ./internal/modules/<mod>/...`; the real gate before "done" is the full `make cover` from the repo root.
 - RegisterRoutes signature convention (copy from settings reference but adapt): handlers receive service interface, middleware bundle struct `Middlewares{RequireAuth, RequireRole, RequirePermission, RequireClient, RateLimit fiber.Handler-ish}` — mirror whatever `internal/transport/http/middleware.go` exposes.
 
 ## 1. Scope decisions (final — implement exactly, do not re-litigate)
@@ -361,7 +361,7 @@ shape/reconciliation are inherently Duitku-specific.
 ## 4. Definition of done per module
 
 1. Own packages: build + vet + tests pass (`go test ./internal/modules/<mod>/... -race`), then the full
-   `make test-backend` gate from the repo root.
+   `make cover` gate from the repo root.
 2. Service logic coverage ≥90% for the module's packages (`go test -cover`); handlers+repo covered with
    fakes/integration tests.
 3. RegisterRoutes exported + a package doc comment listing the route table.

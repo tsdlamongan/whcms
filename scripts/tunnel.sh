@@ -5,7 +5,12 @@
 # dashboard (e.g. Duitku's callback URL) without hunting through the code.
 set -euo pipefail
 
-PORT="${TUNNEL_PORT:-8080}"
+# shellcheck source=lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+
+# The dev API's port: APP_PORT from .env (what `make up` started), else 8080.
+PORT="${TUNNEL_PORT:-$(env_get "$REPO_ROOT/.env" APP_PORT)}"
+PORT="${PORT:-8080}"
 
 if ! command -v cloudflared >/dev/null 2>&1; then
 	echo "cloudflared is not installed."
@@ -28,7 +33,7 @@ Webhooks exposed by this project (inbound callbacks from external services):
       (see backend/internal/composition/build.go, docs/CONTRACTS.md §8 "Key flows").
 
 Once cloudflared prints your https://<subdomain>.trycloudflare.com URL below,
-set in backend/.env (and restart the API) so Duitku's CallbackURL points at
+set in .env (and run `make up` again) so Duitku's CallbackURL points at
 the tunnel instead of localhost:
 
   APP_BASE_URL=https://<subdomain>.trycloudflare.com

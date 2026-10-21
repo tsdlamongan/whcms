@@ -35,7 +35,7 @@ public disclosure.
 - The **mockserver** (`mockserver/`) is a development/test-only component and
   must never be exposed in production; findings against it are out of scope
   unless they affect the real integrations.
-- Dev defaults in `deploy/docker-compose.yml`, `scripts/e2e.env`, and the
+- Dev defaults in `deploy/docker-compose.yml`, `.env.testing.example`, and the
   seeded `admin@e2e.test` account are intentionally public and for local
   development only — reports that boil down to "the dev defaults are known"
   are out of scope. Production deployments must set their own secrets

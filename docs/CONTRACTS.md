@@ -210,14 +210,19 @@ TURNSTILE_SECRET_KEY= TURNSTILE_VERIFY_URL=   # optional CAPTCHA (Cloudflare Tur
 MAIL_DRIVER=log SMTP_HOST= SMTP_PORT=587 SMTP_USER= SMTP_PASS= MAIL_HTTP_URL=   # http driver posts JSON to MAIL_HTTP_URL (mockserver); MAIL_DRIVER=smtp REQUIRES SMTP_HOST (boot fails otherwise)
 SMTP_ENCRYPTION=auto SMTP_AUTH=auto SMTP_TIMEOUT_SECONDS=20 SMTP_INSECURE_SKIP_VERIFY=false   # ENCRYPTION auto|tls|starttls|none — auto derives from the port (465→implicit TLS/SMTPS, else STARTTLS); STARTTLS is mandatory, never opportunistic, so a relay that does not offer it fails the send instead of leaking credentials. AUTH auto|plain|login|cram-md5|none — auto negotiates whatever the relay advertises (LOGIN-only servers work out of the box). SKIP_VERIFY only for self-signed relays. Verify a live relay from Admin > Settings > Mail > Send Test Email (POST /admin/email/test)
 WORKER_CONCURRENCY=10 ADMIN_ALERT_EMAIL=admin@example.com ADMIN_ALERT_WEBHOOK_URL=   # optional; JSON POST alongside every admin alert email
-ENV_FILE=   # optional path to a KEY=VALUE file the installation wizard writes to (§15); defaults to ./.env
+ENV_FILE=   # optional path to a KEY=VALUE file the installation wizard writes to (§15); defaults to ./.env — `make up` sets it to the repo-root .env
 ```
 Config loaded once into `platform/config.Config` struct (env only, `caarlos0/env` or hand-rolled), passed by value/DI. **No global state.**
 
 `whmcs` above is the **local/dev** database name (also what `.env.example` documents). Automated E2E/test runs use a
-separate database name, **`whmcs_e2e`**, on the same Postgres server/port — `scripts/e2e-up.sh`, `make test-backend`,
+The variables live in two env files at the repo root: **`.env`** (dev; used by `make up`; template `.env.example`,
+which also lists the frontend's `API_URL`/`PUBLIC_APP_NAME`) and **`.env.testing`** (mocked; used by `make cover`,
+`make lint`, `make e2e` and `make test`; created from `.env.testing.example` on first use). Neither is committed.
+
+separate database name, **`whmcs_e2e`**, on the same Postgres server/port — `.env.testing`, `make cover`/`make e2e`,
 and every `_integration_test.go`'s `DATABASE_URL` fallback point there, so running tests never touches or resets a
-developer's local manual-testing data. See `docs/E2E.md` §3.
+developer's local manual-testing data. The test setup also has its own Redis DB index (`REDIS_DB=13`) and S3 bucket
+(`whmcs-e2e`). See `docs/E2E.md` §3.
 
 ## 12. Mockserver contract (module `whcms-mock`, port 9090)
 
