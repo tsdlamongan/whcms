@@ -203,8 +203,16 @@ func (r *Repo) SetPDFObjectKey(ctx context.Context, id int64, key string) error 
 func (r *Repo) list(ctx context.Context, clientID int64, p ports.ListParams) ([]domain.Invoice, int64, error) {
 	where := `WHERE ($1 = 0 OR client_id = $1)
 		AND ($2 = '' OR status = $2)
-		AND ($3 = '' OR invoice_number ILIKE '%' || $3 || '%')`
-	args := []any{clientID, p.Status, p.Search}
+		AND ($3 = '' OR invoice_number ILIKE '%' || $3 || '%')
+		AND ($4::timestamptz IS NULL OR created_at >= $4)
+		AND ($5::timestamptz IS NULL OR created_at < $5)
+		AND (cardinality($6::bigint[]) = 0 OR id = ANY($6))`
+	from, toExclusive := p.CreatedBounds()
+	ids := p.IDs
+	if ids == nil {
+		ids = []int64{} // a nil slice binds as NULL, which would filter every row out
+	}
+	args := []any{clientID, p.Status, p.Search, from, toExclusive, ids}
 
 	var total int64
 	err := r.db.Querier(ctx).QueryRow(ctx,
@@ -215,7 +223,7 @@ func (r *Repo) list(ctx context.Context, clientID int64, p ports.ListParams) ([]
 
 	rows, err := r.db.Querier(ctx).Query(ctx,
 		`SELECT `+invoiceColumns+` FROM invoices `+where+
-			` ORDER BY id DESC LIMIT $4 OFFSET $5`,
+			` ORDER BY id DESC LIMIT $7 OFFSET $8`,
 		append(args, p.Limit(), p.Offset())...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("billing: list invoices: %w", err)
@@ -234,9 +242,10 @@ func (r *Repo) list(ctx context.Context, clientID int64, p ports.ListParams) ([]
 }
 
 // List returns invoices for the admin listing (Status exact, Search matches
-// the invoice number).
+// the invoice number, ClientID narrows to one client, IDs to a set of
+// invoices, From/To bound the creation date).
 func (r *Repo) List(ctx context.Context, p ports.ListParams) ([]domain.Invoice, int64, error) {
-	return r.list(ctx, 0, p)
+	return r.list(ctx, p.ClientID, p)
 }
 
 // ListByClient returns one client's invoices.

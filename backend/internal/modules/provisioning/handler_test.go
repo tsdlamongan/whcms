@@ -670,6 +670,36 @@ func TestHandlerAdminListAndGetService(t *testing.T) {
 	assert.Equal(t, 422, resp.StatusCode)
 }
 
+func TestHandlerAdminListServicesFilters(t *testing.T) {
+	var got ports.ListParams
+	fs := &fakeService{
+		listServices: func(_ context.Context, clientID int64, p ports.ListParams) ([]ServiceView, int64, error) {
+			assert.Zero(t, clientID, "admin path never scopes by the token's client")
+			got = p
+			return nil, 0, nil
+		},
+	}
+	app := newApp(fs, adminIdentity())
+
+	resp, err := app.Test(httptest.NewRequest("GET",
+		"/api/v1/admin/services?status=active&client_id=7&product_id=3&server_id=9", nil))
+	require.NoError(t, err)
+	assert.Equal(t, 200, resp.StatusCode)
+	assert.Equal(t, "active", got.Status)
+	assert.Equal(t, int64(7), got.ClientID)
+	assert.Equal(t, int64(3), got.ProductID)
+	assert.Equal(t, int64(9), got.ServerID)
+
+	// a malformed id is a validation error, never a silently widened list
+	for _, q := range []string{"client_id=x", "product_id=0", "server_id=-1"} {
+		got = ports.ListParams{Page: -1}
+		resp, err = app.Test(httptest.NewRequest("GET", "/api/v1/admin/services?"+q, nil))
+		require.NoError(t, err)
+		assert.Equal(t, 422, resp.StatusCode, q)
+		assert.Equal(t, -1, got.Page, "service must not be called for "+q)
+	}
+}
+
 func TestHandlerListCancellationRequests(t *testing.T) {
 	fs := &fakeService{
 		listCancellationRequests: func(_ context.Context, p ports.ListParams) ([]CancellationRequestView, int64, error) {

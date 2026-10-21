@@ -548,6 +548,30 @@ func (s *Service) SetStatus(ctx context.Context, actorUserID, ticketID int64, in
 	return ticket, nil
 }
 
+// SetPriority changes the ticket priority (staff/admin). Setting the value the
+// ticket already has is a CONFLICT, mirroring SetStatus.
+func (s *Service) SetPriority(ctx context.Context, actorUserID, ticketID int64, in SetPriorityInput) (*domain.Ticket, error) {
+	if err := s.val.Struct(in); err != nil {
+		return nil, err
+	}
+	ticket, err := s.get(ctx, ticketID)
+	if err != nil {
+		return nil, err
+	}
+	to := domain.TicketPriority(in.Priority)
+	if ticket.Priority == to {
+		return nil, apperr.Conflict("ticket already has priority " + in.Priority)
+	}
+	before := ticket.Priority
+	ticket.Priority = to
+	if err := s.d.Tickets.Update(ctx, ticket); err != nil {
+		return nil, err
+	}
+	s.d.Audit.Log(ctx, actorUserID, "ticket.priority", "ticket", ticket.ID,
+		map[string]any{"priority": before}, map[string]any{"priority": to})
+	return ticket, nil
+}
+
 // Attachments
 
 // AttachmentURL resolves attachment idx of a ticket to a presigned download

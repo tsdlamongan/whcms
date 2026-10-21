@@ -690,6 +690,29 @@ func TestHandlerAdminGuards(t *testing.T) {
 	assert.Equal(t, 403, status)
 }
 
+func TestHandlerAdminDomainsClientFilter(t *testing.T) {
+	var got ports.ListParams
+	called := false
+	svc := &fakeService{
+		AdminListFn: func(ctx context.Context, p ports.ListParams) ([]domain.Domain, int64, error) {
+			called, got = true, p
+			return nil, 0, nil
+		},
+	}
+	app := newApp(svc, &fakeMW{identity: adminIdentity()})
+
+	status, _ := doJSON(t, app, "GET", "/api/v1/admin/domains/?client_id=12&status=active&search=ex", "")
+	assert.Equal(t, 200, status)
+	assert.Equal(t, int64(12), got.ClientID)
+	assert.Equal(t, "active", got.Status)
+	assert.Equal(t, "ex", got.Search)
+
+	called = false
+	status, _ = doJSON(t, app, "GET", "/api/v1/admin/domains/?client_id=nope", "")
+	assert.Equal(t, 422, status)
+	assert.False(t, called, "a malformed client_id must never widen the list")
+}
+
 func TestHandlerAdminDomains(t *testing.T) {
 	svc := &fakeService{
 		AdminListFn: func(ctx context.Context, p ports.ListParams) ([]domain.Domain, int64, error) {

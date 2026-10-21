@@ -341,6 +341,10 @@ func (r *Repo) DeleteContact(ctx context.Context, clientID, id int64) error {
 // optional has-product EXISTS join on services. Only listed columns are
 // selected (p95 < 300ms design).
 func (r *Repo) SearchClients(ctx context.Context, f SearchInput) ([]ClientListRow, int64, error) {
+	ids := f.IDs
+	if ids == nil {
+		ids = []int64{} // a nil slice binds as NULL, which would filter every row out
+	}
 	rows, err := r.db.Querier(ctx).Query(ctx, `
 		SELECT c.id, u.email, c.first_name, c.last_name, c.company, c.country,
 		       c.phone, c.status, c.credit_balance, c.created_at,
@@ -351,9 +355,10 @@ func (r *Repo) SearchClients(ctx context.Context, f SearchInput) ([]ClientListRo
 		  AND ($1 = '' OR c.search_name ILIKE '%' || $1 || '%' OR u.email ILIKE '%' || $1 || '%')
 		  AND ($2 = '' OR c.status = $2)
 		  AND (NOT $3 OR EXISTS (SELECT 1 FROM services s WHERE s.client_id = c.id))
+		  AND (cardinality($4::bigint[]) = 0 OR c.id = ANY($4))
 		ORDER BY c.id DESC
-		LIMIT $4 OFFSET $5`,
-		f.Search, f.Status, f.HasProduct, f.limit(), f.offset())
+		LIMIT $5 OFFSET $6`,
+		f.Search, f.Status, f.HasProduct, ids, f.limit(), f.offset())
 	if err != nil {
 		return nil, 0, fmt.Errorf("clients: search: %w", err)
 	}

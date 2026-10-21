@@ -106,6 +106,7 @@ type env struct {
 	enc       *mocks.MockEncryptor
 	totpGuard *mocks.MockTOTPReplayGuard
 	presence  *mocks.MockPresenceTracker
+	cache     ports.Cache       // password-confirm window; set to nil to exercise the "not configured" path
 	captcha   auth.CaptchaGuard // nil by default -> CAPTCHA check skipped
 
 	sent []sentTemplate
@@ -126,6 +127,7 @@ func newFixture() *env {
 		enc:       &mocks.MockEncryptor{},
 		totpGuard: &mocks.MockTOTPReplayGuard{},
 		presence:  &mocks.MockPresenceTracker{},
+		cache:     &mocks.MockCache{},
 		now:       time.Date(2026, 7, 3, 10, 0, 0, 0, time.UTC),
 	}
 	e.clock = &mocks.MockClock{FixedTime: e.now}
@@ -154,6 +156,7 @@ func (e *env) service() *auth.Service {
 		Encryptor:   e.enc,
 		TOTPGuard:   e.totpGuard,
 		Presence:    e.presence,
+		Cache:       e.cache,
 		Captcha:     e.captcha,
 		FrontendURL: "http://fe",
 		TOTPIssuer:  "TestPanel",

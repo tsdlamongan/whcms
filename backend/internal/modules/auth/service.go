@@ -18,6 +18,8 @@
 //	POST  /auth/2fa/setup                    auth
 //	POST  /auth/2fa/enable                   auth
 //	POST  /auth/2fa/disable                  auth
+//	POST  /auth/confirm-password             auth (opens the sudo-mode window)
+//	GET   /auth/confirm-password             auth (is the window open?)
 //	POST  /admin/clients/:id/impersonate     auth + role admin
 package auth
 
@@ -104,6 +106,7 @@ type Deps struct {
 	Encryptor ports.Encryptor       // twofa_secret_enc at-rest encryption
 	TOTPGuard ports.TOTPReplayGuard // anti-replay for login TOTP codes
 	Presence  ports.PresenceTracker // "Staff Online" heartbeat; nil disables it
+	Cache     ports.Cache           // password-confirmation window (confirm.go); nil disables it
 	Captcha   CaptchaGuard          // optional CAPTCHA on register/login; nil disables it
 
 	FrontendURL string // e.g. http://localhost:5173 (links in emails)
@@ -339,6 +342,9 @@ func (s *Service) Login(ctx context.Context, in LoginRequest) (*AuthResponse, er
 	user.LastLoginAt = &now
 
 	_ = s.d.Limiter.Reset(ctx, lockKey)
+	// A fresh sign-in starts a fresh session: any password confirmation left
+	// over from an earlier one (confirm.go) must not carry across.
+	s.clearPasswordConfirmation(ctx, user.ID)
 
 	s.d.Audit.Log(ctx, user.ID, "auth.login", "user", user.ID, nil,
 		map[string]any{"ip": in.IP, "role": string(user.Role)})
@@ -383,6 +389,7 @@ func (s *Service) Logout(ctx context.Context, userID int64, refreshToken string)
 	if s.d.Presence != nil {
 		_ = s.d.Presence.Untouch(ctx, userID) // best-effort: never block logout on Redis
 	}
+	s.clearPasswordConfirmation(ctx, userID)
 	s.d.Audit.Log(ctx, userID, "auth.logout", "user", userID, nil, nil)
 	if refreshToken == "" {
 		return nil

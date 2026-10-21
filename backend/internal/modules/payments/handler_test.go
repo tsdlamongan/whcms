@@ -491,6 +491,34 @@ func TestAdminListTransactions(t *testing.T) {
 	assert.Equal(t, 2, env.Meta.Page)
 }
 
+func TestAdminListTransactionsInvoiceAndDateFilters(t *testing.T) {
+	var gotParams ports.ListParams
+	called := false
+	svc := &fakeService{
+		ListTransactionsFn: func(ctx context.Context, p ports.ListParams) ([]domain.Transaction, int64, error) {
+			called, gotParams = true, p
+			return nil, 0, nil
+		},
+	}
+	app := newApp(svc, httpx.AuthIdentity{UserID: 1, Role: "admin"})
+
+	resp, err := app.Test(httptest.NewRequest("GET",
+		"/api/v1/admin/transactions?invoice_id=33&date_from=2026-03-01&date_to=2026-03-31", nil))
+	require.NoError(t, err)
+	assert.Equal(t, 200, resp.StatusCode)
+	assert.Equal(t, int64(33), gotParams.InvoiceID)
+	assert.Equal(t, "2026-03-01", gotParams.From.Format("2006-01-02"))
+	assert.Equal(t, "2026-03-31", gotParams.To.Format("2006-01-02"))
+
+	for _, q := range []string{"invoice_id=zero", "date_from=1-3-2026", "date_to=later"} {
+		called = false
+		resp, err = app.Test(httptest.NewRequest("GET", "/api/v1/admin/transactions?"+q, nil))
+		require.NoError(t, err)
+		assert.Equal(t, 422, resp.StatusCode, q)
+		assert.False(t, called, q)
+	}
+}
+
 // Error branches
 
 func TestMethodsEndpointServiceError(t *testing.T) {

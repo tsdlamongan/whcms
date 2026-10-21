@@ -106,6 +106,7 @@ type DashboardStore interface {
 	Stats(ctx context.Context) (*ports.DashboardStats, error)
 	Revenue(ctx context.Context, from, to time.Time, groupBy string) ([]ports.RevenuePoint, error)
 	OrdersReport(ctx context.Context, from, to time.Time) ([]ports.RevenuePoint, error)
+	OrdersByStatus(ctx context.Context, from, to time.Time) ([]OrderStatusCount, error)
 	ServicesReport(ctx context.Context) (map[string]int64, error)
 	ExtraStats(ctx context.Context) (*ExtraStats, error)
 	RevenueByGateway(ctx context.Context, from, to time.Time) ([]GatewayRevenue, error)
@@ -297,10 +298,18 @@ func (s *Service) OrdersReport(ctx context.Context, from, to time.Time) (*Orders
 	if err != nil {
 		return nil, apperr.Internal(err)
 	}
+	byStatus, err := s.d.Dashboard.OrdersByStatus(ctx, start, end)
+	if err != nil {
+		return nil, apperr.Internal(err)
+	}
+	if byStatus == nil {
+		byStatus = []OrderStatusCount{}
+	}
 	data := &OrdersReportData{
-		From:   start.Format(dateFormat),
-		To:     end.AddDate(0, 0, -1).Format(dateFormat),
-		Points: points,
+		From:     start.Format(dateFormat),
+		To:       end.AddDate(0, 0, -1).Format(dateFormat),
+		Points:   points,
+		ByStatus: byStatus,
 	}
 	for _, p := range points {
 		data.TotalAmount += p.Amount

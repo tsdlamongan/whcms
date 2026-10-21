@@ -176,9 +176,10 @@ func (r *Repo) UpdateStatus(ctx context.Context, id int64, status domain.Service
 	return nil
 }
 
-// List returns services filtered by status/search with pagination.
+// List returns services filtered by status/search/client/product/server
+// (ListParams.ClientID/ProductID/ServerID, 0 = unset) with pagination.
 func (r *Repo) List(ctx context.Context, p ports.ListParams) ([]domain.Service, int64, error) {
-	return r.listServices(ctx, 0, p)
+	return r.listServices(ctx, p.ClientID, p)
 }
 
 // ListByClient returns one client's services.
@@ -189,8 +190,10 @@ func (r *Repo) ListByClient(ctx context.Context, clientID int64, p ports.ListPar
 func (r *Repo) listServices(ctx context.Context, clientID int64, p ports.ListParams) ([]domain.Service, int64, error) {
 	where := ` WHERE ($1 = 0 OR client_id = $1)
 		AND ($2 = '' OR status = $2)
-		AND ($3 = '' OR domain ILIKE '%' || $3 || '%' OR username ILIKE '%' || $3 || '%')`
-	args := []any{clientID, p.Status, p.Search}
+		AND ($3 = '' OR domain ILIKE '%' || $3 || '%' OR username ILIKE '%' || $3 || '%')
+		AND ($4 = 0 OR product_id = $4)
+		AND ($5 = 0 OR server_id = $5)`
+	args := []any{clientID, p.Status, p.Search, p.ProductID, p.ServerID}
 
 	var total int64
 	if err := r.db.Querier(ctx).QueryRow(ctx,
@@ -200,7 +203,7 @@ func (r *Repo) listServices(ctx context.Context, clientID int64, p ports.ListPar
 
 	list, err := r.queryServices(ctx,
 		`SELECT `+serviceCols+` FROM services`+where+
-			` ORDER BY id DESC LIMIT $4 OFFSET $5`,
+			` ORDER BY id DESC LIMIT $6 OFFSET $7`,
 		append(args, p.Limit(), p.Offset())...)
 	if err != nil {
 		return nil, 0, err

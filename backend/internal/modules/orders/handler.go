@@ -107,12 +107,17 @@ func (h *Handler) GetMine(c fiber.Ctx) error {
 	return httpx.OK(c, detail)
 }
 
-// AdminList handles GET /admin/orders.
+// AdminList handles GET /admin/orders (?search&status&client_id&page&per_page).
 func (h *Handler) AdminList(c fiber.Ctx) error {
 	page := httpx.ParsePage(c)
+	clientID, err := httpx.QueryID(c, "client_id")
+	if err != nil {
+		return err
+	}
 	orders, total, err := h.svc.List(c.Context(), ports.ListParams{
 		Page: page.Page, PerPage: page.PerPage,
 		Status: c.Query("status"), Search: c.Query("search"),
+		ClientID: clientID,
 	})
 	if err != nil {
 		return err

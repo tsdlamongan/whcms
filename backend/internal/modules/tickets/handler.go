@@ -39,6 +39,7 @@ type TicketService interface {
 	Assign(ctx context.Context, actorUserID, ticketID int64, in AssignInput) (*domain.Ticket, error)
 	AdminReply(ctx context.Context, actorUserID, ticketID int64, in ReplyInput, files []AttachmentUpload) (*TicketDetail, error)
 	SetStatus(ctx context.Context, actorUserID, ticketID int64, in SetStatusInput) (*domain.Ticket, error)
+	SetPriority(ctx context.Context, actorUserID, ticketID int64, in SetPriorityInput) (*domain.Ticket, error)
 	AttachmentURL(ctx context.Context, clientID, ticketID int64, idx int) (string, error)
 	ListDepartments(ctx context.Context, activeOnly bool) ([]domain.TicketDepartment, error)
 	CreateDepartment(ctx context.Context, actorUserID int64, in DepartmentInput) (*domain.TicketDepartment, error)
@@ -79,6 +80,7 @@ func (h *Handler) RegisterRoutes(r fiber.Router) {
 	admin.Post("/:id/assign", h.AdminAssign)
 	admin.Post("/:id/replies", h.AdminReply)
 	admin.Post("/:id/status", h.AdminSetStatus)
+	admin.Post("/:id/priority", h.AdminSetPriority)
 	admin.Get("/:id/attachments/:idx", h.AdminAttachment)
 
 	dept := r.Group("/admin/ticket-departments",
@@ -289,15 +291,22 @@ func (h *Handler) MyAttachment(c fiber.Ctx) error {
 
 // Staff/admin
 
-// AdminList lists tickets with filters status/department_id/assigned_user_id/search.
+// AdminList lists tickets with filters
+// status/priority/department_id/assigned_user_id/client_id/search.
 func (h *Handler) AdminList(c fiber.Ctx) error {
 	page := httpx.ParsePage(c)
 	deptID, _ := strconv.ParseInt(c.Query("department_id"), 10, 64)
 	assignedID, _ := strconv.ParseInt(c.Query("assigned_user_id"), 10, 64)
+	clientID, err := httpx.QueryID(c, "client_id")
+	if err != nil {
+		return err
+	}
 	rows, total, err := h.svc.AdminList(c.Context(), AdminListFilter{
 		Status:         c.Query("status"),
+		Priority:       c.Query("priority"),
 		DepartmentID:   deptID,
 		AssignedUserID: assignedID,
+		ClientID:       clientID,
 		Search:         c.Query("search"),
 		Page:           page.Page,
 		PerPage:        page.PerPage,
@@ -377,6 +386,24 @@ func (h *Handler) AdminSetStatus(c fiber.Ctx) error {
 		return apperr.Validation("invalid request body")
 	}
 	ticket, err := h.svc.SetStatus(c.Context(), id.UserID, ticketID, in)
+	if err != nil {
+		return err
+	}
+	return httpx.OK(c, ticket)
+}
+
+// AdminSetPriority sets the ticket priority.
+func (h *Handler) AdminSetPriority(c fiber.Ctx) error {
+	id := httpx.MustIdentity(c)
+	ticketID, err := parseParamID(c)
+	if err != nil {
+		return err
+	}
+	var in SetPriorityInput
+	if err := c.Bind().Body(&in); err != nil {
+		return apperr.Validation("invalid request body")
+	}
+	ticket, err := h.svc.SetPriority(c.Context(), id.UserID, ticketID, in)
 	if err != nil {
 		return err
 	}

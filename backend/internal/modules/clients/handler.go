@@ -218,7 +218,7 @@ func (h *Handler) DeleteMyContact(c fiber.Ctx) error {
 
 // Admin
 
-// AdminList searches clients (?search&status&has_product&page&per_page).
+// AdminList searches clients (?search&status&has_product&ids&page&per_page).
 func (h *Handler) AdminList(c fiber.Ctx) error {
 	page := httpx.ParsePage(c)
 	f := SearchInput{
@@ -227,6 +227,11 @@ func (h *Handler) AdminList(c fiber.Ctx) error {
 		Page:    page.Page,
 		PerPage: page.PerPage,
 	}
+	ids, err := httpx.QueryIDs(c, "ids")
+	if err != nil {
+		return err
+	}
+	f.IDs = ids
 	if raw := c.Query("has_product"); raw != "" {
 		ok, err := strconv.ParseBool(raw)
 		if err != nil {

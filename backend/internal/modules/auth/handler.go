@@ -35,6 +35,8 @@ type ServiceAPI interface {
 	TwoFASetup(ctx context.Context, userID int64) (*TwoFASetupResponse, error)
 	TwoFAEnable(ctx context.Context, userID int64, in TwoFAEnableRequest) error
 	TwoFADisable(ctx context.Context, userID int64, in TwoFADisableRequest) error
+	ConfirmPassword(ctx context.Context, userID int64, in ConfirmPasswordRequest) (*PasswordConfirmation, error)
+	PasswordConfirmation(ctx context.Context, userID int64) (*PasswordConfirmation, error)
 	Impersonate(ctx context.Context, actorUserID, clientID int64, ip string) (*AuthResponse, error)
 }
 
@@ -67,6 +69,8 @@ func NewHandler(svc ServiceAPI, mw *transporthttp.Middleware) *Handler {
 //	POST  /auth/2fa/setup                 auth
 //	POST  /auth/2fa/enable                auth
 //	POST  /auth/2fa/disable               auth
+//	POST  /auth/confirm-password          auth
+//	GET   /auth/confirm-password          auth
 //	POST  /admin/clients/:id/impersonate  auth + RequireRole(admin)
 func (h *Handler) RegisterRoutes(r fiber.Router) {
 	rl := h.mw.RateLimit("auth", publicLimit, publicWindow)
@@ -85,6 +89,8 @@ func (h *Handler) RegisterRoutes(r fiber.Router) {
 	auth.Post("/2fa/setup", h.mw.RequireAuth(), h.TwoFASetup)
 	auth.Post("/2fa/enable", h.mw.RequireAuth(), h.TwoFAEnable)
 	auth.Post("/2fa/disable", h.mw.RequireAuth(), h.TwoFADisable)
+	auth.Post("/confirm-password", h.mw.RequireAuth(), h.ConfirmPassword)
+	auth.Get("/confirm-password", h.mw.RequireAuth(), h.PasswordConfirmation)
 
 	r.Post("/admin/clients/:id/impersonate",
 		h.mw.RequireAuth(), h.mw.RequireRole("admin"), h.Impersonate)
@@ -264,6 +270,30 @@ func (h *Handler) TwoFADisable(c fiber.Ctx) error {
 		return err
 	}
 	return httpx.OK(c, map[string]any{"enabled": false})
+}
+
+// ConfirmPassword handles POST /auth/confirm-password.
+func (h *Handler) ConfirmPassword(c fiber.Ctx) error {
+	in, err := bind[ConfirmPasswordRequest](c)
+	if err != nil {
+		return err
+	}
+	id := httpx.MustIdentity(c)
+	resp, err := h.svc.ConfirmPassword(c.Context(), id.UserID, in)
+	if err != nil {
+		return err
+	}
+	return httpx.OK(c, resp)
+}
+
+// PasswordConfirmation handles GET /auth/confirm-password.
+func (h *Handler) PasswordConfirmation(c fiber.Ctx) error {
+	id := httpx.MustIdentity(c)
+	resp, err := h.svc.PasswordConfirmation(c.Context(), id.UserID)
+	if err != nil {
+		return err
+	}
+	return httpx.OK(c, resp)
 }
 
 // Impersonate handles POST /admin/clients/:id/impersonate (admin only).

@@ -42,7 +42,36 @@ type ListParams struct {
 	// ServiceID filters CancellationRequestRepo.List to one service (0 =
 	// unset); unused by every other List caller, same convention as Gateway.
 	ServiceID int64
+	// ClientID narrows an ADMIN list (services, domains, invoices, orders) to
+	// one client (0 = unset) - the client-detail tabs depend on it. Client-area
+	// lists scope by the token's client via their own ListByClient argument and
+	// ignore this field.
+	ClientID int64
+	// IDs restricts InvoiceRepo.List to these invoice ids (empty = no
+	// restriction) so a list screen can resolve the invoices its rows point to
+	// in one call.
+	IDs []int64
+	// InvoiceID filters TransactionRepo.List to one invoice (0 = unset).
+	InvoiceID int64
+	// ProductID / ServerID filter ServiceRepo.List (0 = unset).
+	ProductID int64
+	ServerID  int64
+	// GroupID / Type filter ProductRepo.List by product group / product type
+	// (0 / "" = unset).
+	GroupID int64
+	Type    string
+	// From / To bound an admin list's creation date, both inclusive whole
+	// days in UTC (zero = unset). Honoured by InvoiceRepo.List and
+	// TransactionRepo.List.
+	From time.Time
+	To   time.Time
 }
+
+// MaxPerPage is the largest page size any list query honours. It matches the
+// HTTP layer's clamp (httpx.MaxPerPage) and the page-size selector, which
+// offers up to 1000 rows (CONTRACTS.md §3): a lower SQL cap would silently
+// return fewer rows than the pager advertises and misalign every later page.
+const MaxPerPage = 1000
 
 // Offset returns the SQL offset.
 func (p ListParams) Offset() int {
@@ -52,13 +81,33 @@ func (p ListParams) Offset() int {
 	return (p.Page - 1) * p.Limit()
 }
 
+// CreatedBounds converts the inclusive From/To days into the half-open
+// [from, toExclusive) UTC timestamp range a repository compares created_at
+// against. A nil bound means "unbounded on that side" and binds as SQL NULL.
+func (p ListParams) CreatedBounds() (from, toExclusive *time.Time) {
+	if !p.From.IsZero() {
+		f := utcDay(p.From)
+		from = &f
+	}
+	if !p.To.IsZero() {
+		t := utcDay(p.To).AddDate(0, 0, 1)
+		toExclusive = &t
+	}
+	return from, toExclusive
+}
+
+func utcDay(t time.Time) time.Time {
+	y, m, d := t.UTC().Date()
+	return time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
+}
+
 // Limit returns the SQL limit with defaults applied.
 func (p ListParams) Limit() int {
 	if p.PerPage < 1 {
 		return 25
 	}
-	if p.PerPage > 100 {
-		return 100
+	if p.PerPage > MaxPerPage {
+		return MaxPerPage
 	}
 	return p.PerPage
 }

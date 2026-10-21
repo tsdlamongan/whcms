@@ -137,6 +137,20 @@ func TestRepoProductLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, rows)
 
+	// group_id / type filters (the Products page filters).
+	rows, _, err = repo.List(ctx, ports.ListParams{Search: "it-product-" + suffix, GroupID: g.ID})
+	require.NoError(t, err)
+	assert.Len(t, rows, 1)
+	rows, _, err = repo.List(ctx, ports.ListParams{Search: "it-product-" + suffix, GroupID: g.ID + 1_000_000})
+	require.NoError(t, err)
+	assert.Empty(t, rows, "a different group excludes the product")
+	rows, _, err = repo.List(ctx, ports.ListParams{Search: "it-product-" + suffix, Type: string(p.Type)})
+	require.NoError(t, err)
+	assert.Len(t, rows, 1)
+	rows, _, err = repo.List(ctx, ports.ListParams{Search: "it-product-" + suffix, Type: "domain"})
+	require.NoError(t, err)
+	assert.Empty(t, rows, "a different type excludes the product")
+
 	// Count in group.
 	n, err := repo.CountProductsInGroup(ctx, g.ID)
 	require.NoError(t, err)
