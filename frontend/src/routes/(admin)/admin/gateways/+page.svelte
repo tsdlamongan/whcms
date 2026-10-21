@@ -68,7 +68,7 @@
 		>Looking to activate a new payment gateway? Visit <b>Apps &amp; Integrations</b> for a full list of
 		gateway integrations.</span
 	>
-	<a class="hp-btn" href="/admin/settings"
+	<a class="hp-btn" href="/admin/settings/overview"
 		><i class="fas fa-arrow-right"></i>Visit Apps &amp; Integrations</a
 	>
 </div>

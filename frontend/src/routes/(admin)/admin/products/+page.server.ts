@@ -1,5 +1,5 @@
 import { apiFetch } from '$lib/server/api';
-import { fail } from '@sveltejs/kit';
+import { fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import type { ProductGroupRow, ProductRow } from './catalog';
 
@@ -52,6 +52,25 @@ interface GroupSortChange {
  * action - see `(admin)/admin/product-groups/+page.server.ts`.
  */
 export const actions: Actions = {
+	/** Clones a product (pricing + specs, created hidden) and opens the copy. */
+	duplicate: async (event) => {
+		const form = await event.request.formData();
+		const id = Number(form.get('id'));
+		if (!Number.isInteger(id) || id <= 0) {
+			return fail(400, { op: 'duplicate', errorMessage: 'Invalid product id' });
+		}
+		const res = await apiFetch<ProductRow>(event, `/api/v1/admin/products/${id}/duplicate`, {
+			method: 'POST'
+		});
+		if (res.error || !res.data) {
+			return fail(res.status >= 400 ? res.status : 400, {
+				op: 'duplicate',
+				errorMessage: res.error?.message ?? 'Failed to duplicate the product'
+			});
+		}
+		redirect(303, `/admin/products/${res.data.id}?duplicated=1`);
+	},
+
 	reorderGroups: async (event) => {
 		const form = await event.request.formData();
 		let changes: GroupSortChange[];

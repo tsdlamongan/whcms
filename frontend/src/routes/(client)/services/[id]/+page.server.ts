@@ -64,7 +64,9 @@ export const load: PageServerLoad = async (event) => {
 	// per-cycle pricing embedded in the grouped catalog payload (PublicProduct
 	// .specs), so the upgrade modal can render the spec configurator without
 	// any per-product detail fetch.
-	const products = (productsRes.data ?? []).flatMap((g) => g.products ?? []).filter((p) => !p.hidden);
+	const products = (productsRes.data ?? [])
+		.flatMap((g) => g.products ?? [])
+		.filter((p) => !p.hidden);
 
 	return {
 		service: svcRes.data,
@@ -159,7 +161,11 @@ export const actions: Actions = {
 								typeof (s as { key?: unknown }).key === 'string' &&
 								Number.isFinite(Number((s as { qty?: unknown }).qty))
 						)
-						.map((s) => ({ key: s.key, qty: Math.max(0, Number(s.qty)), unlimited: !!s.unlimited }));
+						.map((s) => ({
+							key: s.key,
+							qty: Math.max(0, Number(s.qty)),
+							unlimited: !!s.unlimited
+						}));
 				}
 			} catch {
 				return actionFail('upgrade', 400, { errorKey: 'clientsvc.errors.invalidUpgrade' });

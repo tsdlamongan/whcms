@@ -65,7 +65,9 @@
 	const checkoutError = $derived(
 		form?.checkoutErrorKey ? t(form.checkoutErrorKey) : (form?.checkoutErrorMessage ?? null)
 	);
-	const checkoutProfileIncomplete = $derived(form?.checkoutErrorKey === 'orderfe.cart.profileIncomplete');
+	const checkoutProfileIncomplete = $derived(
+		form?.checkoutErrorKey === 'orderfe.cart.profileIncomplete'
+	);
 
 	function itemTitle(index: number): string {
 		const item = cart.items[index];
@@ -334,7 +336,11 @@
 					<span data-testid="checkout-error">{checkoutError}</span>
 					{#if checkoutProfileIncomplete}
 						<div style="margin-top:8px;">
-							<a href="/account" data-testid="checkout-complete-profile-link" style="color:var(--ca-primary);font-weight:600;">
+							<a
+								href="/account"
+								data-testid="checkout-complete-profile-link"
+								style="color:var(--ca-primary);font-weight:600;"
+							>
 								{t('orderfe.cart.completeProfileLink')}
 							</a>
 						</div>

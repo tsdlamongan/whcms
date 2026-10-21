@@ -1,3 +1,4 @@
+import { withClientNames } from '$lib/server/adminNames';
 import { apiFetch } from '$lib/server/api';
 import type { PageServerLoad } from './$types';
 
@@ -51,15 +52,15 @@ export const load: PageServerLoad = async (event) => {
 			}
 		}),
 		apiFetch<ProductOption[]>(event, '/api/v1/admin/products', {
-			query: { page: 1, per_page: 100 }
+			query: { page: 1, per_page: 1000 }
 		}),
 		apiFetch<ServerOption[]>(event, '/api/v1/admin/servers', {
-			query: { page: 1, per_page: 100 }
+			query: { page: 1, per_page: 1000 }
 		})
 	]);
 
 	return {
-		services: servicesRes.data ?? [],
+		services: await withClientNames(event, servicesRes.data ?? []),
 		meta: servicesRes.meta,
 		listError: servicesRes.error ? servicesRes.error.message : null,
 		products: productsRes.data ?? [],

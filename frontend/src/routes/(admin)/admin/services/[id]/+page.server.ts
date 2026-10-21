@@ -1,3 +1,4 @@
+import { clientNamesFor } from '$lib/server/adminNames';
 import { apiFetch } from '$lib/server/api';
 import { error, fail } from '@sveltejs/kit';
 import type { Actions, PageServerLoad, RequestEvent } from './$types';
@@ -72,10 +73,10 @@ export const load: PageServerLoad = async (event) => {
 	const [serviceRes, productsRes, serversRes] = await Promise.all([
 		apiFetch<AdminService>(event, `/api/v1/admin/services/${event.params.id}`),
 		apiFetch<ProductOption[]>(event, '/api/v1/admin/products', {
-			query: { page: 1, per_page: 100 }
+			query: { page: 1, per_page: 1000 }
 		}),
 		apiFetch<ServerOption[]>(event, '/api/v1/admin/servers', {
-			query: { page: 1, per_page: 100 }
+			query: { page: 1, per_page: 1000 }
 		})
 	]);
 
@@ -83,8 +84,11 @@ export const load: PageServerLoad = async (event) => {
 		error(serviceRes.status >= 400 ? serviceRes.status : 500, serviceRes.error?.message ?? 'error');
 	}
 
+	const clientId = serviceRes.data.client_id;
+	const clientName = (await clientNamesFor(event, [clientId])).get(clientId);
+
 	return {
-		service: serviceRes.data,
+		service: clientName ? { ...serviceRes.data, client_name: clientName } : serviceRes.data,
 		products: productsRes.data ?? [],
 		servers: serversRes.data ?? []
 	};

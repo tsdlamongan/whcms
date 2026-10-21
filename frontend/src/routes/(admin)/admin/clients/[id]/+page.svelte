@@ -22,15 +22,17 @@
 		client ? [client.first_name, client.last_name].filter(Boolean).join(' ') || data.email : ''
 	);
 
-	const tabs = [
-		{ id: 'summary', label: 'Summary' },
-		{ id: 'services', label: 'Services' },
-		{ id: 'domains', label: 'Domains' },
-		{ id: 'invoices', label: 'Invoices' },
-		{ id: 'tickets', label: 'Tickets' },
-		{ id: 'notes', label: 'Notes' },
-		{ id: 'contacts', label: 'Contacts' }
-	] as const;
+	// Tab badges come from the detail aggregate's counts; absent for staff/roles
+	// whose response omits them, in which case the plain label is shown.
+	const tabs = $derived([
+		{ id: 'summary', label: 'Summary', count: null },
+		{ id: 'services', label: 'Services', count: data.counts?.services ?? null },
+		{ id: 'domains', label: 'Domains', count: data.counts?.domains ?? null },
+		{ id: 'invoices', label: 'Invoices', count: data.counts?.invoices ?? null },
+		{ id: 'tickets', label: 'Tickets', count: data.counts?.tickets ?? null },
+		{ id: 'notes', label: 'Notes', count: null },
+		{ id: 'contacts', label: 'Contacts', count: null }
+	] as const);
 
 	// profile form state
 	let firstName = $state('');
@@ -326,7 +328,10 @@
 				class:active={data.tab === tab.id}
 				aria-current={data.tab === tab.id ? 'page' : undefined}
 			>
-				{tab.label}
+				{tab.label}{#if tab.count !== null}<span
+						class="tab-count"
+						data-testid={`client-tab-count-${tab.id}`}>{tab.count}</span
+					>{/if}
 			</a>
 		{/each}
 	</div>
@@ -593,17 +598,23 @@
 							<span style="color:#888">Registered</span>
 							<span style="font-weight:600;color:#333"><DateText value={client.created_at} /></span>
 						</div>
-						{#if data.userInfo}
+						{#if data.userInfo?.twofa_enabled !== undefined}
 							<div style="display:flex;justify-content:space-between;gap:8px;padding:4px 0">
 								<span style="color:#888">Two-Factor Auth</span>
 								<span style="font-weight:600;color:#333">
 									{data.userInfo.twofa_enabled ? 'Yes' : 'No'}
 								</span>
 							</div>
+						{/if}
+						{#if data.userInfo && 'last_login_at' in data.userInfo}
 							<div style="display:flex;justify-content:space-between;gap:8px;padding:4px 0">
 								<span style="color:#888">Last Login</span>
-								<span style="font-weight:600;color:#333">
-									<DateText value={data.userInfo.last_login_at} mode="datetime" />
+								<span style="font-weight:600;color:#333" data-testid="client-last-login">
+									{#if data.userInfo.last_login_at}
+										<DateText value={data.userInfo.last_login_at} mode="datetime" />
+									{:else}
+										Never
+									{/if}
 								</span>
 							</div>
 						{/if}
@@ -1164,5 +1175,16 @@
 	}
 	.hidden {
 		display: none;
+	}
+	.tab-count {
+		display: inline-block;
+		margin-left: 6px;
+		padding: 0 6px;
+		border-radius: 9px;
+		background: #e8f0f8;
+		color: #337ab7;
+		font-size: 11px;
+		font-weight: 700;
+		line-height: 17px;
 	}
 </style>

@@ -45,11 +45,9 @@ async function decide(event: RequestEvent, op: 'accept' | 'reject') {
 	if (!id) {
 		return fail(400, { op, errorMessage: 'id is required' });
 	}
-	const res = await apiFetch(
-		event,
-		`/api/v1/admin/services/cancellation-requests/${id}/${op}`,
-		{ method: 'POST' }
-	);
+	const res = await apiFetch(event, `/api/v1/admin/services/cancellation-requests/${id}/${op}`, {
+		method: 'POST'
+	});
 	if (res.error) {
 		return fail(res.status >= 400 ? res.status : 500, {
 			op,

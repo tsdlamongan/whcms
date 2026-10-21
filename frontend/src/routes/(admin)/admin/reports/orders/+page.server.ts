@@ -2,24 +2,26 @@ import { apiFetch } from '$lib/server/api';
 import type { PageServerLoad } from './$types';
 import { parseRange } from '../range';
 
+/** One day of the orders-over-time series (adminops.OrdersReportData.points). */
+interface OrdersPoint {
+	period: string;
+	amount: number;
+	count: number;
+}
+
+/** One row of the by-status breakdown (adminops.OrderStatusCount). */
 interface OrdersStatusRow {
 	status: string;
 	count: number;
-	value?: number;
+	amount: number;
 }
 
-interface OrdersPoint {
-	period: string;
-	count: number;
-	value?: number;
-}
-
+/** GET /api/v1/admin/reports/orders payload (adminops.OrdersReportData). */
 interface OrdersReport {
-	total?: number;
-	total_orders?: number;
-	total_value?: number;
+	total_amount?: number;
+	total_count?: number;
+	points?: OrdersPoint[];
 	by_status?: OrdersStatusRow[];
-	series?: OrdersPoint[];
 }
 
 export const load: PageServerLoad = async (event) => {
@@ -31,16 +33,13 @@ export const load: PageServerLoad = async (event) => {
 
 	const report = res.data ?? {};
 	const byStatus = report.by_status ?? [];
-	const series = report.series ?? [];
-	const totalOrders =
-		report.total_orders ?? report.total ?? byStatus.reduce((sum, row) => sum + (row.count || 0), 0);
-	const totalValue = report.total_value ?? byStatus.reduce((sum, row) => sum + (row.value ?? 0), 0);
+	const series = report.points ?? [];
 
 	return {
 		from,
 		to,
-		totalOrders,
-		totalValue,
+		totalOrders: report.total_count ?? series.reduce((sum, p) => sum + (p.count || 0), 0),
+		totalValue: report.total_amount ?? series.reduce((sum, p) => sum + (p.amount || 0), 0),
 		byStatus,
 		series,
 		errorMessage: res.error?.message ?? null

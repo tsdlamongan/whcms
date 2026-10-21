@@ -1,3 +1,4 @@
+import { clientNamesFor } from '$lib/server/adminNames';
 import { apiFetch } from '$lib/server/api';
 import { error, fail } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
@@ -35,7 +36,8 @@ export const load: PageServerLoad = async (event) => {
 	if (res.error || !res.data) {
 		error(res.status >= 400 ? res.status : 500, res.error?.message ?? 'error');
 	}
-	return { domain: res.data };
+	const clientName = (await clientNamesFor(event, [res.data.client_id])).get(res.data.client_id);
+	return { domain: clientName ? { ...res.data, client_name: clientName } : res.data };
 };
 
 export const actions: Actions = {

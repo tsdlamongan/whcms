@@ -16,7 +16,7 @@ export interface Department {
 export const load: PageServerLoad = async (event) => {
 	// Admin list (includes inactive departments) - guessed RESTful path.
 	const res = await apiFetch<Department[]>(event, '/api/v1/admin/ticket-departments', {
-		query: { per_page: 100 }
+		query: { per_page: 1000 }
 	});
 
 	return {
@@ -45,7 +45,7 @@ function readInput(form: FormData): { input: DeptInput; errors: Record<string, s
 	return { input: { name, email, sort, active }, errors };
 }
 
-async function save(event: RequestEvent, method: 'POST' | 'PUT', path: string) {
+async function save(event: RequestEvent, method: 'POST', path: string) {
 	const form = await event.request.formData();
 	const { input, errors } = readInput(form);
 	if (Object.keys(errors).length > 0) {
@@ -76,7 +76,8 @@ export const actions: Actions = {
 			return fail(400, { fieldErrors: errors, values: input });
 		}
 		const res = await apiFetch(event, `/api/v1/admin/ticket-departments/${id}`, {
-			method: 'PUT',
+			// The API registers department updates as PATCH (tickets/handler.go).
+			method: 'PATCH',
 			body: input
 		});
 		if (res.error) {

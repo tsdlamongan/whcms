@@ -239,7 +239,7 @@ const messages: Partial<Record<Locale, Record<string, unknown>>> = {
 				empty: 'No transactions yet',
 				emptyDesc: 'Payment transactions will appear here.',
 				loadError: 'Failed to load transactions.',
-				searchPlaceholder: 'Reference / invoice #…'
+				searchPlaceholder: 'Merchant order ID / gateway reference…'
 			},
 			reports: {
 				revenueTitle: 'Revenue Report',

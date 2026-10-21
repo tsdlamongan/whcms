@@ -1,10 +1,8 @@
 <script lang="ts">
 	import { appName } from '$lib/appName';
-	import HpModal from '$lib/components/hp/HpModal.svelte';
 	import HpPager from '$lib/components/hp/HpPager.svelte';
 	import { fmtDate } from '$lib/date';
 	import { formatIDR } from '$lib/money';
-	import { toast } from '$lib/stores/toast.svelte';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
@@ -46,21 +44,6 @@
 	function arrow(col: string): string {
 		return sortCol === col ? (sortDir === 'asc' ? '▲' : '▼') : '';
 	}
-
-	// selection
-	let checked = $state<Set<number>>(new Set());
-	const allChecked = $derived(rows.length > 0 && rows.every((r) => checked.has(r.id)));
-	function toggle(id: number) {
-		const next = new Set(checked);
-		if (next.has(id)) next.delete(id);
-		else next.add(id);
-		checked = next;
-	}
-	function toggleAll() {
-		checked = allChecked ? new Set() : new Set(rows.map((r) => r.id));
-	}
-
-	let msgOpen = $state(false);
 
 	// pagination
 	const total = $derived(data.meta?.total ?? data.clients.length);
@@ -139,14 +122,6 @@
 	<table class="hp-table">
 		<thead>
 			<tr>
-				<th class="c" style="width:34px">
-					<input
-						type="checkbox"
-						checked={allChecked}
-						onchange={toggleAll}
-						aria-label="Select all"
-					/>
-				</th>
 				<th style="width:70px"
 					><button class="hp-sort" onclick={() => sortBy('id')}>ID {arrow('id')}</button></th
 				>
@@ -187,14 +162,6 @@
 		<tbody>
 			{#each rows as c (c.id)}
 				<tr class="hp-row">
-					<td class="c"
-						><input
-							type="checkbox"
-							checked={checked.has(c.id)}
-							onchange={() => toggle(c.id)}
-							aria-label={`Select ${c.id}`}
-						/></td
-					>
 					<td
 						><a class="cell-link" href={`/admin/clients/${c.id}`} data-testid={`row-client-${c.id}`}
 							>{c.id}</a
@@ -210,7 +177,7 @@
 				</tr>
 			{:else}
 				<tr
-					><td colspan="9" style="text-align:center;padding:28px;color:#999">No clients found</td
+					><td colspan="8" style="text-align:center;padding:28px;color:#999">No clients found</td
 					></tr
 				>
 			{/each}
@@ -218,31 +185,4 @@
 	</table>
 </div>
 
-<div class="hp-bulk">
-	<span>With Selected:</span>
-	<button
-		class="hp-btn"
-		onclick={() => (checked.size ? (msgOpen = true) : toast.info('Select at least one client'))}
-	>
-		Send Message
-	</button>
-</div>
-
 <HpPager page={curPage} {perPage} {total} />
-
-<HpModal open={msgOpen} title="Send Message" onClose={() => (msgOpen = false)}>
-	<div style="color:#666;margin-bottom:10px">{checked.size} recipient(s) selected</div>
-	<input class="hp-input" placeholder="Subject" style="margin-bottom:8px" />
-	<textarea class="hp-textarea" placeholder="Message" rows="5"></textarea>
-	<div style="text-align:right;margin-top:12px">
-		<button
-			class="hp-btn hp-btn-primary"
-			onclick={() => {
-				msgOpen = false;
-				toast.success('Message sent');
-			}}
-		>
-			Send Message
-		</button>
-	</div>
-</HpModal>

@@ -16,9 +16,7 @@
 			? [data.client.first_name, data.client.last_name].filter(Boolean).join(' ') ||
 					data.client.email ||
 					`#${data.client.id}`
-			: order
-				? `#${order.client_id}`
-				: ''
+			: (data.clientName ?? (order ? `#${order.client_id}` : ''))
 	);
 
 	type OrderAction = 'accept' | 'cancel' | 'fraud';

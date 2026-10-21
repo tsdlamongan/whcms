@@ -1,3 +1,4 @@
+import { clientNamesFor } from '$lib/server/adminNames';
 import { apiFetch } from '$lib/server/api';
 import { error, fail } from '@sveltejs/kit';
 import type { Actions, PageServerLoad, RequestEvent } from './$types';
@@ -83,11 +84,17 @@ export const load: PageServerLoad = async (event) => {
 		if (typeof rawInvoiceId === 'number' && rawInvoiceId > 0) invoiceId = rawInvoiceId;
 	}
 
+	// The detail aggregate carries only client_id; resolve the display name.
+	const clientName = order
+		? ((await clientNamesFor(event, [order.client_id])).get(order.client_id) ?? null)
+		: null;
+
 	return {
 		orderId: id,
 		order,
 		items,
 		client,
+		clientName,
 		invoice,
 		invoiceId,
 		loadError: res.error ? res.error.message : null

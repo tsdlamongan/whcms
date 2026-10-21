@@ -156,7 +156,8 @@
 		data-testid="service-client-link"
 		style="color:#337ab7;font-weight:600;font-size:13px"
 	>
-		View Client <i class="fas fa-arrow-right"></i>
+		{service.client_name ? `Client: ${service.client_name}` : 'View Client'}
+		<i class="fas fa-arrow-right"></i>
 	</a>
 </div>
 

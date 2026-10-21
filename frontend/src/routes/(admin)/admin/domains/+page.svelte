@@ -37,7 +37,9 @@
 
 <div class="hp-info">
 	<i class="fas fa-info-circle" style="margin-right:8px"></i>Registered domains across all clients.
-	Configure TLD pricing and registrars from
+	Configure TLD pricing under
+	<a href="/admin/domains/pricing" style="color:#337AB7;font-weight:600">Domain Pricing</a>
+	and registrar credentials under
 	<a href="/admin/registrars" style="color:#337AB7;font-weight:600">Domain Registrars</a>.
 </div>
 

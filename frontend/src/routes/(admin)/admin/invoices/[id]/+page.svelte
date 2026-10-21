@@ -17,12 +17,9 @@
 	type TabId = 'summary' | 'payment' | 'refund' | 'notes';
 	let active = $state<TabId>('summary');
 
-	let addItemOpen = $state(false);
 	let cancelOpen = $state(false);
-	let deleteItemId = $state<number | null>(null);
 	let submitting = $state(false);
 
-	let deleteItemForm: HTMLFormElement | undefined = $state();
 	let cancelForm: HTMLFormElement | undefined = $state();
 
 	const canPay = $derived(invoice?.status === 'unpaid' || invoice?.status === 'overdue');
@@ -30,7 +27,6 @@
 	const canCancel = $derived(
 		invoice?.status === 'draft' || invoice?.status === 'unpaid' || invoice?.status === 'overdue'
 	);
-	const isDraft = $derived(invoice?.status === 'draft');
 
 	// If the current action tab's guard flips off mid-session (e.g. the
 	// invoice just got paid), fall back to Summary rather than showing a
@@ -50,15 +46,10 @@
 		active = 'notes';
 	}
 
-	function openAddItem() {
-		addItemOpen = true;
-	}
-
 	const ERROR_TEXT: Record<string, string> = {
 		'adminBilling.create.errDueDate': 'The due date is required.',
 		'adminBilling.detail.errAmount': 'The amount must be a positive number.',
-		'adminBilling.detail.errMethod': 'The payment method is required.',
-		'adminBilling.detail.errItemDescription': 'The item description is required.'
+		'adminBilling.detail.errMethod': 'The payment method is required.'
 	};
 	const errorText = $derived(
 		form?.errorKey ? (ERROR_TEXT[form.errorKey] ?? form.errorKey) : (form?.errorMessage ?? null)
@@ -101,9 +92,7 @@
 			return async ({ result, update }) => {
 				submitting = false;
 				if (result.type === 'success') {
-					addItemOpen = false;
 					cancelOpen = false;
-					deleteItemId = null;
 					if (opts.toSummary) active = 'summary';
 					toast.success(successMsg);
 				}
@@ -278,36 +267,19 @@
 			<section class="hp-panel" style="margin-bottom:16px">
 				<div class="hp-panel-hd">
 					<span class="title">Invoice Items</span>
-					{#if isDraft}
-						<button
-							type="button"
-							class="hp-btn hp-btn-primary"
-							data-testid="add-item-button"
-							onclick={openAddItem}
-						>
-							<i class="fas fa-plus"></i>Add Item
-						</button>
-					{/if}
 				</div>
-				{#if !isDraft}
-					<div class="hp-info" style="margin:12px 12px 0">
-						<i class="fas fa-lock" style="margin-right:8px"></i>Items are locked — only draft
-						invoices can be edited.
-					</div>
-				{/if}
 				<div class="hp-scroll">
 					<table class="hp-table">
 						<thead>
 							<tr>
 								<th>Description</th>
 								<th class="r" style="width:160px">Amount</th>
-								{#if isDraft}<th class="c" style="width:56px"></th>{/if}
 							</tr>
 						</thead>
 						<tbody>
 							{#if items.length === 0}
 								<tr>
-									<td colspan={isDraft ? 3 : 2} style="text-align:center;padding:24px;color:#999">
+									<td colspan="2" style="text-align:center;padding:24px;color:#999">
 										This invoice has no items yet.
 									</td>
 								</tr>
@@ -321,20 +293,6 @@
 											{/if}
 										</td>
 										<td class="r"><MoneyText amount={item.amount} /></td>
-										{#if isDraft}
-											<td class="c">
-												<button
-													type="button"
-													class="hp-btn hp-btn-danger"
-													style="padding:2px 8px"
-													data-testid={`delete-item-${item.id}`}
-													aria-label="Delete item"
-													onclick={() => (deleteItemId = item.id)}
-												>
-													&times;
-												</button>
-											</td>
-										{/if}
 									</tr>
 								{/each}
 							{/if}
@@ -376,12 +334,7 @@
 			</section>
 
 			<HpPanel title="Transactions" flush>
-				{#if data.transactionsError}
-					<div class="hp-alert-yellow" style="margin:12px">
-						<i class="fas fa-exclamation-triangle" style="margin-right:8px"
-						></i>{data.transactionsError}
-					</div>
-				{:else if data.transactions.length === 0}
+				{#if data.transactions.length === 0}
 					<p style="text-align:center;padding:20px;color:#999">
 						No transactions for this invoice yet.
 					</p>
@@ -550,48 +503,6 @@
 		</div>
 	</div>
 
-	<!-- Add draft item -->
-	<HpModal open={addItemOpen} title="Add Item" onClose={() => (addItemOpen = false)}>
-		<form method="POST" action="?/addItem" use:enhance={mutate('Item added.')}>
-			<label class="hp-field-label" style="display:block" for="field-item-description"
-				>Description</label
-			>
-			<input
-				id="field-item-description"
-				name="description"
-				type="text"
-				class="hp-input"
-				style="margin-bottom:10px"
-				required
-			/>
-			<label class="hp-field-label" style="display:block" for="field-item-amount">Amount</label>
-			<input
-				id="field-item-amount"
-				name="amount"
-				type="number"
-				class="hp-input"
-				value={0}
-				required
-			/>
-			<div class="hp-help" style="margin:4px 0 10px">Whole rupiah, no decimals.</div>
-			<label class="hp-checkline" style="padding:0 0 10px">
-				<input type="checkbox" name="taxed" checked />
-				Taxed
-			</label>
-			<div style="display:flex;justify-content:flex-end;gap:8px">
-				<button type="button" class="hp-btn" onclick={() => (addItemOpen = false)}>Cancel</button>
-				<button
-					type="submit"
-					class="hp-btn hp-btn-primary"
-					data-testid="add-item-submit"
-					disabled={submitting}
-				>
-					Add
-				</button>
-			</div>
-		</form>
-	</HpModal>
-
 	<!-- Cancel invoice -->
 	<form
 		method="POST"
@@ -611,33 +522,6 @@
 				onclick={() => cancelForm?.requestSubmit()}
 			>
 				Mark Cancelled
-			</button>
-		</div>
-	</HpModal>
-
-	<!-- Delete draft item -->
-	<form
-		method="POST"
-		action="?/deleteItem"
-		bind:this={deleteItemForm}
-		use:enhance={mutate('Item deleted.')}
-		class="hidden"
-	>
-		<input type="hidden" name="item_id" value={deleteItemId ?? ''} />
-	</form>
-	<HpModal open={deleteItemId !== null} title="Delete Item" onClose={() => (deleteItemId = null)}>
-		<p style="color:#666;margin-bottom:16px">
-			Are you sure you want to delete this item? This cannot be undone.
-		</p>
-		<div style="display:flex;justify-content:flex-end;gap:8px">
-			<button type="button" class="hp-btn" onclick={() => (deleteItemId = null)}>Cancel</button>
-			<button
-				type="button"
-				class="hp-btn hp-btn-danger"
-				disabled={submitting}
-				onclick={() => deleteItemForm?.requestSubmit()}
-			>
-				Delete
 			</button>
 		</div>
 	</HpModal>

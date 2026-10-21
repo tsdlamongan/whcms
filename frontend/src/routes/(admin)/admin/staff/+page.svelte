@@ -13,34 +13,30 @@
 
 	let { data, form }: PageProps = $props();
 
-	// Password gate (docs/DESIGN.md §4 / §9 - "Password Gate" / "Password gate untuk
-	// halaman admin sensitif"). This is a decorative, client-side-only affordance
-	// that mirrors WHMCS's Administrators page, NOT a real re-authentication
-	// boundary: access to this page's data is already enforced server-side by
-	// RequireRole/RequirePermission on the underlying load. There is no lightweight
-	// "verify current password" endpoint in this app (the only password-check path,
-	// PATCH /api/v1/auth/me, only verifies the current password as a side effect of
-	// actually changing it to a new one), so we deliberately don't call any backend
-	// endpoint here - the user just confirms intent by typing something and clicking
-	// Confirm, same as the rest of this admin theme's decorative chrome.
-	let unlocked = $state(false);
-	let gatePassword = $state('');
-	let gateError = $state(false);
+	// Password gate (docs/DESIGN.md §4 / §9). Real "sudo mode": the unlock form
+	// posts the password to POST /auth/confirm-password (verified server-side,
+	// attempt-limited) and the loader/actions re-check the server-held
+	// confirmation window (15 min), so the list stays withheld until it is open.
+	let gateBusy = $state(false);
+	let gateRefreshed = false;
 
-	function confirmGate() {
-		if (!gatePassword.trim()) {
-			gateError = true;
-			return;
+	// The window can lapse while the page is open; a mutating action then
+	// answers 403 + notConfirmed - reload so the gate comes back.
+	$effect(() => {
+		if (form?.notConfirmed && !gateRefreshed) {
+			gateRefreshed = true;
+			void invalidateAll();
+		} else if (!form?.notConfirmed) {
+			gateRefreshed = false;
 		}
-		gateError = false;
-		unlocked = true;
-	}
+	});
 
 	function moduleLabel(mod: PermissionModule): string {
 		const labels: Record<PermissionModule, string> = {
 			clients: 'Clients',
 			orders: 'Orders',
 			billing: 'Billing',
+			payments: 'Transactions & Payments',
 			services: 'Services',
 			domains: 'Domains',
 			support: 'Support',
@@ -80,9 +76,9 @@
 	let active = $state(true);
 	let permissions = $state<Record<PermissionModule, boolean>>(emptyPermissions());
 
-	let deleteOpen = $state(false);
-	let deleteTarget = $state<StaffRow | null>(null);
-	let deleting = $state(false);
+	let deactivateOpen = $state(false);
+	let deactivateTarget = $state<StaffRow | null>(null);
+	let deactivating = $state(false);
 
 	const errorText = $derived(form?.errorMessage ?? null);
 	const fieldErrors = $derived<Record<string, string>>(form?.fieldErrors ?? {});
@@ -111,9 +107,9 @@
 		modalOpen = true;
 	}
 
-	function askDelete(row: StaffRow) {
-		deleteTarget = row;
-		deleteOpen = true;
+	function askDeactivate(row: StaffRow) {
+		deactivateTarget = row;
+		deactivateOpen = true;
 	}
 
 	function permsSummary(row: StaffRow): string {
@@ -186,15 +182,17 @@
 							>
 								Edit
 							</button>
-							<button
-								type="button"
-								class="hp-btn hp-btn-danger"
-								style="padding:5px 10px"
-								data-testid={`staff-delete-${row.id}`}
-								onclick={() => askDelete(row)}
-							>
-								Delete
-							</button>
+							{#if row.status === 'active'}
+								<button
+									type="button"
+									class="hp-btn hp-btn-danger"
+									style="padding:5px 10px"
+									data-testid={`staff-deactivate-${row.id}`}
+									onclick={() => askDeactivate(row)}
+								>
+									Deactivate
+								</button>
+							{/if}
 						</td>
 					</tr>
 				{:else}
@@ -210,33 +208,46 @@
 	<title>Administrators — {appName} Admin</title>
 </svelte:head>
 
-{#if !unlocked}
+{#if !data.confirmed}
 	<div class="hp-gate-wrap">
-		<div class="hp-gate">
+		<form
+			method="POST"
+			action="?/unlock"
+			class="hp-gate"
+			data-testid="staff-gate"
+			use:enhance={() => {
+				gateBusy = true;
+				return async ({ update }) => {
+					gateBusy = false;
+					await update({ reset: true });
+				};
+			}}
+		>
 			<div class="hp-gate-icon"><i class="fas fa-lock"></i></div>
 			<h2>Confirm password to continue</h2>
 			<p>This page manages administrator accounts. Re-enter your password to continue.</p>
+			{#if form?.gateError}
+				<div class="hp-alert-red" data-testid="staff-gate-error">{form.gateError}</div>
+			{/if}
 			<input
 				type="password"
+				name="password"
 				class="hp-input"
-				class:hp-input-error={gateError}
+				class:hp-input-error={!!form?.gateError}
 				placeholder="Password"
 				autocomplete="current-password"
-				bind:value={gatePassword}
+				required
 				data-testid="staff-gate-password"
-				onkeydown={(e) => {
-					if (e.key === 'Enter') confirmGate();
-				}}
 			/>
 			<button
-				type="button"
+				type="submit"
 				class="hp-btn hp-btn-primary"
-				onclick={confirmGate}
+				disabled={gateBusy}
 				data-testid="staff-gate-confirm"
 			>
 				Confirm
 			</button>
-		</div>
+		</form>
 	</div>
 {:else}
 	<h1 class="hp-h1">Administrators</h1>
@@ -252,9 +263,10 @@
 		</div>
 	{/if}
 
-	{#if form?.deleteErrorMessage}
-		<div class="hp-alert-red">
-			<i class="fas fa-exclamation-triangle" style="margin-right:8px"></i>{form.deleteErrorMessage}
+	{#if form?.deactivateErrorMessage}
+		<div class="hp-alert-red" data-testid="staff-deactivate-error">
+			<i class="fas fa-exclamation-triangle" style="margin-right:8px"
+			></i>{form.deactivateErrorMessage}
 		</div>
 	{/if}
 
@@ -410,32 +422,32 @@
 
 	<form
 		method="POST"
-		action="?/delete"
-		id="staff-delete-form"
+		action="?/deactivate"
+		id="staff-deactivate-form"
 		use:enhance={() => {
-			deleting = true;
+			deactivating = true;
 			return async ({ result, update }) => {
-				deleting = false;
-				deleteOpen = false;
+				deactivating = false;
+				deactivateOpen = false;
 				if (result.type === 'success') {
-					toast.success('Deleted successfully.');
+					toast.success('Administrator deactivated.');
 					await invalidateAll();
 				}
 				await update({ reset: false });
 			};
 		}}
 	>
-		<input type="hidden" name="id" value={deleteTarget?.id ?? ''} />
+		<input type="hidden" name="id" value={deactivateTarget?.id ?? ''} />
 	</form>
 	<ConfirmDialog
-		bind:open={deleteOpen}
+		bind:open={deactivateOpen}
 		danger
-		loading={deleting}
-		title="Delete this administrator?"
-		message="Their access will be permanently revoked."
-		confirmLabel="Delete"
+		loading={deactivating}
+		title="Deactivate this administrator?"
+		message="They will no longer be able to sign in. You can re-enable the account later by editing it and ticking “Account active”."
+		confirmLabel="Deactivate"
 		onConfirm={() => {
-			(document.getElementById('staff-delete-form') as HTMLFormElement | null)?.requestSubmit();
+			(document.getElementById('staff-deactivate-form') as HTMLFormElement | null)?.requestSubmit();
 		}}
 	/>
 {/if}

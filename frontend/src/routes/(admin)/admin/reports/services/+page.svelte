@@ -38,14 +38,24 @@
 	</div>
 {/if}
 
-<div style="max-width:260px;margin-bottom:16px">
-	<div class="hp-stat" style="background:#337ab7">
-		<div class="hp-stat-ico"><i class="fas fa-server" aria-hidden="true"></i></div>
-		<div class="hp-stat-bd">
-			<div class="hp-stat-val">{plain(data.total)}</div>
-			<div class="hp-stat-lbl">Total Services</div>
+<div style="display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:16px">
+	<div style="min-width:240px;max-width:260px;flex:1 1 240px">
+		<div class="hp-stat" style="background:#337ab7">
+			<div class="hp-stat-ico"><i class="fas fa-server" aria-hidden="true"></i></div>
+			<div class="hp-stat-bd">
+				<div class="hp-stat-val" data-testid="services-total">{plain(data.total)}</div>
+				<div class="hp-stat-lbl">Total Services</div>
+			</div>
 		</div>
 	</div>
+	<a
+		class="hp-btn"
+		style="margin-left:auto"
+		href="/admin/reports/services/csv"
+		data-testid="services-csv-link"
+	>
+		<i class="fas fa-download"></i>Export CSV
+	</a>
 </div>
 
 <div class="report-2col">
@@ -70,7 +80,7 @@
 					{:else}
 						{#each data.byStatus as row (row.status)}
 							{@const pct = maxStatusCount > 0 ? Math.round((row.count / maxStatusCount) * 100) : 0}
-							<tr class="hp-row">
+							<tr class="hp-row" data-testid={`services-status-row-${row.status}`}>
 								<td><span class={`hp-stext ${statusClass(row.status)}`}>{row.status}</span></td>
 								<td class="r">{row.count}</td>
 								<td>
@@ -111,8 +121,15 @@
 						{#each data.byProduct as row (row.name)}
 							{@const pct =
 								maxProductCount > 0 ? Math.round((row.count / maxProductCount) * 100) : 0}
-							<tr class="hp-row">
-								<td>{row.name}</td>
+							<tr class="hp-row" data-testid={`services-product-row-${row.name}`}>
+								<td>
+									{row.name}
+									{#if row.breakdown.length > 1}
+										<div style="font-size:11px;color:#999">
+											{row.breakdown.map((b) => `${b.count} ${b.status}`).join(' · ')}
+										</div>
+									{/if}
+								</td>
 								<td class="r">{row.count}</td>
 								<td>
 									<span

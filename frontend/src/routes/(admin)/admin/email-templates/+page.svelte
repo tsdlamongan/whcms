@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { appName } from '$lib/appName';
-	import { toast } from '$lib/stores/toast.svelte';
 	import type { PageProps } from './$types';
 	import type { EmailTemplateRow } from './+page.server';
 
@@ -142,27 +141,6 @@
 		<i class="fas fa-exclamation-triangle" style="margin-right:8px"></i>{data.listError}
 	</div>
 {/if}
-
-<div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
-	<button
-		type="button"
-		class="hp-btn"
-		onclick={() =>
-			toast.info('Template keys are fixed by the system — edit one of the templates below.')}
-	>
-		<i class="fas fa-plus-circle" style="color:#5cb85c"></i>Create New Email Template
-	</button>
-	<button
-		type="button"
-		class="hp-btn"
-		onclick={() =>
-			toast.info(
-				'Language is set per template row — edit a template to change its locale content.'
-			)}
-	>
-		<i class="fas fa-language" style="color:#5b9bd5"></i>Manage Languages
-	</button>
-</div>
 
 <form method="get" class="hp-filter" data-testid="template-filter-form">
 	<div class="grow">
