@@ -28,15 +28,17 @@ import {
  * a new dynamic package (matching the resized quota) exists on the mock WHM,
  * and the old dynamic package (no longer referenced) is deleted.
  *
- * The disk sizes are randomized (not a fixed 20→50) because the dynamic
- * panel package name is a deterministic hash of (server prefix, resolved
- * limits, toggles) - unlike the domain/email/product slug, it is NOT
- * something `unique()` already randomizes. A fixed size would always hash to
- * the exact same package name as every past run of this spec, so a single
- * earlier run that failed/aborted before completing its own resize (leaving
- * its service stuck forever on the "pre-resize" package) would permanently
- * poison the "old package deleted" assertion below for every later run
- * against the persistent whmcs_e2e DB.
+ * The panel package name is a deterministic hash of (server prefix, resolved
+ * limits, toggles incl. the product's feature list) - unlike the domain/email/
+ * product slug, it is NOT something `unique()` already randomizes. The worker
+ * deletes the old package only when no other live service on the server still
+ * references it, and the persistent whmcs_e2e DB keeps every earlier run's
+ * services (and any run that aborted before its own resize), so a package name
+ * that an earlier run also produced is legitimately never deleted and the "old
+ * package deleted" assertion below fails. Randomizing the disk sizes alone only
+ * delays that (a few dozen runs fill the small size range); a per-run unique
+ * feature list makes both packages' names unique for good. The sizes stay
+ * randomized so the live estimate is not pinned to one hardcoded pair.
  *
  * Runs against the live stack (mockserver:9090, api:8080, worker, frontend).
  */
@@ -114,6 +116,8 @@ test.describe('custom-spec upgrade: resize via client area → pay → package r
 				module: 'cpanel',
 				server_group_id: mockServer!.group_id,
 				package_name: 'e2e-base',
+				// Part of the dynamic package name hash: unique per run (see header).
+				feature_list: `fl-${suffix}`,
 				auto_setup: 'on_payment',
 				configurable: true
 			}
@@ -288,11 +292,20 @@ test.describe('custom-spec upgrade: resize via client area → pay → package r
 			)
 			.toBe(String(resizedDiskGB * 1024));
 
-		const pkgsRes = await api.get(`${MOCK_BASE}/mock/whm/packages`);
-		const names = (((await pkgsRes.json()).packages ?? []) as Array<{ name: string }>).map(
-			(p) => p.name
-		);
-		expect(names, 'orphaned old dynamic package must be deleted').not.toContain(originalPackage);
+		// The worker deletes the old package AFTER the new one exists and the
+		// account has moved onto it, so poll: a single read right after the new
+		// package appears races the cleanup under load.
+		await expect
+			.poll(
+				async () => {
+					const res = await api.get(`${MOCK_BASE}/mock/whm/packages`);
+					if (!res.ok()) return null;
+					const pkgs = ((await res.json()).packages ?? []) as Array<{ name: string }>;
+					return pkgs.some((p) => p.name === originalPackage);
+				},
+				{ timeout: 20_000, message: 'orphaned old dynamic package must be deleted' }
+			)
+			.toBe(false);
 
 		// The client sees the new configuration reflected on the service page.
 		await page.goto(`/services/${serviceId}`);
