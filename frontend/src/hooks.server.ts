@@ -133,11 +133,20 @@ async function isInstalled(event: RequestEvent): Promise<boolean> {
 export const handle: Handle = async ({ event, resolve }) => {
 	const { cookies, locals } = event;
 
+	const path = event.url.pathname;
+	// GHSA-pfhg-q3qv-9q6r (SvelteKit < 3): on a page reached through a path that
+	// starts with '//' (e.g. //login still renders /login), an enhanced form's
+	// result can navigate to a protocol-relative URL. Fold the leading slashes
+	// (and backslashes, which browsers read as slashes in a Location) into one,
+	// so the redirect can only ever point back at this origin.
+	if (path.startsWith('//')) {
+		redirect(308, `/${path.replace(/^[/\\]+/, '')}${event.url.search}`);
+	}
+
 	locals.locale = cookies.get('locale') === 'en' ? 'en' : 'id';
 	locals.user = null;
 	locals.accessToken = null;
 
-	const path = event.url.pathname;
 	const skipInstallGate =
 		path === '/install' ||
 		path.startsWith('/install/') ||
