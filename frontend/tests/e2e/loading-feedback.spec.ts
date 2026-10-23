@@ -33,7 +33,15 @@ const FAKE_TURNSTILE_JS = `
 	var n = 0;
 	window.__turnstileResets = 0;
 	window.turnstile = {
-		ready: function (cb) { cb(); },
+		// Like Cloudflare's: refuses to run when its own tag is async/defer
+		// (a script inserted from JS always is) - calling it stranded prod's widget.
+		ready: function (cb) {
+			var tag = document.querySelector('script[src*="/turnstile/v0/api.js"]');
+			if (tag && (tag.async || tag.defer)) {
+				throw new Error('[Cloudflare Turnstile] Remove async/defer from the Turnstile api.js script tag before using turnstile.ready().');
+			}
+			cb();
+		},
 		render: function (el, opts) {
 			el.innerHTML = '<div data-fake-turnstile style="height:65px">fake widget</div>';
 			window.__turnstileOpts = opts;
