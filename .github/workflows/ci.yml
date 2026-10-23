@@ -45,15 +45,16 @@ jobs:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
 
-      # S3-compatible storage on :9000 (MinIO stands in for RustFS) — the
+      # S3-compatible storage on :9000, pinned to the RustFS release prod runs
+      # (MinIO's images on Docker Hub and quay.io are no longer pullable) — the
       # installer bootstrap integration tests probe http://localhost:9000.
-      - name: Start S3 (MinIO) on :9000
+      - name: Start S3 (RustFS) on :9000
         run: |
           docker run -d --name s3 -p 9000:9000 \
-            -e MINIO_ROOT_USER=rustfsadmin -e MINIO_ROOT_PASSWORD=rustfsadmin \
-            quay.io/minio/minio:latest server /data
+            -e RUSTFS_ACCESS_KEY=rustfsadmin -e RUSTFS_SECRET_KEY=rustfsadmin \
+            rustfs/rustfs:1.0.0-beta.11
           for i in $(seq 1 30); do
-            curl -fsS http://127.0.0.1:9000/minio/health/live && break
+            curl -fsS http://127.0.0.1:9000/health && break
             sleep 1
           done
           AWS_ACCESS_KEY_ID=rustfsadmin AWS_SECRET_ACCESS_KEY=rustfsadmin AWS_REGION=us-east-1 \
@@ -167,13 +168,13 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      - name: Start S3 (MinIO) on :9000
+      - name: Start S3 (RustFS) on :9000
         run: |
           docker run -d --name s3 -p 9000:9000 \
-            -e MINIO_ROOT_USER=rustfsadmin -e MINIO_ROOT_PASSWORD=rustfsadmin \
-            quay.io/minio/minio:latest server /data
+            -e RUSTFS_ACCESS_KEY=rustfsadmin -e RUSTFS_SECRET_KEY=rustfsadmin \
+            rustfs/rustfs:1.0.0-beta.11
           for i in $(seq 1 30); do
-            curl -fsS http://127.0.0.1:9000/minio/health/live && break
+            curl -fsS http://127.0.0.1:9000/health && break
             sleep 1
           done
           AWS_ACCESS_KEY_ID=rustfsadmin AWS_SECRET_ACCESS_KEY=rustfsadmin AWS_REGION=us-east-1 \
