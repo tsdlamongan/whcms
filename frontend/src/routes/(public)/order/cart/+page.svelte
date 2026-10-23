@@ -55,6 +55,12 @@
 	let resending = $state(false);
 	let checkingOut = $state(false);
 	let captchaReset = $state(0);
+	let captchaReady = $state(false);
+	// Login, register and checkout each render their own Turnstile, but never
+	// more than one at a time, so a single flag gates whichever is on screen.
+	const captchaPending = $derived(
+		!!(data.captcha?.enabled && data.captcha.siteKey) && !captchaReady
+	);
 
 	const loginError = $derived(
 		form?.loginErrorKey ? t(form.loginErrorKey) : (form?.loginErrorMessage ?? null)
@@ -272,8 +278,10 @@
 								type="submit"
 								class="ca-btn ca-btn-primary"
 								disabled={applyingCoupon}
+								aria-busy={applyingCoupon}
 								data-testid="coupon-apply"
 							>
+								{#if applyingCoupon}<span class="ca-spinner" aria-hidden="true"></span>{/if}
 								{t('orderfe.cart.applyCoupon')}
 							</button>
 						</form>
@@ -411,14 +419,20 @@
 									data-testid="cart-login-password"
 								/>
 								{#if data.captcha?.enabled && data.captcha.siteKey}
-									<Turnstile siteKey={data.captcha.siteKey} resetSignal={captchaReset} />
+									<Turnstile
+										siteKey={data.captcha.siteKey}
+										resetSignal={captchaReset}
+										bind:ready={captchaReady}
+									/>
 								{/if}
 								<button
 									type="submit"
 									class="ca-btn ca-btn-primary ca-btn-block"
-									disabled={loggingIn}
+									disabled={loggingIn || captchaPending}
+									aria-busy={loggingIn}
 									data-testid="cart-login-submit"
 								>
+									{#if loggingIn}<span class="ca-spinner" aria-hidden="true"></span>{/if}
 									{t('auth.login')}
 								</button>
 								<p style="margin-top:12px;text-align:center;font-size:0.8rem;">
@@ -543,14 +557,20 @@
 									/>
 								</div>
 								{#if data.captcha?.enabled && data.captcha.siteKey}
-									<Turnstile siteKey={data.captcha.siteKey} resetSignal={captchaReset} />
+									<Turnstile
+										siteKey={data.captcha.siteKey}
+										resetSignal={captchaReset}
+										bind:ready={captchaReady}
+									/>
 								{/if}
 								<button
 									type="submit"
 									class="ca-btn ca-btn-primary ca-btn-block"
-									disabled={registering}
+									disabled={registering || captchaPending}
+									aria-busy={registering}
 									data-testid="cart-register-submit"
 								>
+									{#if registering}<span class="ca-spinner" aria-hidden="true"></span>{/if}
 									{t('auth.register')}
 								</button>
 							</form>
@@ -598,8 +618,10 @@
 								type="submit"
 								class="ca-btn ca-btn-primary ca-btn-block"
 								disabled={resending}
+								aria-busy={resending}
 								data-testid="resend-verification"
 							>
+								{#if resending}<span class="ca-spinner" aria-hidden="true"></span>{/if}
 								{t('orderfe.cart.resend')}
 							</button>
 						</form>
@@ -629,16 +651,24 @@
 								<input type="hidden" name="coupon" value={cart.coupon.code} />
 							{/if}
 							{#if data.captcha?.enabled && data.captcha.siteKey}
-								<Turnstile siteKey={data.captcha.siteKey} resetSignal={captchaReset} />
+								<Turnstile
+									siteKey={data.captcha.siteKey}
+									resetSignal={captchaReset}
+									bind:ready={captchaReady}
+								/>
 							{/if}
 							<button
 								type="submit"
 								class="ca-btn ca-btn-success ca-btn-block ca-btn-lg"
-								disabled={checkingOut || cart.count === 0}
+								disabled={checkingOut || cart.count === 0 || captchaPending}
+								aria-busy={checkingOut}
 								data-testid="checkout-submit"
 							>
+								{#if checkingOut}
+									<span class="ca-spinner" aria-hidden="true"></span>
+								{/if}
 								{checkingOut ? t('common.loading') : t('orderfe.cart.checkout')}
-								<i class="fas fa-arrow-right" aria-hidden="true"></i>
+								{#if !checkingOut}<i class="fas fa-arrow-right" aria-hidden="true"></i>{/if}
 							</button>
 						</form>
 						<p style="margin-top:12px;text-align:center;font-size:0.85rem;">

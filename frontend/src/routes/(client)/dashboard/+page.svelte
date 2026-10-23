@@ -85,8 +85,10 @@
 						type="submit"
 						class="ca-btn ca-btn-primary"
 						disabled={resending}
+						aria-busy={resending}
 						data-testid="dashboard-resend-submit"
 					>
+						{#if resending}<span class="ca-spinner" aria-hidden="true"></span>{/if}
 						{resending
 							? t('clientcore.dashboard.resendSending')
 							: t('clientcore.dashboard.resendVerification')}

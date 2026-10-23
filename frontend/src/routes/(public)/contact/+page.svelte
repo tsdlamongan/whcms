@@ -91,9 +91,14 @@
 					type="submit"
 					class="ca-btn ca-btn-primary"
 					disabled={submitting}
+					aria-busy={submitting}
 					data-testid="contact-submit"
 				>
-					<i class="fas fa-paper-plane" aria-hidden="true"></i>
+					{#if submitting}
+						<span class="ca-spinner" aria-hidden="true"></span>
+					{:else}
+						<i class="fas fa-paper-plane" aria-hidden="true"></i>
+					{/if}
 					{t('portal.contact.submit')}
 				</button>
 			</form>

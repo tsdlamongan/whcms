@@ -17,6 +17,12 @@
 	let showPassword = $state(false);
 	let submitting = $state(false);
 	let captchaReset = $state(0);
+	let captchaReady = $state(false);
+	// Submitting before Cloudflare has issued a token only earns a "captcha
+	// required" error, so hold the button until the widget has one.
+	const captchaPending = $derived(
+		!!(data.captcha?.enabled && data.captcha.siteKey) && !captchaReady
+	);
 
 	const errorText = $derived(form?.errorKey ? t(form.errorKey) : (form?.errorMessage ?? null));
 </script>
@@ -100,11 +106,20 @@
 	</div>
 
 	{#if data.captcha?.enabled && data.captcha.siteKey}
-		<Turnstile siteKey={data.captcha.siteKey} resetSignal={captchaReset} />
+		<Turnstile
+			siteKey={data.captcha.siteKey}
+			resetSignal={captchaReset}
+			bind:ready={captchaReady}
+		/>
 	{/if}
 
 	<div class="login-actions">
-		<LoadingButton type="submit" loading={submitting} class="ca-btn ca-btn-primary">
+		<LoadingButton
+			type="submit"
+			loading={submitting}
+			disabled={captchaPending}
+			class="ca-btn ca-btn-primary"
+		>
 			{t('auth.login')}
 		</LoadingButton>
 		<label class="ca-check login-remember">
