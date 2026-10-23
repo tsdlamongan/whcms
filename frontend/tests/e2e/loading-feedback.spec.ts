@@ -11,7 +11,8 @@ import { adminToken, API_BASE, authHeaders, newApi, uniqueDomainLabel } from './
  *    Cloudflare verified silently, so a quick submit posted an empty token),
  *    sizes itself to its container, keeps submit disabled until it holds a
  *    token, re-arms after a failed submit, and recovers from a failed api.js
- *    load without a page refresh.
+ *    load without a page refresh. The contact form is gated the same way, and
+ *    its API refuses a post that carries no token.
  *
  * The widget is exercised against a fake `window.turnstile` served in place of
  * Cloudflare's api.js (page.route), with a NON-test sitekey so the component's
@@ -284,5 +285,43 @@ test.describe('turnstile widget (captcha enabled)', () => {
 		const opts = await page.evaluate(() => (window as unknown as TurnstileWindow).__turnstileOpts);
 		expect(opts.size).toBe('compact');
 		expect(opts.appearance).toBe('always');
+	});
+
+	test('contact form: the API refuses a post without a token, the page gates submit and posts the widget token', async ({
+		page
+	}) => {
+		// Spam bots post straight to the API, so the backend must enforce it,
+		// not just the page. Own client IP: keep clear of the 5/min contact limit.
+		const direct = await api.post(`${API_BASE}/api/v1/contact`, {
+			headers: { 'x-forwarded-for': '198.51.100.78' },
+			data: {
+				name: 'Spam Bot',
+				email: 'bot@e2e.test',
+				subject: 'Cheap backlinks',
+				message: 'Posted without ever loading the page.'
+			}
+		});
+		expect(direct.status()).toBe(422);
+		const err = (await direct.json()).error as { code: string; details: { field: string }[] };
+		expect(err.code).toBe('VALIDATION');
+		expect(err.details.map((d) => d.field)).toContain('captcha_token');
+
+		await fakeTurnstile(page);
+		await page.goto('/contact');
+		await expect(page.locator('[data-fake-turnstile]')).toBeVisible();
+		const submit = page.getByTestId('contact-submit');
+
+		await page.locator('[name="name"]').fill('E2E Visitor');
+		await page.locator('[name="email"]').fill(`visitor-${Date.now()}@e2e.test`);
+		await page.locator('[name="subject"]').fill('Question about hosting');
+		await page.locator('[name="message"]').fill('Hello, I would like to know more about your plans.');
+		await expect(submit).toBeDisabled();
+
+		await solve(page, 'tok-contact');
+		await expect(submit).toBeEnabled();
+		const posted = page.waitForRequest((r) => r.method() === 'POST' && (r.postData() ?? '').includes('tok-contact'));
+		await submit.click();
+		await posted;
+		await expect(page.getByTestId('contact-success')).toBeVisible({ timeout: 15_000 });
 	});
 });

@@ -1,5 +1,5 @@
 // Package captcha is a small cross-cutting guard that gates spam-prone public
-// actions (login, register, order checkout) behind an optional CAPTCHA
+// actions (login, register, order checkout, contact form) behind an optional CAPTCHA
 // (Cloudflare Turnstile). Whether the CAPTCHA is enforced is a runtime setting
 // (security.captcha_enabled) so operators can toggle it without a redeploy; the
 // public site key is a setting too (security.captcha_site_key) while the secret

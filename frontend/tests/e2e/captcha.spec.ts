@@ -31,7 +31,7 @@ test('public config endpoint exposes the captcha config shape', async () => {
 	expect(cfg.provider).toBe('turnstile');
 });
 
-test('captcha widget presence on login/register matches the enabled flag', async ({ page }) => {
+test('captcha widget presence on login/register/contact matches the enabled flag', async ({ page }) => {
 	const cfg = await captchaConfig();
 	const expected = cfg.enabled && !!cfg.site_key ? 1 : 0;
 
@@ -41,6 +41,10 @@ test('captcha widget presence on login/register matches the enabled flag', async
 
 	await page.goto('/register');
 	await expect(page.getByTestId('register-form')).toBeVisible();
+	await expect(page.getByTestId('captcha')).toHaveCount(expected);
+
+	await page.goto('/contact');
+	await expect(page.getByTestId('contact-form')).toBeVisible();
 	await expect(page.getByTestId('captcha')).toHaveCount(expected);
 });
 
