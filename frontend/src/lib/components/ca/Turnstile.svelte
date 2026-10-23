@@ -10,7 +10,6 @@
 		render: (el: HTMLElement, opts: Record<string, unknown>) => string | undefined;
 		reset: (id?: string) => void;
 		remove: (id?: string) => void;
-		ready?: (cb: () => void) => void;
 	}
 
 	const SCRIPT_SRC = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
@@ -170,55 +169,53 @@
 			() => {
 				const ts = api();
 				if (!alive || mine !== attempt || !ts || !container) return;
-				const render = () => {
-					if (!alive || mine !== attempt || !container) return;
-					removeWidget();
-					try {
-						widgetId = ts.render(container, {
-							sitekey: siteKey,
-							theme,
-							size:
-								container.clientWidth > 0 && container.clientWidth < FLEXIBLE_MIN_PX
-									? 'compact'
-									: 'flexible',
-							appearance: 'always',
-							'retry-interval': 4000,
-							callback: (tok: string) => {
-								token = tok;
-								status = 'ready';
-								clearStall();
-							},
-							'expired-callback': () => {
-								token = '';
-								status = 'verifying';
-								armStall();
-								if (widgetId !== undefined) ts.reset(widgetId);
-							},
-							'error-callback': () => {
-								token = '';
-								status = 'error';
-								clearStall();
-							},
-							'before-interactive-callback': () => {
-								// The visitor has to act; don't call that "stalled".
-								status = 'interactive';
-								clearStall();
-							},
-							'after-interactive-callback': () => {
-								status = 'verifying';
-								armStall();
-							}
-						});
-						status = 'verifying';
-						armStall();
-					} catch {
-						status = 'error';
-					}
-				};
-				// api.js is loaded async: `ready` defers render until Cloudflare's
-				// own bootstrap has finished (immediately if it already has).
-				if (typeof ts.ready === 'function') ts.ready(render);
-				else render();
+				// Render straight away: loadScript resolves on the tag's `load` event,
+				// so api.js has already run. Never call turnstile.ready() here -
+				// Cloudflare throws a TurnstileError when the tag is async/defer, which
+				// left the widget on "loading" forever and every submit disabled.
+				removeWidget();
+				try {
+					widgetId = ts.render(container, {
+						sitekey: siteKey,
+						theme,
+						size:
+							container.clientWidth > 0 && container.clientWidth < FLEXIBLE_MIN_PX
+								? 'compact'
+								: 'flexible',
+						appearance: 'always',
+						'retry-interval': 4000,
+						callback: (tok: string) => {
+							token = tok;
+							status = 'ready';
+							clearStall();
+						},
+						'expired-callback': () => {
+							token = '';
+							status = 'verifying';
+							armStall();
+							if (widgetId !== undefined) ts.reset(widgetId);
+						},
+						'error-callback': () => {
+							token = '';
+							status = 'error';
+							clearStall();
+						},
+						'before-interactive-callback': () => {
+							// The visitor has to act; don't call that "stalled".
+							status = 'interactive';
+							clearStall();
+						},
+						'after-interactive-callback': () => {
+							status = 'verifying';
+							armStall();
+						}
+					});
+					status = 'verifying';
+					armStall();
+				} catch {
+					// Never strand the visitor on a spinner: show the retry UI.
+					status = 'error';
+				}
 			},
 			() => {
 				/* CDN/network failure: token stays empty and the retry UI shows; the
