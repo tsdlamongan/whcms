@@ -506,6 +506,7 @@ func Build(ctx context.Context, cfg config.Config, database *db.DB, rdb *redis.C
 	contactSvc := contact.New(contact.Deps{
 		Tickets: ticketsSvc,
 		Clock:   clk,
+		Captcha: captchaGuard,
 	})
 
 	return &App{

@@ -49,18 +49,20 @@ type harness struct {
 	app     *fiber.App
 	tickets *mocks.MockGuestTicketCreator
 	mw      *fakeMW
+	captcha *fakeCaptcha
 }
 
 func newApp() *harness {
 	tickets := &mocks.MockGuestTicketCreator{}
 	mw := &fakeMW{}
+	captcha := &fakeCaptcha{}
 	app := fiber.New(fiber.Config{
 		ErrorHandler: func(c fiber.Ctx, err error) error { return httpx.Fail(c, err) },
 	})
-	svc := contact.New(contact.Deps{Tickets: tickets, Clock: &mocks.MockClock{}})
+	svc := contact.New(contact.Deps{Tickets: tickets, Clock: &mocks.MockClock{}, Captcha: captcha})
 	h := contact.NewHandler(svc, mw)
 	h.RegisterRoutes(app.Group("/api/v1"))
-	return &harness{app: app, tickets: tickets, mw: mw}
+	return &harness{app: app, tickets: tickets, mw: mw, captcha: captcha}
 }
 
 func (h *harness) post(t *testing.T, body any) (*http.Response, httpx.Envelope) {
@@ -156,6 +158,30 @@ func TestHandlerSubmitValidationError(t *testing.T) {
 	assert.Equal(t, 422, resp.StatusCode)
 	require.NotNil(t, env.Error)
 	assert.Equal(t, "VALIDATION", env.Error.Code)
+}
+
+func TestHandlerSubmitCaptchaRejected(t *testing.T) {
+	h := newApp()
+	h.captcha.err = apperr.Validation("captcha verification required",
+		apperr.FieldError{Field: "captcha_token", Message: "is required"})
+	called := false
+	h.tickets.CreateGuestTicketFn = func(ctx context.Context, in ports.GuestTicketInput) (*domain.Ticket, error) {
+		called = true
+		return &domain.Ticket{}, nil
+	}
+	resp, env := h.post(t, map[string]any{
+		"name":          "Jane Guest",
+		"email":         "jane@example.com",
+		"subject":       "Cannot access site",
+		"message":       "My website is unreachable",
+		"captcha_token": "tok-from-widget",
+	})
+	assert.Equal(t, 422, resp.StatusCode)
+	require.NotNil(t, env.Error)
+	assert.Equal(t, "VALIDATION", env.Error.Code)
+	// The token posted in the body is what reaches the guard.
+	assert.Equal(t, "tok-from-widget", h.captcha.lastToken)
+	assert.False(t, called, "no ticket must be created when the captcha fails")
 }
 
 func TestHandlerSubmitServiceError(t *testing.T) {

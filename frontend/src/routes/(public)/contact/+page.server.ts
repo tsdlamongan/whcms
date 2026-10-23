@@ -1,4 +1,5 @@
 import { apiFetch } from '$lib/server/api';
+import { captchaToken, loadCaptchaConfig } from '$lib/server/captcha';
 import { fail } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -15,8 +16,11 @@ interface ContactResult {
 }
 
 export const load: PageServerLoad = async (event) => {
-	const res = await apiFetch<TicketDepartment[]>(event, '/api/v1/ticket-departments');
-	return { departments: res.data ?? [] };
+	const [res, captcha] = await Promise.all([
+		apiFetch<TicketDepartment[]>(event, '/api/v1/ticket-departments'),
+		loadCaptchaConfig(event)
+	]);
+	return { departments: res.data ?? [], captcha };
 };
 
 export const actions: Actions = {
@@ -44,6 +48,8 @@ export const actions: Actions = {
 		};
 		const deptId = Number(values.department_id);
 		if (deptId > 0) body.department_id = deptId;
+		const captcha = captchaToken(form);
+		if (captcha) body.captcha_token = captcha;
 
 		const res = await apiFetch<ContactResult>(event, '/api/v1/contact', {
 			method: 'POST',
