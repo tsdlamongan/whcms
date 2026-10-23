@@ -31,9 +31,12 @@
 		"svelte-check": "^4.7.6",
 		"tailwindcss": "^4.3.2",
 		"typescript": "^6.0.3",
-		"vite": "^8.2.2"
+		"vite": "^8.2.4"
 	},
 	"dependencies": {
 		"qrcode": "^1.5.4"
+	},
+	"overrides": {
+		"cookie": "^0.7.2"
 	}
 }
