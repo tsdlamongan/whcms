@@ -192,7 +192,7 @@ func (r *Repo) UpdateStatus(ctx context.Context, id int64, status domain.DomainS
 
 // List returns domains with optional status filter and name search.
 func (r *Repo) List(ctx context.Context, p ports.ListParams) ([]domain.Domain, int64, error) {
-	return r.list(ctx, p, 0)
+	return r.list(ctx, p, p.ClientID)
 }
 
 // ListByClient returns one client's domains.

@@ -1,11 +1,14 @@
 <script lang="ts">
 	import { appName } from '$lib/appName';
+	import { enhance } from '$app/forms';
+	import { invalidateAll } from '$app/navigation';
+	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import HpPager from '$lib/components/hp/HpPager.svelte';
 	import { fmtDateTime } from '$lib/date';
 	import { toast } from '$lib/stores/toast.svelte';
 	import type { PageProps } from './$types';
 
-	let { data }: PageProps = $props();
+	let { data, form }: PageProps = $props();
 
 	type Row = (typeof data.tickets)[number];
 
@@ -30,9 +33,48 @@
 	const f = $derived(data.filters);
 	let filterOpen = $state(false);
 
-	function bulk(label: string) {
-		toast.info(`Bulk action: ${label}`);
+	// selection (the only bulk action the API supports per ticket is Close)
+	let checked = $state<Set<number>>(new Set());
+	const allChecked = $derived(
+		data.tickets.length > 0 && data.tickets.every((t) => checked.has(t.id))
+	);
+	function toggle(id: number) {
+		const next = new Set(checked);
+		if (next.has(id)) next.delete(id);
+		else next.add(id);
+		checked = next;
 	}
+	function toggleAll() {
+		checked = allChecked ? new Set() : new Set(data.tickets.map((t) => t.id));
+	}
+
+	let closeOpen = $state(false);
+	let closing = $state(false);
+	let closeFormEl = $state<HTMLFormElement | null>(null);
+	function askClose() {
+		if (!checked.size) {
+			toast.info('Select at least one ticket');
+			return;
+		}
+		closeOpen = true;
+	}
+
+	const numberById = $derived(new Map(data.tickets.map((t) => [t.id, t.ticket_number])));
+	const bulkFailures = $derived(
+		(form?.op === 'bulk' && 'failures' in form ? form.failures : undefined) ?? []
+	);
+	const bulkError = $derived(
+		form?.op === 'bulk' && 'errorMessage' in form ? form.errorMessage : null
+	);
+
+	// Auto Refresh: re-run the list's load every 30s while switched on.
+	const REFRESH_MS = 30_000;
+	let autoRefresh = $state(false);
+	$effect(() => {
+		if (!autoRefresh) return;
+		const timer = setInterval(() => void invalidateAll(), REFRESH_MS);
+		return () => clearInterval(timer);
+	});
 
 	const total = $derived(data.meta?.total ?? data.tickets.length);
 	const curPage = $derived(data.meta?.page ?? data.page);
@@ -55,7 +97,17 @@
 
 <div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap">
 	<button class="hp-btn" onclick={() => (filterOpen = !filterOpen)}>Search/Filter</button>
-	<button class="hp-btn" onclick={() => toast.info('Auto-refresh toggled')}>Auto Refresh</button>
+	<button
+		type="button"
+		class="hp-btn"
+		class:hp-btn-primary={autoRefresh}
+		aria-pressed={autoRefresh}
+		data-testid="ticket-auto-refresh"
+		title="Reload this list every 30 seconds"
+		onclick={() => (autoRefresh = !autoRefresh)}
+	>
+		<i class="fas fa-sync-alt"></i>Auto Refresh: {autoRefresh ? 'On' : 'Off'}
+	</button>
 </div>
 
 {#if filterOpen}
@@ -114,20 +166,79 @@
 
 <div class="hp-count" style="margin-bottom:8px">{total} Records Found, Showing {from} to {to}</div>
 
+{#if bulkError}
+	<div class="hp-alert-red" data-testid="ticket-bulk-error">
+		<i class="fas fa-exclamation-triangle" style="margin-right:8px"></i>{bulkError}
+	</div>
+{/if}
+{#if bulkFailures.length > 0}
+	<div class="hp-alert-yellow" data-testid="ticket-bulk-failures">
+		<i class="fas fa-exclamation-triangle" style="margin-right:8px"></i>
+		{bulkFailures.length} ticket(s) could not be closed:
+		<ul style="margin:6px 0 0 18px">
+			{#each bulkFailures as f (f.id)}
+				<li>{numberById.get(f.id) ?? `#${f.id}`} — {f.message}</li>
+			{/each}
+		</ul>
+	</div>
+{/if}
+
 <div class="hp-bulk" style="margin-top:0;margin-bottom:8px">
 	<span>With Selected:</span>
-	<button class="hp-btn" onclick={() => bulk('Pin')}>Pin</button>
-	<button class="hp-btn" onclick={() => bulk('Unpin')}>Unpin</button>
-	<button class="hp-btn" onclick={() => bulk('Merge')}>Merge</button>
-	<button class="hp-btn" onclick={() => bulk('Close')}>Close</button>
-	<button class="hp-btn hp-btn-danger" onclick={() => bulk('Delete')}>Delete</button>
+	<button
+		type="button"
+		class="hp-btn hp-btn-danger"
+		data-testid="ticket-bulk-close"
+		onclick={askClose}>Close</button
+	>
 </div>
+
+<form
+	method="POST"
+	action="?/close"
+	class="hidden"
+	bind:this={closeFormEl}
+	use:enhance={() => {
+		closing = true;
+		return async ({ result, update }) => {
+			closing = false;
+			closeOpen = false;
+			if (result.type === 'success' && result.data && 'done' in result.data) {
+				const done = Number(result.data.done);
+				const skipped = Number(result.data.skipped ?? 0);
+				if (done > 0) toast.success(`${done} ticket(s) closed`);
+				else if (skipped > 0) toast.info('The selected tickets are already closed');
+				checked = new Set();
+			}
+			await update({ reset: false });
+		};
+	}}
+>
+	<input type="hidden" name="ids" value={JSON.stringify([...checked])} />
+</form>
+
+<ConfirmDialog
+	bind:open={closeOpen}
+	danger
+	loading={closing}
+	title="Close tickets"
+	message={`Close ${checked.size} selected ticket(s)? Closed tickets can no longer be replied to by the client.`}
+	confirmLabel="Close"
+	onConfirm={() => closeFormEl?.requestSubmit()}
+/>
 
 <div class="hp-scroll">
 	<table class="hp-table">
 		<thead>
 			<tr>
-				<th class="c" style="width:34px"><input type="checkbox" aria-label="Select all" /></th>
+				<th class="c" style="width:34px"
+					><input
+						type="checkbox"
+						aria-label="Select all"
+						checked={allChecked}
+						onchange={toggleAll}
+					/></th
+				>
 				<th>Department</th>
 				<th>Subject</th>
 				<th>Requestor</th>
@@ -139,7 +250,15 @@
 		<tbody>
 			{#each data.tickets as tk (tk.id)}
 				<tr class="hp-row">
-					<td class="c"><input type="checkbox" aria-label={`Select ${tk.ticket_number}`} /></td>
+					<td class="c"
+						><input
+							type="checkbox"
+							aria-label={`Select ${tk.ticket_number}`}
+							checked={checked.has(tk.id)}
+							onchange={() => toggle(tk.id)}
+							data-testid={`ticket-select-${tk.id}`}
+						/></td
+					>
 					<td
 						><i class="fas fa-flag" style="color:#e6a23c;margin-right:6px"
 						></i>{tk.department_name ?? departmentName(tk.department_id)}</td
@@ -173,3 +292,9 @@
 </div>
 
 <HpPager page={curPage} {perPage} {total} />
+
+<style>
+	.hidden {
+		display: none;
+	}
+</style>

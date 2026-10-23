@@ -159,7 +159,8 @@ func orderBy(sort, def string) string {
 }
 
 // List returns products page + total. Search matches name/slug (ILIKE);
-// Status filters visibility: "visible" | "hidden".
+// Status filters visibility: "visible" | "hidden"; GroupID / Type (0 / "" =
+// unset) narrow to one product group / product type.
 func (r *Repo) List(ctx context.Context, p ports.ListParams) ([]domain.Product, int64, error) {
 	where := `deleted_at IS NULL`
 	args := []any{}
@@ -172,6 +173,14 @@ func (r *Repo) List(ctx context.Context, p ports.ListParams) ([]domain.Product, 
 		where += ` AND NOT hidden`
 	case "hidden":
 		where += ` AND hidden`
+	}
+	if p.GroupID > 0 {
+		args = append(args, p.GroupID)
+		where += fmt.Sprintf(` AND group_id = $%d`, len(args))
+	}
+	if p.Type != "" {
+		args = append(args, p.Type)
+		where += fmt.Sprintf(` AND type = $%d`, len(args))
 	}
 
 	var total int64

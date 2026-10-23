@@ -324,6 +324,29 @@ func TestRepoOrdersReport(t *testing.T) {
 	assert.Equal(t, "2001-05-20", points[0].Period)
 	assert.Equal(t, int64(120000), points[0].Amount)
 	assert.Equal(t, int64(1), points[0].Count)
+
+	// A second order with a different status shows up in the breakdown.
+	var pendingID int64
+	require.NoError(t, q.QueryRow(ctx, `
+		INSERT INTO orders (order_number, client_id, status, subtotal, total, created_at)
+		VALUES ($1, $2, 'pending', 30000, 30000, $3)
+		RETURNING id`, "IT-ORD2-"+tag, clientID, createdAt).Scan(&pendingID))
+	t.Cleanup(func() { _, _ = q.Exec(ctx, `DELETE FROM orders WHERE id = $1`, pendingID) })
+
+	byStatus, err := repo.OrdersByStatus(ctx,
+		time.Date(2001, 5, 1, 0, 0, 0, 0, time.UTC),
+		time.Date(2001, 6, 1, 0, 0, 0, 0, time.UTC))
+	require.NoError(t, err)
+	require.Len(t, byStatus, 2)
+	assert.Equal(t, adminops.OrderStatusCount{Status: "active", Count: 1, Amount: 120000}, byStatus[0],
+		"ties on count break by status name: active before pending")
+	assert.Equal(t, adminops.OrderStatusCount{Status: "pending", Count: 1, Amount: 30000}, byStatus[1])
+
+	empty, err := repo.OrdersByStatus(ctx,
+		time.Date(1999, 1, 1, 0, 0, 0, 0, time.UTC),
+		time.Date(1999, 2, 1, 0, 0, 0, 0, time.UTC))
+	require.NoError(t, err)
+	assert.Empty(t, empty)
 }
 
 func TestRepoRecentOrdersAndTickets(t *testing.T) {

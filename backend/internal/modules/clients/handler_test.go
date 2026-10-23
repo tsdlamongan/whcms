@@ -455,6 +455,29 @@ func TestAdminEndpoints(t *testing.T) {
 		assert.Equal(t, int64(1), env.Meta.Total)
 	})
 
+	t.Run("list parses the ids filter", func(t *testing.T) {
+		var got clients.SearchInput
+		svc := &fakeClientService{SearchClientsFn: func(_ context.Context, f clients.SearchInput) ([]clients.ClientListRow, int64, error) {
+			got = f
+			return nil, 0, nil
+		}}
+		app := newApp(svc, adminMW())
+		_, status, _ := doJSON(t, app, "GET", "/api/v1/admin/clients/?ids=3,%204,5", "")
+		assert.Equal(t, 200, status)
+		assert.Equal(t, []int64{3, 4, 5}, got.IDs)
+	})
+
+	t.Run("list rejects malformed or oversized ids", func(t *testing.T) {
+		app := newApp(&fakeClientService{}, adminMW())
+		for _, q := range []string{"3,abc", "0", "-2", "1,,2"} {
+			_, status, _ := doJSON(t, app, "GET", "/api/v1/admin/clients/?ids="+q, "")
+			assert.Equal(t, 422, status, q)
+		}
+		many := strings.Repeat("1,", 1000) + "1" // 1001 ids
+		_, status, _ := doJSON(t, app, "GET", "/api/v1/admin/clients/?ids="+many, "")
+		assert.Equal(t, 422, status)
+	})
+
 	t.Run("list invalid has_product flag", func(t *testing.T) {
 		app := newApp(&fakeClientService{}, adminMW())
 		_, status, _ := doJSON(t, app, "GET", "/api/v1/admin/clients/?has_product=banana", "")

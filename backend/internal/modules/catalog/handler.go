@@ -288,9 +288,15 @@ func (h *Handler) AdminDeleteGroup(c fiber.Ctx) error {
 
 // Admin: products
 
-// AdminListProducts lists products (?search&status=visible|hidden&sort).
+// AdminListProducts lists products
+// (?search&status=visible|hidden&group_id&type&sort).
 func (h *Handler) AdminListProducts(c fiber.Ctx) error {
 	page, params := listParams(c)
+	var err error
+	if params.GroupID, err = httpx.QueryID(c, "group_id"); err != nil {
+		return err
+	}
+	params.Type = c.Query("type")
 	rows, total, err := h.svc.ListProducts(c.Context(), params)
 	if err != nil {
 		return err

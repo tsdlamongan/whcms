@@ -180,7 +180,7 @@
 				type="search"
 				name="search"
 				value={data.search}
-				placeholder="Reference / invoice #…"
+				placeholder="Merchant order ID / gateway reference…"
 				data-testid="transaction-search"
 			/>
 		</div>

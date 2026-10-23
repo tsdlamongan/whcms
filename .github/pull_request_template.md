@@ -4,9 +4,9 @@
 
 ## How it was tested
 
-- [ ] `make test-backend` passes (build + vet + tests, coverage ≥ 90%)
+- [ ] `make lint` and `make cover` pass (coverage ≥ 90%)
 - [ ] `cd frontend && npm run check` and `npm run build` are clean
-- [ ] `make test-frontend` passes (new/changed flows have their own Playwright spec)
+- [ ] `make e2e` passes (new/changed flows have their own Playwright spec)
 - [ ] Drove the change end-to-end against the local stack (`make up`)
 
 ## Checklist

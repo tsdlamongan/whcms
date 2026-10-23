@@ -300,6 +300,29 @@ func TestHandlerAdminList(t *testing.T) {
 	assert.Equal(t, "fraud", gotParams.Status)
 }
 
+func TestHandlerAdminListClientFilter(t *testing.T) {
+	var gotParams ports.ListParams
+	called := false
+	svc := &fakeSvc{
+		ListFn: func(_ context.Context, p ports.ListParams) ([]domain.Order, int64, error) {
+			called, gotParams = true, p
+			return nil, 0, nil
+		},
+	}
+	app := newApp(svc, &fakeMW{identity: adminIdentity()})
+
+	resp, err := app.Test(httptest.NewRequest("GET", "/api/v1/admin/orders?client_id=8", nil))
+	require.NoError(t, err)
+	assert.Equal(t, 200, resp.StatusCode)
+	assert.Equal(t, int64(8), gotParams.ClientID)
+
+	called = false
+	resp, err = app.Test(httptest.NewRequest("GET", "/api/v1/admin/orders?client_id=-1", nil))
+	require.NoError(t, err)
+	assert.Equal(t, 422, resp.StatusCode)
+	assert.False(t, called)
+}
+
 func TestHandlerAdminGetUnscoped(t *testing.T) {
 	var gotClient int64 = -1
 	svc := &fakeSvc{

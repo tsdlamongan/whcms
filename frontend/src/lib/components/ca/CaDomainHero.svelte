@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { navigating } from '$app/state';
 	import { t } from '$lib/i18n';
 
 	/**
@@ -17,12 +18,27 @@
 	}
 
 	let { searchAction = '/order/domain', placeholder, testid }: Props = $props();
+
+	// GET form -> router navigation; the destination page's load() queries the
+	// registrar, which can take seconds. Show it and refuse repeat submits.
+	const searching = $derived(
+		navigating.to?.url.pathname === searchAction && navigating.to.url.searchParams.has('q')
+	);
 </script>
 
 <section class="ca-heroband">
 	<div class="ca-hero-inner">
 		<h2 class="ca-h2 ca-hero-title">{t('portal.hero.title')}</h2>
-		<form class="ca-hero-box" method="GET" action={searchAction} data-testid={testid}>
+		<form
+			class="ca-hero-box"
+			method="GET"
+			action={searchAction}
+			data-testid={testid}
+			aria-busy={searching}
+			onsubmit={(e) => {
+				if (searching) e.preventDefault();
+			}}
+		>
 			<textarea
 				class="ca-hero-input"
 				name="q"
@@ -30,9 +46,18 @@
 				placeholder={placeholder ?? t('portal.hero.placeholder')}
 				aria-label={t('portal.hero.title')}></textarea>
 			<div class="ca-hero-actions">
-				<button type="submit" class="ca-btn ca-btn-primary">
+				<button
+					type="submit"
+					class="ca-btn ca-btn-primary"
+					disabled={searching}
+					aria-busy={searching}
+				>
 					{t('portal.hero.search')}
-					<i class="fas fa-wand-magic-sparkles" aria-hidden="true"></i>
+					{#if searching}
+						<span class="ca-spinner" aria-hidden="true"></span>
+					{:else}
+						<i class="fas fa-wand-magic-sparkles" aria-hidden="true"></i>
+					{/if}
 				</button>
 				<a class="ca-btn ca-btn-success" href={searchAction}>{t('portal.hero.transfer')}</a>
 			</div>

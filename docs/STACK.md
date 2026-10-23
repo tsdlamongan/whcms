@@ -183,22 +183,24 @@ Recipe:
 
 ## Testing conventions
 
-- Unit gate: `cd backend && make test` (`go test -race -covermode=atomic ./...`).
+- Unit gate: `go test -race -covermode=atomic ./...` (the `make cover` run includes it).
   Redis/PG/S3-backed platform tests auto-skip when the service is down
   (they use Redis DB 15/14, never DB 0).
-- Repo integration tests: `//go:build integration`, run with
-  `make test-integration` (defaults to the dedicated `whmcs_e2e` DB —
-  auto-created/migrated by `make test-backend`; your local `whmcs` DB is
+- Repo integration tests: `//go:build integration`, run as part of `make cover`
+  (database `whmcs_e2e`, auto-created and migrated by `make cover`; your local `whmcs` DB is
   never touched, see docs/E2E.md §3).
 - Handler tests: Fiber `app.Test(...)` + mocked service (see settings tests).
-- Coverage: `make cover` (internal/... + pkg/...). Note: `ports` (interfaces)
-  and `ports/mocks` count in the denominator until module tests exercise them.
+- Coverage: `make cover` (internal/... + pkg/...) prints per-package coverage and the
+  total, and enforces the 90% gate. Note: `ports` (interfaces) and `ports/mocks` count in
+  the denominator until module tests exercise them.
+- One package while iterating: `cd backend && ../scripts/with-env.sh .env.testing go test ./internal/modules/<mod>/...`
+  (the integration-tagged repo tests need `-tags integration` and the migrated test DB that `make cover` prepares).
 
 ## Running locally
 
 ```bash
-cd backend
-cp .env.example .env   # fill JWT_SECRET + APP_ENCRYPTION_KEY (openssl rand -base64 32)
-make run-api           # migrates on start; GET /healthz, /readyz, /api/v1/admin/settings
-make run-worker        # asynq server + cron schedules (internal/worker)
+cp .env.example .env   # fill JWT_SECRET + APP_ENCRYPTION_KEY (openssl rand -base64 32), or skip it and use /install
+make up                # api (migrates on start; GET /healthz, /readyz) + worker (asynq server + cron schedules,
+                       # internal/worker) + frontend — logs in .stack/
+make down
 ```

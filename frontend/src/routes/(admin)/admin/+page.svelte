@@ -27,6 +27,44 @@
 	const onlineStaff = $derived(data.onlineStaff ?? []);
 	const moduleActionsPending = $derived(d?.module_actions_pending ?? 0);
 
+	// System Health is derived from signals the dashboard payload already
+	// carries: stuck provisioning/domain jobs are what actually break
+	// customers' services (critical), overdue invoices are a billing warning.
+	interface HealthIssue {
+		key: string;
+		level: 'critical' | 'warning';
+		text: string;
+		href: string;
+	}
+	const healthIssues = $derived.by<HealthIssue[]>(() => {
+		const issues: HealthIssue[] = [];
+		if (moduleActionsPending > 0) {
+			issues.push({
+				key: 'module-actions',
+				level: 'critical',
+				text: `${moduleActionsPending} pending module action${moduleActionsPending === 1 ? '' : 's'} need attention`,
+				href: '/admin/logs/queue'
+			});
+		}
+		const overdue = num(stats?.invoices_overdue);
+		if (overdue > 0) {
+			issues.push({
+				key: 'overdue-invoices',
+				level: 'warning',
+				text: `${overdue} overdue invoice${overdue === 1 ? '' : 's'}`,
+				href: '/admin/invoices?status=overdue'
+			});
+		}
+		return issues;
+	});
+	const healthRating = $derived.by(() => {
+		if (healthIssues.some((i) => i.level === 'critical'))
+			return { label: 'Needs Attention', color: '#C43C35', icon: 'fas fa-heartbeat' };
+		if (healthIssues.length > 0)
+			return { label: 'Fair', color: '#F89406', icon: 'fas fa-heartbeat' };
+		return { label: 'Good', color: '#8bc34a', icon: 'fas fa-heartbeat' };
+	});
+
 	const idr = (amount: number | undefined) => formatIDR(amount);
 	function num(v: number | undefined): number {
 		return v ?? 0;
@@ -470,22 +508,43 @@
 		</HpPanel>
 
 		<HpPanel title="System Health" onRefresh={hardRefresh}>
-			<div style="display:flex;align-items:center;justify-content:space-between">
-				<div style="display:flex;align-items:center;gap:12px">
-					<i class="fas fa-heartbeat" style="font-size:30px;color:#8bc34a"></i>
-					<div>
-						<div style="color:#888;font-size:12px">Overall Rating</div>
-						<div style="font-size:20px;font-weight:700;color:#555">Good</div>
+			<div data-testid="system-health">
+				<div style="display:flex;align-items:center;justify-content:space-between">
+					<div style="display:flex;align-items:center;gap:12px">
+						<i class={healthRating.icon} style="font-size:30px;color:{healthRating.color}"></i>
+						<div>
+							<div style="color:#888;font-size:12px">Overall Rating</div>
+							<div
+								style="font-size:20px;font-weight:700;color:#555"
+								data-testid="system-health-rating"
+							>
+								{healthRating.label}
+							</div>
+						</div>
 					</div>
+					<a class="hp-btn" href="/admin/logs/queue"
+						><i class="fas fa-arrow-right"></i>View Issues</a
+					>
 				</div>
-				<a class="hp-btn" href="/admin/logs/audit"><i class="fas fa-arrow-right"></i>View Issues</a>
-			</div>
-			<div style="height:14px;background:#8bc34a;border-radius:3px;margin:16px 0 10px"></div>
-			<div style="display:flex;justify-content:space-between;font-size:12px">
-				<span style="color:#e6a23c"
-					><i class="fas fa-exclamation-triangle" style="margin-right:5px"></i>All systems
-					operational</span
-				>
+				<div
+					style="height:14px;background:{healthRating.color};border-radius:3px;margin:16px 0 10px"
+				></div>
+				<div style="display:flex;flex-direction:column;gap:4px;font-size:12px">
+					{#if healthIssues.length === 0}
+						<span style="color:#46A546"
+							><i class="fas fa-check-circle" style="margin-right:5px"></i>All systems operational</span
+						>
+					{:else}
+						{#each healthIssues as issue (issue.key)}
+							<a
+								href={issue.href}
+								data-testid="system-health-issue"
+								style="color:{issue.level === 'critical' ? '#C43C35' : '#F89406'}"
+								><i class="fas fa-exclamation-triangle" style="margin-right:5px"></i>{issue.text}</a
+							>
+						{/each}
+					{/if}
+				</div>
 			</div>
 		</HpPanel>
 	</div>

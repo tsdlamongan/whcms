@@ -2,6 +2,7 @@
 .env
 .env.*
 !.env.example
+!.env.testing.example
 *.env
 !*.env.example
 
@@ -37,4 +38,4 @@ npm-debug.log*
 # --- misc ---
 *.log
 tmp/
-/.e2e-logs/
+/.stack/

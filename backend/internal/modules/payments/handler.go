@@ -180,15 +180,28 @@ func (h *Handler) ListMyTransactions(c fiber.Ctx) error {
 	return httpx.OK(c, rows, page.Meta(total))
 }
 
+// AdminListTransactions lists transactions
+// (?search&status&gateway&invoice_id&date_from&date_to&page&per_page).
 func (h *Handler) AdminListTransactions(c fiber.Ctx) error {
 	page := httpx.ParsePage(c)
-	rows, total, err := h.svc.ListTransactions(c.Context(), ports.ListParams{
+	p := ports.ListParams{
 		Page:    page.Page,
 		PerPage: page.PerPage,
 		Search:  c.Query("search"),
 		Status:  c.Query("status"),
 		Gateway: c.Query("gateway"),
-	})
+	}
+	var err error
+	if p.InvoiceID, err = httpx.QueryID(c, "invoice_id"); err != nil {
+		return err
+	}
+	if p.From, err = httpx.QueryDate(c, "date_from"); err != nil {
+		return err
+	}
+	if p.To, err = httpx.QueryDate(c, "date_to"); err != nil {
+		return err
+	}
+	rows, total, err := h.svc.ListTransactions(c.Context(), p)
 	if err != nil {
 		return err
 	}

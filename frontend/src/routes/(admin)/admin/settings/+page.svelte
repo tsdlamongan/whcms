@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { appName } from '$lib/appName';
 	import { enhance } from '$app/forms';
-	import { invalidateAll } from '$app/navigation';
+	import { page } from '$app/state';
+	import { invalidateAll, replaceState } from '$app/navigation';
 	import { toast } from '$lib/stores/toast.svelte';
 	import type { SubmitFunction } from '@sveltejs/kit';
 	import type { PageProps } from './$types';
@@ -18,7 +19,18 @@
 		{ id: 'security', label: 'Security' }
 	];
 
-	let active = $state<TabId>('general');
+	// The overview page deep-links into a tab (/admin/settings?tab=mail); an
+	// unknown value falls back to General. Switching tabs keeps the URL in sync
+	// (without adding history entries) so a reload or shared link lands on it.
+	function tabFromUrl(): TabId {
+		const wanted = page.url.searchParams.get('tab');
+		return tabs.find((t) => t.id === wanted)?.id ?? 'general';
+	}
+	let active = $state<TabId>(tabFromUrl());
+	function selectTab(id: TabId) {
+		active = id;
+		replaceState(`?tab=${id}`, page.state);
+	}
 	let saving = $state<Record<string, boolean>>({});
 
 	const fieldErrors = $derived<Record<string, string>>(form?.fieldErrors ?? {});
@@ -122,7 +134,7 @@
 			class="hp-tab"
 			class:active={active === tab.id}
 			data-testid={`settings-tab-${tab.id}`}
-			onclick={() => (active = tab.id)}
+			onclick={() => selectTab(tab.id)}
 		>
 			{tab.label}
 		</button>

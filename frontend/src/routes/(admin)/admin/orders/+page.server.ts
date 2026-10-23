@@ -1,3 +1,4 @@
+import { withClientNames } from '$lib/server/adminNames';
 import { apiFetch } from '$lib/server/api';
 import type { PageServerLoad } from './$types';
 
@@ -32,7 +33,7 @@ export const load: PageServerLoad = async (event) => {
 	});
 
 	return {
-		orders: res.data ?? [],
+		orders: await withClientNames(event, res.data ?? []),
 		meta: res.meta,
 		listError: res.error ? res.error.message : null,
 		page,

@@ -100,51 +100,53 @@ docker run -d --name rustfs -p 9000:9000 \
 
 The `whmcs` Postgres database is your own **local** database
 (`postgres://root:postgres@localhost:5432/whmcs`) — separate from the
-disposable `whmcs_e2e` database `make up`/`make test-backend` use for
-automated test runs, so running tests never resets or clobbers your local
+disposable `whmcs_e2e` database that `make cover`/`make e2e`/`make test` use
+for automated test runs, so running tests never resets or clobbers your local
 data (see `docs/E2E.md` §3).
 
-**New install?** Skip straight to step 2 without creating `backend/.env` —
+**New install?** Skip straight to step 2 without creating `.env` —
 `cmd/api` serves an installation wizard at `http://localhost:8080/install`
 (proxied by the frontend at `/install`) whenever required config is missing.
 It walks you through the database/Redis/RustFS/mail connection, writes
-`backend/.env` for you, and creates your first admin account.
+`.env` for you, and creates your first admin account.
 
 ```bash
-# 1. Backend env (optional — skip this and use the /install wizard instead)
-cp deploy/env-examples/api.env.example backend/.env
+# 1. Env (optional — skip this and use the /install wizard instead)
+cp .env.example .env
 #    → set APP_ENCRYPTION_KEY (openssl rand -base64 32) and JWT_SECRET.
-#    → for mock integrations: DUITKU_BASE_URL=http://localhost:9090
-#      DUITKU_MERCHANT_CODE=DEMO DUITKU_API_KEY=secretkey
-#      RDASH_BASE_URL=http://localhost:9090/v1
-#      MAIL_DRIVER=http MAIL_HTTP_URL=http://localhost:9090/mail/send
 
-# 2. Mockserver (Duitku/WHM/DA/RDash mocks + mail capture on :9090)
-cd mockserver && go run .
+# 2. Start the dev server: api (auto-migrates the DB) + worker + frontend
+make up        # api :8080, frontend :5173 — logs in .stack/
+make down      # stop it again
+```
 
-# 3. API (auto-migrates the DB) and worker — separate terminals, from backend/
-cd backend && go run ./cmd/api
-cd backend && go run ./cmd/worker
+There are two env files at the repo root, and they never mix:
 
-# 4. Frontend (http://localhost:5173)
-cd frontend
-cp ../deploy/env-examples/frontend.env.example .env
-npm install && npm run dev
+| File | Used by | What it points at |
+|---|---|---|
+| `.env` | `make up` | **Your** dev setup — real database, SMTP, payment gateway, … Not committed. |
+| `.env.testing` | `make cover` / `lint` / `e2e` / `test` | Everything mocked: `whmcs_e2e` database, mockserver, its own Redis DB and S3 bucket. Created from [`.env.testing.example`](.env.testing.example) on first use. Not committed. |
 
-# 5. Seed dev/demo data (admin+staff users, a cPanel/DirectAdmin server pair
-#    pointed at the mockserver, a shared_hosting product) — idempotent, safe
-#    to re-run. Only needed if you skipped the /install wizard's admin-account
-#    step, or want the extra E2E fixtures on your local DB too:
-cd backend && go run ./cmd/seed
+`make up` starts the api and worker under [`air`](https://github.com/air-verse/air)
+(live reload) when it is installed, and always kills whatever is listening on
+the api/frontend ports first. `make down` stops everything, frees the ports and
+clears leftovers (stray workers, the app's Redis cache and locks, built binaries).
+The seeded admin login of the **test** stack is **`admin@e2e.test` /
+`AdminE2E!2026`** (never reachable in a production deployment you seed yourself).
+
+To run the pieces by hand instead (config is read from the root `.env` via `ENV_FILE`):
+
+```bash
+cd mockserver && go run .                        # optional: mocks of Duitku/WHM/DA/RDash + mail capture on :9090
+cd backend && ENV_FILE=../.env go run ./cmd/api  # auto-migrates the DB
+cd backend && ENV_FILE=../.env go run ./cmd/worker
+cd frontend && npm install && npm run dev        # http://localhost:5173 (API_URL defaults to :8080)
+# Dev/demo data (admin+staff users, a cPanel/DirectAdmin server pair pointed at the mockserver,
+# a shared_hosting product) — idempotent; only needed if you skipped the wizard's admin step:
+cd backend && ../scripts/with-env.sh .env go run ./cmd/seed
 ```
 
 Health probes: `GET :8080/healthz` (liveness), `GET :8080/readyz` (PG+Redis+S3).
-
-**`make up` / `make down`** (root `Makefile`, wrapping `scripts/e2e-up.sh` /
-`scripts/e2e-down.sh`) automate steps 2–5 (mockserver + api + worker + frontend,
-with the seeder run in between) for local E2E runs. Run `make help` to list every
-target. The seeded admin login is **`admin@e2e.test` / `AdminE2E!2026`**
-(dev/E2E only — never reachable in a production deployment you seed yourself).
 
 ## Quickstart — Docker Compose
 
@@ -196,37 +198,43 @@ fallback for whichever field is left blank — see `docs/CONTRACTS.md` §10–§
 
 ## Testing
 
-Everything runs through the root `Makefile` (`make help` lists all targets):
+Everything runs through the one root `Makefile` (`make help` lists the targets):
 
 | Command | What it does |
 |---|---|
-| `make up` | Start the full local stack (mockserver + api + seed + worker + frontend). Wraps `scripts/e2e-up.sh`. |
-| `make down` | Stop the local stack. Wraps `scripts/e2e-down.sh`. |
-| `make test-backend` | Backend build + vet + tests **with coverage, enforcing the >90% gate**. Needs a running Postgres (auto-runs migrations). |
-| `make test-frontend` | Playwright E2E against the running stack (run `make up` first). Filter with `SPEC=<file>`. |
-| `make test` | `test-backend` then `test-frontend`. |
+| `make up` | Start the dev server (api + worker + frontend) with `.env`; kills anything on its ports first. |
+| `make down` | Stop it: kill the processes, free the ports, clear the app's Redis cache/locks and other leftovers. |
+| `make cover` | Backend build + vet + tests **with coverage, enforcing the >90% gate** (`.env.testing`). Needs Postgres/Redis/S3 running; creates and migrates the test DB and starts the mockserver itself. |
+| `make lint` | gofmt, `go vet`, golangci-lint, prettier and svelte-check (`.env.testing`). |
+| `make format` | Auto-format: gofmt (backend, mockserver) + prettier (frontend). |
+| `make test` | `lint`, then `cover`, then the Playwright e2e suite (`.env.testing`). |
+| `make e2e` | Only the Playwright suite, on a fresh mocked stack it starts and stops itself. Filter with `SPEC=<file>`. |
+| `make help` | List the commands. |
+
+`make test` / `make e2e` start their own stack on the ports the specs hardcode
+(api `8080`, frontend `5173`, mockserver `9090`), so a dev server from `make up`
+is stopped to make room.
 
 ### Backend coverage obligation — >90% (mandatory)
 
 Per the quality gate in [`docs/CONTRACTS.md`](docs/CONTRACTS.md) §14, **total statement
-coverage over `internal/...` + `pkg/...` must stay above 90%.** `make test-backend`
-measures it and **fails the build if it drops below the threshold** (override with
-`make test-backend COVERAGE_MIN=95`). Every new exported function needs tests; open
+coverage over `internal/...` + `pkg/...` must stay above 90%.** `make cover`
+measures it and **fails if it drops below the threshold** (override with
+`make cover COVERAGE_MIN=95`). Every new exported function needs tests; open
 `backend/coverage.html` to find uncovered lines.
 
 Because the repository layer is exercised by `//go:build integration` tests against a
 real PostgreSQL, the gate runs the **full** suite (unit + integration) — which is why
-`make test-backend` needs a running, migrated database (it runs `migrate-up` for you).
-Plain unit-only coverage (`cd backend && make cover`) does **not** reach 90% on its own.
+`make cover` needs a running database (it creates and migrates `whmcs_e2e` for you).
+A unit-only `go test` run does **not** reach 90% on its own.
 
-Underlying commands, if you need them directly:
+Underlying commands, if you need them directly (`scripts/with-env.sh` loads an env file first):
 
 ```bash
-cd backend && make cover        # unit-only coverage (fast, no DB)
-cd backend && make cover-gate   # full >90% gate coverage (needs migrated PG)
 cd frontend && npm run check    # svelte-check (type/a11y)
 cd frontend && npm run build    # production build
-cd frontend && npx playwright test   # E2E (needs the stack up)
+cd backend && ../scripts/with-env.sh .env.testing go test ./internal/modules/billing/...   # one package
+cd backend && ../scripts/with-env.sh .env go run ./cmd/migrate up                          # manual migration of your dev DB
 ```
 
 ## Deploying to Coolify / Dokploy

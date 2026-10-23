@@ -39,8 +39,7 @@ var requiredVars = []string{"DATABASE_URL", "JWT_SECRET", "APP_ENCRYPTION_KEY"}
 
 // EnvFilePath resolves the KEY=VALUE file the wizard reads/writes: the
 // ENV_FILE env var if set, else ./.env relative to the current working
-// directory (matching backend/Makefile's own `include .env` convention for
-// native/local dev - CONTRACTS.md §11).
+// directory (`make up` points it at the repo-root .env - CONTRACTS.md §11).
 func EnvFilePath() string {
 	if p := os.Getenv("ENV_FILE"); p != "" {
 		return p

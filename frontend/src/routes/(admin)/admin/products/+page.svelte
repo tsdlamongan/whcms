@@ -6,7 +6,7 @@
 	import type { PageProps } from './$types';
 	import { PRODUCT_TYPES, type ProductGroupRow, type ProductRow } from './catalog';
 
-	let { data }: PageProps = $props();
+	let { data, form }: PageProps = $props();
 
 	const total = $derived(data.meta?.total ?? data.products.length);
 	const curPage = $derived(data.meta?.page ?? data.page);
@@ -154,6 +154,12 @@
 	group which can be visible or hidden from the order page.
 </p>
 
+{#if form?.op === 'duplicate' && form?.errorMessage}
+	<div class="hp-alert-red" data-testid="product-duplicate-error">
+		<i class="fas fa-exclamation-triangle" style="margin-right:8px"></i>{form.errorMessage}
+	</div>
+{/if}
+
 {#if data.listError}
 	<div class="hp-alert-yellow" data-testid="product-list-error">
 		<i class="fas fa-exclamation-triangle" style="margin-right:8px"></i>{data.listError}
@@ -166,9 +172,6 @@
 	>
 	<a class="hp-btn" href="/admin/products/new" data-testid="product-create-link"
 		><i class="fas fa-plus-circle" style="color:#5cb85c"></i>Create a New Product</a
-	>
-	<button class="hp-btn" onclick={() => toast.info('Duplicate a product from its edit page')}
-		><i class="fas fa-copy" style="color:#5b9bd5"></i>Duplicate a Product</button
 	>
 	<button class="hp-btn" onclick={() => (filterOpen = !filterOpen)}
 		><i class="fas fa-search" style="color:#5b9bd5"></i>Search/Filter</button
@@ -284,6 +287,18 @@
 							<a class="cell-link" href={`/admin/products/${p.id}`} title="Edit"
 								><i class="far fa-edit" style="color:#5b9bd5"></i></a
 							>
+							<form method="POST" action="?/duplicate" use:enhance style="display:inline">
+								<input type="hidden" name="id" value={p.id} />
+								<button
+									type="submit"
+									class="icon-btn"
+									title="Duplicate (creates a hidden copy)"
+									aria-label={`Duplicate ${p.name}`}
+									data-testid={`product-duplicate-${p.id}`}
+								>
+									<i class="far fa-copy" style="color:#5b9bd5"></i>
+								</button>
+							</form>
 						</td>
 					</tr>
 				{/each}
@@ -321,6 +336,13 @@
 <style>
 	.hidden {
 		display: none;
+	}
+	.icon-btn {
+		background: none;
+		border: none;
+		padding: 0 0 0 8px;
+		cursor: pointer;
+		font: inherit;
 	}
 	:global(.hp-group-row[draggable='true']) {
 		cursor: grab;

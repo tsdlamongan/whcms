@@ -146,7 +146,7 @@ func (r *Repo) UpdateItemBackRefs(ctx context.Context, itemID int64, serviceID, 
 // List returns orders filtered by ListParams (admin listing). Search matches
 // the order number; Status filters exactly.
 func (r *Repo) List(ctx context.Context, p ports.ListParams) ([]domain.Order, int64, error) {
-	return r.list(ctx, 0, p)
+	return r.list(ctx, p.ClientID, p)
 }
 
 // ListByClient returns one client's orders.

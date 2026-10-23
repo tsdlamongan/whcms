@@ -12,6 +12,10 @@
 
 	const chartData = $derived(data.series.map((p) => ({ label: p.period, value: p.count })));
 
+	const csvHref = $derived(
+		`/admin/reports/orders/csv?from=${encodeURIComponent(data.from)}&to=${encodeURIComponent(data.to)}`
+	);
+
 	function statusClass(s: string): string {
 		const v = s.toLowerCase();
 		if (['completed', 'active', 'paid'].includes(v)) return 'green';
@@ -53,20 +57,23 @@
 	<button class="hp-btn hp-btn-primary" type="submit" data-testid="report-run">
 		<i class="fas fa-play"></i>Run Report
 	</button>
+	<a class="hp-btn" style="margin-left:auto" href={csvHref} data-testid="orders-csv-link">
+		<i class="fas fa-download"></i>Export CSV
+	</a>
 </form>
 
 <div class="report-stats-2">
 	<div class="hp-stat" style="background:#337ab7">
 		<div class="hp-stat-ico"><i class="fas fa-shopping-cart" aria-hidden="true"></i></div>
 		<div class="hp-stat-bd">
-			<div class="hp-stat-val">{plain(data.totalOrders)}</div>
+			<div class="hp-stat-val" data-testid="orders-total-count">{plain(data.totalOrders)}</div>
 			<div class="hp-stat-lbl">Total Orders</div>
 		</div>
 	</div>
 	<div class="hp-stat" style="background:#46a546">
 		<div class="hp-stat-ico"><i class="fas fa-money-bill-wave" aria-hidden="true"></i></div>
 		<div class="hp-stat-bd">
-			<div class="hp-stat-val">{money(data.totalValue)}</div>
+			<div class="hp-stat-val" data-testid="orders-total-value">{money(data.totalValue)}</div>
 			<div class="hp-stat-lbl">Total Value</div>
 		</div>
 	</div>
@@ -99,10 +106,10 @@
 					</tr>
 				{:else}
 					{#each data.byStatus as row (row.status)}
-						<tr class="hp-row">
+						<tr class="hp-row" data-testid={`orders-status-row-${row.status}`}>
 							<td><span class={`hp-stext ${statusClass(row.status)}`}>{row.status}</span></td>
 							<td class="r">{row.count}</td>
-							<td class="r">{row.value !== undefined ? money(row.value) : '—'}</td>
+							<td class="r">{money(row.amount)}</td>
 						</tr>
 					{/each}
 				{/if}

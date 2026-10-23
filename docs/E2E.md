@@ -6,80 +6,73 @@
 
 ## 1. Local topology (all on localhost, native processes — no Docker needed)
 
-| Process | Port | Command (from repo root) |
+You don't start the app processes by hand: **`make e2e`** (or `make test`, which runs it last) builds and starts
+them from `.env.testing` (`scripts/stack.sh up testing`), runs Playwright, and always stops them again —
+whether the suite passed or not. Logs stay in `.stack/*.log`. `make e2e SPEC=admin-ops.spec.ts` runs one spec.
+
+| Process | Port | Started by |
 |---|---|---|
-| PostgreSQL | 5432 | already running (root/postgres). `scripts/e2e-up.sh` creates+uses its own `whmcs_e2e` database, separate from whatever `whmcs` database you use for manual local testing — see §3. |
-| Redis | 6379 | already running, no password |
-| RustFS (S3) | 9000 | already running (rustfsadmin/rustfsadmin, bucket `whmcs`) |
-| mockserver | 9090 | `cd mockserver && go run .` |
-| backend api | 8080 | `cd backend && go run ./cmd/api` |
-| backend worker | (none) | `cd backend && go run ./cmd/worker` |
-| frontend | 5173 | `cd frontend && npm run dev` (Playwright's own webServer can also manage this) |
+| PostgreSQL | 5432 | you — already running (root/postgres). The stack creates+uses its own `whmcs_e2e` database, separate from whatever `whmcs` database you use for manual local testing — see §3. |
+| Redis | 6379 | you — already running, no password. The stack uses its own DB index (`REDIS_DB=13`). |
+| RustFS (S3) | 9000 | you — already running (rustfsadmin/rustfsadmin). The stack uses its own bucket, `whmcs-e2e`, created on first start. |
+| mockserver | 9090 | `make e2e` (built from `mockserver/`) |
+| backend api | 8080 | `make e2e` (`cmd/api`, runs migrations) |
+| backend worker | (none) | `make e2e` (`cmd/worker`) |
+| frontend | 5173 | `make e2e` (`npm run dev`; Playwright's `webServer` then just reuses it) |
 
-## 2. Required env for api + worker during E2E (must match mockserver's defaults exactly)
+The specs hardcode these ports, so `make e2e` kills whatever is listening on 8080/5173/9090 first — including a
+dev server from `make up`.
 
-```
-APP_ENV=development
-APP_PORT=8080
-APP_BASE_URL=http://localhost:8080
-FRONTEND_URL=http://localhost:5173
-JWT_SECRET=<any 32+ char string>
-APP_ENCRYPTION_KEY=<base64 of exactly 32 random bytes>
-DATABASE_URL=postgres://root:postgres@localhost:5432/whmcs_e2e?sslmode=disable
-REDIS_ADDR=localhost:6379
-RUSTFS_ENDPOINT=http://localhost:9000
-RUSTFS_ACCESS_KEY=rustfsadmin
-RUSTFS_SECRET_KEY=rustfsadmin
-RUSTFS_BUCKET=whmcs
-RUSTFS_USE_SSL=false
-DUITKU_MERCHANT_CODE=DEMO
-DUITKU_API_KEY=secretkey
-DUITKU_ENV=sandbox
-DUITKU_BASE_URL=http://localhost:9090
-RDASH_RESELLER_ID=e2e-reseller
-RDASH_API_KEY=e2e-key
-RDASH_BASE_URL=http://localhost:9090/v1
-MAIL_DRIVER=http
-MAIL_HTTP_URL=http://localhost:9090/mail/send
-WORKER_CONCURRENCY=5
-ADMIN_ALERT_EMAIL=admin-alerts@example.test
-```
+## 2. Env for the E2E stack (must match mockserver's defaults exactly)
+
+The whole stack reads **`.env.testing`** at the repo root. It is created on first use from
+[`.env.testing.example`](../.env.testing.example) (committed, no secrets) with freshly generated `JWT_SECRET` /
+`APP_ENCRYPTION_KEY` — keep the generated file: settings stored in `whmcs_e2e` are encrypted with that key, and
+changing it makes them undecryptable (drop the database too if you must regenerate it). `.env.testing` is never
+committed; your dev setup lives in a separate `.env` that the test targets never load into the tests.
 
 `DUITKU_MERCHANT_CODE`/`DUITKU_API_KEY` MUST equal mockserver's own `DUITKU_MERCHANT_CODE`/`DUITKU_API_KEY` env
-(both default to `DEMO`/`secretkey` — leave both unset and they match automatically) or every Duitku signature
-check fails with 400.
+(both default to `DEMO`/`secretkey` — the example sets both sides from the same file) or every Duitku signature
+check fails with 400. `make cover` and `make lint` use the same file.
 
 ## 3. Database & storage reset
 
 E2E/test runs use their own **`whmcs_e2e`** database — separate from the `whmcs` database a developer's own
 locally-running backend uses for manual testing (via the installer wizard or a hand-set `DATABASE_URL`). This
-means running `make up`/`make test-backend`/`make test-frontend` never touches or clobbers your local dev data.
-`scripts/e2e-up.sh` and the root `Makefile`'s `test-backend` target both auto-create `whmcs_e2e` if it doesn't
-exist yet (`scripts/lib.sh`'s `ensure_database`) — no manual step needed for the common case.
+means running `make cover`/`make e2e`/`make test` never touches or clobbers your local dev data. Both create
+`whmcs_e2e` if it doesn't exist yet (`scripts/lib.sh`'s `ensure_database`), and refuse to run at all unless
+`DATABASE_URL` contains `_e2e` or `_test` — a guard against ever pointing the integration tests (which create and
+delete real rows) or the e2e seeder at a real database.
 
-**The database is isolated, but Redis is NOT** — and asynq hands each queued job to whichever worker is
-listening, regardless of which database enqueued it. So a developer's own `go run ./cmd/worker` (pointed at
-`whmcs`) will happily consume jobs the E2E stack's api enqueued against `whmcs_e2e`, run them against the wrong
-database, and fail them. The E2E test still waiting on that job just times out. The symptom is a slow, widely
-failing suite ("waiting for mail…", services stuck `pending`) that looks nothing like its cause. Worse, `go run`
-runs the real worker as a *child* process, so killing the `go run` PID leaks the child — it survives with
-`PPID=1` and keeps stealing jobs invisibly. `scripts/e2e-down.sh` (which `e2e-up.sh` always runs first) now
-sweeps both the wrapper and any already-orphaned child, so `make up`/`make down` clean this up automatically.
-To check by hand: `pgrep -fl 'cmd/worker|go-build.*/worker$'` should be empty, and
-`redis-cli --scan --pattern 'asynq:servers:*'` should list exactly one worker while the stack is up.
+**Redis and S3 are isolated too:** `.env.testing` uses its own Redis DB index (13; your dev `.env` uses 0, and the
+Go unit tests use 15 and `FLUSHDB` it) and its own bucket (`whmcs-e2e`). asynq hands each queued job to whichever
+worker listens on the same Redis DB, so sharing one would let a developer's own `go run ./cmd/worker` (pointed at
+`whmcs`) consume jobs the E2E api enqueued against `whmcs_e2e`, run them against the wrong database and fail them —
+a slow, widely failing suite ("waiting for mail…", services stuck `pending`) that looks nothing like its cause.
+Separate DB indexes remove that; every `make e2e` also wipes `whmcs:*` / `asynq:*` in DB 13 so no stale jobs
+survive from an earlier run. (If `.env` and `.env.testing` ever point at the same Redis DB, the stack warns and
+leaves it alone.)
+
+Stray workers are still a hazard within one environment: `go run` runs the real worker as a *child* process, so
+killing the `go run` PID leaks the child — it survives with `PPID=1`, runs stale code and keeps consuming the
+queue invisibly. The stack builds its binaries into `.stack/bin` and runs them directly, and `make down` (also run
+first by `make up` / `make e2e`) sweeps anything left behind: pid files, the binaries, and any hand-started
+`air` / `go run` / compiled worker whose working directory is `backend/` (other projects' `cmd/worker` are never
+touched). To check by hand: `pgrep -fl 'cmd/worker|go-build.*/worker$'` should be empty, and
+`redis-cli -n 13 --scan --pattern 'asynq:servers:*'` should list exactly one worker while the stack is up.
 
 To force a full clean slate (wipe accumulated per-module-test leftovers), drop and recreate it explicitly:
 ```sh
 psql -U root -h localhost -d postgres -c "DROP DATABASE IF EXISTS whmcs_e2e WITH (FORCE);" -c "CREATE DATABASE whmcs_e2e;"
 ```
-The api binary runs migrations on startup (idempotent), so just starting `cmd/api` (pointed at `whmcs_e2e`) after
-the drop/recreate re-applies schema + seed (settings, email templates, ticket departments, rdash registrar row).
-RustFS: clear and recreate the `whmcs` bucket via the S3 API (same pattern used at project start — `mc` isn't
+The api binary runs migrations on startup (idempotent), so the next `make e2e` after the drop/recreate re-applies
+schema + seed (settings, email templates, ticket departments, rdash registrar row).
+RustFS: clear and recreate the `whmcs-e2e` bucket via the S3 API (same pattern used at project start — `mc` isn't
 installed, use `curl --aws-sigv4` against `localhost:9000` with `rustfsadmin`/`rustfsadmin`, or a tiny Go/Python
 script using the same HMAC signing) so no stray ticket-attachment objects survive from earlier module test runs.
 
 To reset your separate **local** `whmcs` database (e.g. to start fresh with the installation wizard), run the
-same drop/recreate against `whmcs` instead, then restart your local `cmd/api` — see root `README.md`.
+same drop/recreate against `whmcs` instead, then run `make up` again — see root `README.md`.
 
 ## 4. Seed data (build `backend/cmd/seed`, per repo layout — a small idempotent CLI)
 
@@ -160,5 +153,5 @@ mistaken for still-open.
 - `frontend/tests/e2e/*.spec.ts` for all 8 flows pass headless Chromium, run together (not just individually —
   cross-test interference is a real risk since they share one backend + DB).
 - No flow required disabling/skipping a real product feature to pass.
-- A short `scripts/e2e-up.sh` / `scripts/e2e-down.sh` (or documented manual steps) exist so the stack can be
-  reproduced.
+- `make e2e` (`scripts/stack.sh`) stands the whole stack up, runs the suite and tears it down, so the stack can be
+  reproduced with one command.

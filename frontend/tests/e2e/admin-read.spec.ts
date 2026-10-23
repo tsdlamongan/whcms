@@ -36,7 +36,7 @@ const PAGES: Array<{ path: string; testid: string; name: string }> = [
 	{ name: 'integration-log', path: '/admin/logs/integration', testid: 'integration-filter-form' },
 	{ name: 'reports-revenue', path: '/admin/reports/revenue', testid: 'revenue-total' },
 	{ name: 'reports-orders', path: '/admin/reports/orders', testid: 'report-run' },
-	{ name: 'reports-services', path: '/admin/reports/services', testid: '' }
+	{ name: 'reports-services', path: '/admin/reports/services', testid: 'services-total' }
 ];
 
 test.describe('admin read pages', () => {

@@ -37,9 +37,6 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
-    env:
-      DATABASE_URL: postgres://root:postgres@localhost:5432/whmcs_e2e?sslmode=disable
-      PGPASSWORD: postgres
     steps:
       - uses: actions/checkout@v7
 
@@ -48,34 +45,26 @@ jobs:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
 
-      # S3-compatible storage on :9000 (MinIO stands in for RustFS) — the
+      # S3-compatible storage on :9000, pinned to the RustFS release prod runs
+      # (MinIO's images on Docker Hub and quay.io are no longer pullable) — the
       # installer bootstrap integration tests probe http://localhost:9000.
-      - name: Start S3 (MinIO) on :9000
+      - name: Start S3 (RustFS) on :9000
         run: |
           docker run -d --name s3 -p 9000:9000 \
-            -e MINIO_ROOT_USER=rustfsadmin -e MINIO_ROOT_PASSWORD=rustfsadmin \
-            quay.io/minio/minio:latest server /data
+            -e RUSTFS_ACCESS_KEY=rustfsadmin -e RUSTFS_SECRET_KEY=rustfsadmin \
+            rustfs/rustfs:1.0.0-beta.11
           for i in $(seq 1 30); do
-            curl -fsS http://127.0.0.1:9000/minio/health/live && break
+            curl -fsS http://127.0.0.1:9000/health && break
             sleep 1
           done
           AWS_ACCESS_KEY_ID=rustfsadmin AWS_SECRET_ACCESS_KEY=rustfsadmin AWS_REGION=us-east-1 \
             aws --endpoint-url http://127.0.0.1:9000 s3 mb s3://whmcs || true
 
-      # The cpanel/duitku adapter integration tests exercise the real
-      # mockserver on :9090 and skip (losing coverage) when it is absent.
-      - name: Start mockserver on :9090
-        working-directory: mockserver
-        run: |
-          go build -o /tmp/whcms-mock .
-          nohup /tmp/whcms-mock > /tmp/mockserver.log 2>&1 &
-          for i in $(seq 1 30); do
-            curl -fsS -o /dev/null http://127.0.0.1:9090/mail/messages && break
-            sleep 1
-          done
-
-      - name: make test-backend (coverage gate)
-        run: make test-backend
+      # make cover reads .env.testing (created from .env.testing.example), makes
+      # sure the whmcs_e2e database exists and is migrated, and starts the
+      # mockserver on :9090 that the cpanel/duitku adapter integration tests use.
+      - name: make cover (coverage gate)
+        run: make cover
 
       - name: Upload coverage report
         if: always()
@@ -179,13 +168,13 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      - name: Start S3 (MinIO) on :9000
+      - name: Start S3 (RustFS) on :9000
         run: |
           docker run -d --name s3 -p 9000:9000 \
-            -e MINIO_ROOT_USER=rustfsadmin -e MINIO_ROOT_PASSWORD=rustfsadmin \
-            quay.io/minio/minio:latest server /data
+            -e RUSTFS_ACCESS_KEY=rustfsadmin -e RUSTFS_SECRET_KEY=rustfsadmin \
+            rustfs/rustfs:1.0.0-beta.11
           for i in $(seq 1 30); do
-            curl -fsS http://127.0.0.1:9000/minio/health/live && break
+            curl -fsS http://127.0.0.1:9000/health && break
             sleep 1
           done
           AWS_ACCESS_KEY_ID=rustfsadmin AWS_SECRET_ACCESS_KEY=rustfsadmin AWS_REGION=us-east-1 \
@@ -199,15 +188,12 @@ jobs:
         working-directory: frontend
         run: npx playwright install --with-deps chromium
 
-      - name: Start the stack and run Playwright
-        # CI is blanked for this step so playwright.config.ts
-        # (reuseExistingServer: !process.env.CI) reuses the frontend dev
-        # server that `make up` already started on :5173.
-        env:
-          CI: ""
-        run: |
-          make up
-          make test-frontend
+      # make e2e starts mockserver + api + seed + worker + frontend from
+      # .env.testing, runs Playwright against them (with CI blanked so
+      # playwright.config.ts reuses that frontend dev server) and tears the
+      # stack down again.
+      - name: make e2e
+        run: make e2e
 
       - name: Upload Playwright artifacts
         if: failure()
@@ -216,5 +202,5 @@ jobs:
           name: playwright-artifacts
           path: |
             frontend/test-results/
-            .e2e-logs/
+            .stack/*.log
           if-no-files-found: ignore

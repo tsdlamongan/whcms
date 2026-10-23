@@ -183,6 +183,7 @@ func TestRepoListsAndFilters(t *testing.T) {
 	tk1 := newTicketFixture(t, d, repo, clientID, dept.ID, "alpha "+tag)
 	tk2 := newTicketFixture(t, d, repo, clientID, dept.ID, "beta "+tag)
 	tk2.Status = domain.TicketClosed
+	tk2.Priority = domain.PriorityHigh
 	require.NoError(t, repo.Update(ctx, tk2))
 
 	// ListByClient with search narrows to our fixtures
@@ -214,6 +215,21 @@ func TestRepoListsAndFilters(t *testing.T) {
 	assert.Equal(t, int64(1), total)
 	require.Len(t, rows, 1)
 	assert.Equal(t, tk1.ID, rows[0].ID)
+
+	// priority + client filters (the client-detail tab and the priority filter)
+	rows, total, err = repo.ListAdmin(ctx, tickets.AdminListFilter{DepartmentID: dept.ID, Priority: "high"})
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), total)
+	require.Len(t, rows, 1)
+	assert.Equal(t, tk2.ID, rows[0].ID)
+
+	_, total, err = repo.ListAdmin(ctx, tickets.AdminListFilter{ClientID: clientID})
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), total, "only this client's tickets")
+
+	_, total, err = repo.ListAdmin(ctx, tickets.AdminListFilter{ClientID: clientID + 1_000_000})
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), total, "a client with no tickets matches nothing")
 
 	rows, total, err = repo.ListAdmin(ctx, tickets.AdminListFilter{Search: tag, PerPage: 1})
 	require.NoError(t, err)

@@ -210,6 +210,40 @@ func TestHandlerAdminListInvoices(t *testing.T) {
 	assert.Equal(t, 200, resp.StatusCode)
 }
 
+func TestHandlerAdminListInvoicesFilters(t *testing.T) {
+	var got ports.ListParams
+	called := false
+	svc := &fakeSvc{
+		AdminListInvoicesFn: func(_ context.Context, p ports.ListParams) ([]domain.Invoice, int64, error) {
+			called, got = true, p
+			return nil, 0, nil
+		},
+	}
+	app := newApp(svc, adminIdentity())
+
+	resp, err := app.Test(httptest.NewRequest("GET",
+		"/api/v1/admin/invoices?client_id=5&date_from=2026-01-10&date_to=2026-01-31&status=paid", nil))
+	require.NoError(t, err)
+	assert.Equal(t, 200, resp.StatusCode)
+	assert.Equal(t, int64(5), got.ClientID)
+	assert.Equal(t, "paid", got.Status)
+	assert.Equal(t, "2026-01-10", got.From.Format("2006-01-02"))
+	assert.Equal(t, "2026-01-31", got.To.Format("2006-01-02"))
+
+	resp, err = app.Test(httptest.NewRequest("GET", "/api/v1/admin/invoices?ids=4,5,6", nil))
+	require.NoError(t, err)
+	assert.Equal(t, 200, resp.StatusCode)
+	assert.Equal(t, []int64{4, 5, 6}, got.IDs)
+
+	for _, q := range []string{"client_id=abc", "date_from=10-01-2026", "date_to=soon", "ids=1,x"} {
+		called = false
+		resp, err = app.Test(httptest.NewRequest("GET", "/api/v1/admin/invoices?"+q, nil))
+		require.NoError(t, err)
+		assert.Equal(t, 422, resp.StatusCode, q)
+		assert.False(t, called, q)
+	}
+}
+
 func TestHandlerAdminCreateInvoice(t *testing.T) {
 	svc := &fakeSvc{
 		CreateManualInvoiceFn: func(_ context.Context, actor int64, in ManualInvoiceInput) (*domain.Invoice, error) {

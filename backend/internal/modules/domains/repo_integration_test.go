@@ -209,6 +209,14 @@ func TestDomainRepoLists(t *testing.T) {
 	require.NoError(t, err)
 	assert.EqualValues(t, 1, total)
 
+	// Admin List narrows by ListParams.ClientID (the client-detail Domains tab).
+	_, total, err = repo.List(ctx, ports.ListParams{ClientID: clientID})
+	require.NoError(t, err)
+	assert.EqualValues(t, 4, total)
+	_, total, err = repo.List(ctx, ports.ListParams{ClientID: clientID + 1_000_000})
+	require.NoError(t, err)
+	assert.Zero(t, total, "a client with no domains matches nothing")
+
 	// Search filter (unique name substring).
 	_, total, err = repo.List(ctx, ports.ListParams{Search: due.Name[:20]})
 	require.NoError(t, err)

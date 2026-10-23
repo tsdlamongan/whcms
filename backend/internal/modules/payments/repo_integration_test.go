@@ -322,3 +322,50 @@ func TestRepoNextAttemptConcurrentIsRaceFree(t *testing.T) {
 		assert.True(t, seen[want], "attempt %d never returned", want)
 	}
 }
+
+func TestRepoListInvoiceAndDateFilters(t *testing.T) {
+	d := testDB(t)
+	repo := payments.NewRepo(d)
+	ctx := context.Background()
+	tag := uuid.NewString()
+	invoiceA := newInvoiceFixture(t, d, tag+"-a")
+	invoiceB := newInvoiceFixture(t, d, tag+"-b")
+
+	mk := func(invoiceID int64, suffix string) *domain.Transaction {
+		mo := "IT-" + tag + "-" + suffix
+		tx := &domain.Transaction{
+			InvoiceID: invoiceID, Gateway: domain.GatewayDuitku, MethodCode: "VA",
+			MerchantOrderID: &mo, GatewayReference: "REF-" + tag + "-" + suffix,
+			Amount: 10000, Status: domain.TxPending,
+		}
+		require.NoError(t, repo.Create(ctx, tx))
+		return tx
+	}
+	txA := mk(invoiceA, "a")
+	mk(invoiceB, "b")
+
+	// invoice_id: the invoice detail page must list only that invoice's transactions.
+	rows, total, err := repo.List(ctx, ports.ListParams{Search: tag, InvoiceID: invoiceA})
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), total)
+	require.Len(t, rows, 1)
+	assert.Equal(t, txA.ID, rows[0].ID)
+
+	_, total, err = repo.List(ctx, ports.ListParams{Search: tag})
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), total)
+
+	// Date range on creation (inclusive whole UTC days).
+	today := time.Now().UTC()
+	_, total, err = repo.List(ctx, ports.ListParams{Search: tag, From: today, To: today})
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), total)
+
+	_, total, err = repo.List(ctx, ports.ListParams{Search: tag, From: today.AddDate(0, 0, 1)})
+	require.NoError(t, err)
+	assert.Zero(t, total)
+
+	_, total, err = repo.List(ctx, ports.ListParams{Search: tag, To: today.AddDate(0, 0, -1)})
+	require.NoError(t, err)
+	assert.Zero(t, total)
+}

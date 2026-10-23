@@ -23,7 +23,7 @@ backend/seed
 backend/migrate
 backend/tmp
 mockserver/whcms-mock
-.e2e-logs
+.stack
 
 # Node artifacts (fresh npm ci happens inside the image)
 **/node_modules

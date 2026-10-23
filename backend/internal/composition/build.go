@@ -250,6 +250,7 @@ func Build(ctx context.Context, cfg config.Config, database *db.DB, rdb *redis.C
 		Encryptor:   encryptor,
 		TOTPGuard:   totpguard.New(rdb),
 		Presence:    presenceSvc,
+		Cache:       cache.New(rdb),
 		Captcha:     captchaGuard,
 		FrontendURL: cfg.FrontendURL,
 	})

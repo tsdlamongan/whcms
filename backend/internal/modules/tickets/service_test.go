@@ -786,6 +786,43 @@ func TestSetStatusNoOpConflictAndInvalid(t *testing.T) {
 	requireCode(t, err, apperr.CodeValidation)
 }
 
+func TestSetPriority(t *testing.T) {
+	e := newFixture()
+	e.tickets.GetByIDFn = func(ctx context.Context, id int64) (*domain.Ticket, error) { return openTicket(), nil }
+	var updated *domain.Ticket
+	e.tickets.UpdateFn = func(ctx context.Context, t *domain.Ticket) error { updated = t; return nil }
+
+	got, err := e.service().SetPriority(context.Background(), 1, 11, tickets.SetPriorityInput{Priority: "low"})
+	require.NoError(t, err)
+	assert.Equal(t, domain.PriorityLow, got.Priority)
+	assert.Equal(t, domain.PriorityLow, updated.Priority)
+	require.Len(t, e.audit.Entries, 1)
+	assert.Equal(t, "ticket.priority", e.audit.Entries[0].Action)
+}
+
+func TestSetPriorityNoOpConflictInvalidAndFailures(t *testing.T) {
+	e := newFixture()
+	e.tickets.GetByIDFn = func(ctx context.Context, id int64) (*domain.Ticket, error) { return openTicket(), nil }
+
+	// openTicket() is already "high"
+	_, err := e.service().SetPriority(context.Background(), 1, 11, tickets.SetPriorityInput{Priority: "high"})
+	requireCode(t, err, apperr.CodeConflict)
+
+	_, err = e.service().SetPriority(context.Background(), 1, 11, tickets.SetPriorityInput{Priority: "urgent"})
+	requireCode(t, err, apperr.CodeValidation)
+
+	// store failure on update is surfaced, and nothing is audited
+	e.tickets.UpdateFn = func(ctx context.Context, t *domain.Ticket) error { return errors.New("db down") }
+	_, err = e.service().SetPriority(context.Background(), 1, 11, tickets.SetPriorityInput{Priority: "low"})
+	require.Error(t, err)
+	assert.Empty(t, e.audit.Entries)
+
+	// unknown ticket
+	e.tickets.GetByIDFn = func(ctx context.Context, id int64) (*domain.Ticket, error) { return nil, apperr.NotFound("ticket") }
+	_, err = e.service().SetPriority(context.Background(), 1, 99, tickets.SetPriorityInput{Priority: "low"})
+	requireCode(t, err, apperr.CodeNotFound)
+}
+
 // Attachments
 
 func repliesWithAttachments() []domain.TicketReply {

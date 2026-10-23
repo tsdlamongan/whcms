@@ -52,6 +52,15 @@ interface Envelope<T> {
 const STATUS_MARKER = '\n__HTTP_STATUS__:';
 
 /**
+ * The auth endpoints rate-limit per client IP (30 req/min, a Redis counter
+ * shared with the shared-stack API, which has just served the whole suite from
+ * 127.0.0.1). This spec runs last and would inherit a saturated window, so it
+ * presents its own address (the API trusts X-Forwarded-For from loopback);
+ * TEST-NET-2, never routable.
+ */
+const CLIENT_IP = '198.51.100.77';
+
+/**
  * One HTTP call via curl (see file header for why not `fetch`). Returns the
  * parsed envelope + HTTP status. curl runs without -f, so 4xx/5xx still
  * resolve (we assert on the CONFLICT 409 below).
@@ -61,7 +70,16 @@ async function api<T>(
 	pathname: string,
 	body?: unknown
 ): Promise<{ status: number; env: Envelope<T> }> {
-	const args = ['-sS', '-X', method, `${API_BASE}${pathname}`, '-w', `${STATUS_MARKER}%{http_code}`];
+	const args = [
+		'-sS',
+		'-X',
+		method,
+		`${API_BASE}${pathname}`,
+		'-H',
+		`x-forwarded-for: ${CLIENT_IP}`,
+		'-w',
+		`${STATUS_MARKER}%{http_code}`
+	];
 	if (body !== undefined) {
 		args.push('-H', 'content-type: application/json', '-d', JSON.stringify(body));
 	}

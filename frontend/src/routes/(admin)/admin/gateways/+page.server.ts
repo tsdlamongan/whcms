@@ -81,7 +81,13 @@ export const actions: Actions = {
 			});
 		}
 		if (mode !== 'sandbox' && mode !== 'production') {
-			return fail(400, { action: 'duitku', errorKey: 'adminBilling.gateways.errMode', merchantCode, mode, baseUrl });
+			return fail(400, {
+				action: 'duitku',
+				errorKey: 'adminBilling.gateways.errMode',
+				merchantCode,
+				mode,
+				baseUrl
+			});
 		}
 
 		// api_key is tri-state: omit entirely to leave the stored key
@@ -128,7 +134,11 @@ export const actions: Actions = {
 			const accountNumber = String(form.get(`account_number_${i}`) ?? '').trim();
 			const accountHolder = String(form.get(`account_holder_${i}`) ?? '').trim();
 			if (bankName || accountNumber || accountHolder) {
-				accounts.push({ bank_name: bankName, account_number: accountNumber, account_holder: accountHolder });
+				accounts.push({
+					bank_name: bankName,
+					account_number: accountNumber,
+					account_holder: accountHolder
+				});
 			}
 		}
 

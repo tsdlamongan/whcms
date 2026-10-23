@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { navigating } from '$app/state';
 	import { appName } from '$lib/appName';
 	import { Alert, EmptyState, MoneyText } from '$lib/components';
 	import CaPanel from '$lib/components/ca/CaPanel.svelte';
@@ -15,6 +16,14 @@
 	$effect(() => {
 		query = data.q;
 	});
+
+	// The search is a GET form, so "in flight" means the router is navigating to
+	// /order/domain?q=… while this page's load() asks the registrar - which can
+	// take seconds. Without feedback the button gets clicked again and again,
+	// and every extra click is another registrar lookup.
+	const searching = $derived(
+		navigating.to?.url.pathname === '/order/domain' && navigating.to.url.searchParams.has('q')
+	);
 
 	// Per-result years/addon selection (register + transfer)
 	let years = $state<Record<string, number>>({});
@@ -120,6 +129,11 @@
 	style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:20px;"
 	data-sveltekit-keepfocus
 	data-testid="domain-search-form"
+	aria-busy={searching}
+	onsubmit={(e) => {
+		// Enter in the input would otherwise slip past the disabled button.
+		if (searching) e.preventDefault();
+	}}
 >
 	<input
 		type="text"
@@ -132,8 +146,18 @@
 		spellcheck="false"
 		data-testid="domain-search-input"
 	/>
-	<button type="submit" class="ca-btn ca-btn-primary" data-testid="domain-search-submit">
-		<i class="fas fa-search" aria-hidden="true"></i>
+	<button
+		type="submit"
+		class="ca-btn ca-btn-primary"
+		disabled={searching}
+		aria-busy={searching}
+		data-testid="domain-search-submit"
+	>
+		{#if searching}
+			<span class="ca-spinner" aria-hidden="true"></span>
+		{:else}
+			<i class="fas fa-search" aria-hidden="true"></i>
+		{/if}
 		{t('orderfe.domain.search')}
 	</button>
 </form>
@@ -156,7 +180,12 @@
 		</div>
 	</section>
 {:else}
-	<section class="ca-card" data-testid="domain-results">
+	<section
+		class="ca-card"
+		class:ca-loading={searching}
+		aria-busy={searching}
+		data-testid="domain-results"
+	>
 		<div class="ca-card-header">{t('orderfe.domain.resultsFor', { q: data.q })}</div>
 		{#each data.results as result, i (result.name)}
 			<div

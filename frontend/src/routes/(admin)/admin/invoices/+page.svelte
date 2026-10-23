@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { appName } from '$lib/appName';
+	import { enhance } from '$app/forms';
+	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import HpPager from '$lib/components/hp/HpPager.svelte';
 	import { fmtDate } from '$lib/date';
 	import { formatIDR } from '$lib/money';
@@ -7,7 +9,7 @@
 	import type { PageProps } from './$types';
 	import type { AdminInvoice } from './types';
 
-	let { data }: PageProps = $props();
+	let { data, form }: PageProps = $props();
 
 	// sort (client-side, current page)
 	let sortCol = $state('created_at');
@@ -52,13 +54,29 @@
 	function toggleAll() {
 		checked = allChecked ? new Set() : new Set(rows.map((r) => r.id));
 	}
-	function bulk(label: string) {
+	// "With Selected" - Mark Paid / Mark Cancelled are the two bulk actions the
+	// API can actually perform per invoice (see the `bulk` form action).
+	type BulkOp = 'markPaid' | 'cancel';
+	let bulkOp = $state<BulkOp | null>(null);
+	let bulkSubmitting = $state(false);
+	let bulkFormEl = $state<HTMLFormElement | null>(null);
+	const BULK_LABEL: Record<BulkOp, string> = { markPaid: 'Mark Paid', cancel: 'Mark Cancelled' };
+
+	function askBulk(op: BulkOp) {
 		if (!checked.size) {
 			toast.info('Select at least one invoice');
 			return;
 		}
-		toast.success(`${checked.size} invoice(s): ${label}`);
+		bulkOp = op;
 	}
+
+	const numberById = $derived(new Map(data.invoices.map((i) => [i.id, i.invoice_number])));
+	const bulkFailures = $derived(
+		(form?.op === 'bulk' && 'failures' in form ? form.failures : undefined) ?? []
+	);
+	const bulkError = $derived(
+		form?.op === 'bulk' && 'errorMessage' in form ? form.errorMessage : null
+	);
 
 	// filter panel (open initially when arriving with active filters)
 	function hasActiveFilters(): boolean {
@@ -97,6 +115,23 @@
 {#if data.errorMessage}
 	<div class="hp-alert-yellow">
 		<i class="fas fa-exclamation-triangle" style="margin-right:8px"></i>{data.errorMessage}
+	</div>
+{/if}
+
+{#if bulkError}
+	<div class="hp-alert-red" data-testid="invoice-bulk-error">
+		<i class="fas fa-exclamation-triangle" style="margin-right:8px"></i>{bulkError}
+	</div>
+{/if}
+{#if bulkFailures.length > 0}
+	<div class="hp-alert-yellow" data-testid="invoice-bulk-failures">
+		<i class="fas fa-exclamation-triangle" style="margin-right:8px"></i>
+		{bulkFailures.length} invoice(s) could not be updated:
+		<ul style="margin:6px 0 0 18px">
+			{#each bulkFailures as f (f.id)}
+				<li>{numberById.get(f.id) ?? `#${f.id}`} — {f.message}</li>
+			{/each}
+		</ul>
 	</div>
 {/if}
 
@@ -264,11 +299,63 @@
 
 <div class="hp-bulk">
 	<span>With Selected:</span>
-	<button class="hp-btn hp-btn-blue" onclick={() => bulk('Marked Paid')}>Mark Paid</button>
-	<button class="hp-btn" onclick={() => bulk('Marked Unpaid')}>Mark Unpaid</button>
-	<button class="hp-btn" onclick={() => bulk('Marked Cancelled')}>Mark Cancelled</button>
-	<button class="hp-btn" onclick={() => bulk('Reminder Sent')}>Send Reminder</button>
-	<button class="hp-btn hp-btn-danger" onclick={() => bulk('Deleted')}>Delete</button>
+	<button
+		type="button"
+		class="hp-btn hp-btn-blue"
+		data-testid="invoice-bulk-mark-paid"
+		onclick={() => askBulk('markPaid')}>Mark Paid</button
+	>
+	<button
+		type="button"
+		class="hp-btn hp-btn-danger"
+		data-testid="invoice-bulk-cancel"
+		onclick={() => askBulk('cancel')}>Mark Cancelled</button
+	>
 </div>
 
+<form
+	method="POST"
+	action="?/bulk"
+	class="hidden"
+	bind:this={bulkFormEl}
+	use:enhance={() => {
+		bulkSubmitting = true;
+		return async ({ result, update }) => {
+			bulkSubmitting = false;
+			const op = bulkOp;
+			bulkOp = null;
+			if (result.type === 'success' && result.data && 'done' in result.data) {
+				const done = Number(result.data.done);
+				if (done > 0) {
+					toast.success(`${done} invoice(s): ${op ? BULK_LABEL[op] : 'updated'}`);
+				}
+				checked = new Set();
+			}
+			await update({ reset: false });
+		};
+	}}
+>
+	<input type="hidden" name="op" value={bulkOp ?? ''} />
+	<input type="hidden" name="ids" value={JSON.stringify([...checked])} />
+</form>
+
+<ConfirmDialog
+	open={bulkOp !== null}
+	danger
+	loading={bulkSubmitting}
+	title={bulkOp ? BULK_LABEL[bulkOp] : ''}
+	message={bulkOp === 'markPaid'
+		? `Record a manual payment for the full total of ${checked.size} selected invoice(s)? This cannot be undone.`
+		: `Cancel ${checked.size} selected invoice(s)? A cancelled invoice can no longer be paid.`}
+	confirmLabel={bulkOp ? BULK_LABEL[bulkOp] : 'Confirm'}
+	onConfirm={() => bulkFormEl?.requestSubmit()}
+	onCancel={() => (bulkOp = null)}
+/>
+
 <HpPager page={data.page} perPage={data.perPage} total={data.total} />
+
+<style>
+	.hidden {
+		display: none;
+	}
+</style>

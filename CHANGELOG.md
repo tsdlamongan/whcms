@@ -61,6 +61,21 @@ All notable changes to WHCMS are documented here. The format follows
 - Several SvelteKit `load` functions now fetch independent data concurrently.
 - `scripts/e2e-up.sh` generates per-checkout secrets, preflights required
   services, and installs frontend dependencies when missing.
+- Tooling: the root `Makefile` is now the only one (`backend/Makefile` is
+  gone) with `up`, `down`, `cover`, `lint`, `format`, `test` and `help`
+  (plus `e2e`, `tunnel`, `hooks`). `make up` is a dev server — api, worker
+  and frontend from `.env`, killing whatever holds their ports; `make down`
+  stops it and clears leftovers. The old `make test-backend` / `make
+  test-frontend` / `scripts/e2e-up.sh` / `scripts/e2e-down.sh` are replaced by
+  `make cover` / `make e2e` and `scripts/stack.sh`.
+- Config is split into two root env files: `.env` (dev, used by `make up`) and
+  `.env.testing` (mocked; used by cover/lint/test/e2e, created from
+  `.env.testing.example` on first use). `backend/.env` and `frontend/.env` are
+  superseded by the root `.env`. The test stack now has its own Redis DB
+  (13) and S3 bucket (`whmcs-e2e`), so it can no longer share queues with a
+  dev worker.
+- `make lint` now covers the frontend too (prettier + svelte-check) and
+  `make format` formats both sides.
 
 ### Fixed
 - Provisioning: account creation is idempotent; username collisions and

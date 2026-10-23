@@ -137,10 +137,25 @@ func (h *Handler) InvoicePDF(c fiber.Ctx) error {
 
 // Admin endpoints
 
-// AdminListInvoices lists all invoices (?search&status&page&per_page).
+// AdminListInvoices lists all invoices
+// (?search&status&client_id&ids&date_from&date_to&page&per_page).
 func (h *Handler) AdminListInvoices(c fiber.Ctx) error {
 	page := httpx.ParsePage(c)
-	list, total, err := h.svc.AdminListInvoices(c.Context(), listParams(c, page))
+	p := listParams(c, page)
+	var err error
+	if p.ClientID, err = httpx.QueryID(c, "client_id"); err != nil {
+		return err
+	}
+	if p.From, err = httpx.QueryDate(c, "date_from"); err != nil {
+		return err
+	}
+	if p.To, err = httpx.QueryDate(c, "date_to"); err != nil {
+		return err
+	}
+	if p.IDs, err = httpx.QueryIDs(c, "ids"); err != nil {
+		return err
+	}
+	list, total, err := h.svc.AdminListInvoices(c.Context(), p)
 	if err != nil {
 		return err
 	}

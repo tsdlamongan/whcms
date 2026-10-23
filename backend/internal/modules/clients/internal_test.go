@@ -24,7 +24,9 @@ func TestSearchInputLimit(t *testing.T) {
 		{"below minimum defaults to 25", 0, 25},
 		{"negative defaults to 25", -5, 25},
 		{"within range passes through", 40, 40},
-		{"above cap clamps to 100", 500, 100},
+		{"the page-size selector's 500 passes through", 500, 500},
+		{"exactly the cap passes through", 1000, 1000},
+		{"above cap clamps to 1000", 5000, 1000},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

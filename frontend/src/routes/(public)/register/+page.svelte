@@ -53,6 +53,11 @@
 	let submitting = $state(false);
 	let resending = $state(false);
 	let captchaReset = $state(0);
+	let captchaReady = $state(false);
+	// Hold submit until the widget has a token (see login page).
+	const captchaPending = $derived(
+		!!(data.captcha?.enabled && data.captcha.siteKey) && !captchaReady
+	);
 
 	const countryOptions = $derived.by(() => {
 		const names = new Intl.DisplayNames([i18n.locale], { type: 'region' });
@@ -294,11 +299,20 @@
 		</div>
 
 		{#if data.captcha?.enabled && data.captcha.siteKey}
-			<Turnstile siteKey={data.captcha.siteKey} resetSignal={captchaReset} />
+			<Turnstile
+				siteKey={data.captcha.siteKey}
+				resetSignal={captchaReset}
+				bind:ready={captchaReady}
+			/>
 		{/if}
 
 		<div data-testid="register-submit">
-			<LoadingButton type="submit" loading={submitting} class="ca-btn ca-btn-primary ca-btn-block">
+			<LoadingButton
+				type="submit"
+				loading={submitting}
+				disabled={captchaPending}
+				class="ca-btn ca-btn-primary ca-btn-block"
+			>
 				{t('auth.register')}
 			</LoadingButton>
 		</div>

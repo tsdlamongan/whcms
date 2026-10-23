@@ -133,13 +133,16 @@
 								<td class="r">{point.count ?? '—'}</td>
 							</tr>
 						{/each}
-						<tr class="hp-group-row">
-							<td>Total</td>
-							<td class="r" data-testid="revenue-total">{money(data.total)}</td>
-							<td class="r">{data.txCount}</td>
-						</tr>
 					{/if}
 				</tbody>
+				<!-- Always rendered: an empty range still reports an explicit Rp0 total. -->
+				<tfoot>
+					<tr class="hp-group-row">
+						<td>Total</td>
+						<td class="r" data-testid="revenue-total">{money(data.total)}</td>
+						<td class="r" data-testid="revenue-total-count">{data.txCount}</td>
+					</tr>
+				</tfoot>
 			</table>
 		</div>
 	</div>
