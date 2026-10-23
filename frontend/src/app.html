@@ -4,6 +4,16 @@
 		<meta charset="utf-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
 		<meta name="text-scale" content="scale" />
+		<script>
+			// GHSA-pfhg-q3qv-9q6r: a path-sanitizing proxy (prod's Traefik) serves
+			// //login as /login without redirecting, so hooks.server.ts never sees
+			// the '//' while the address bar keeps it - and enhanced forms resolve
+			// against the address bar. Fold the leading slashes before SvelteKit runs.
+			if (/^\/[\/\\]/.test(location.pathname))
+				location.replace(
+					'/' + location.pathname.replace(/^[\/\\]+/, '') + location.search + location.hash
+				);
+		</script>
 		%sveltekit.head%
 	</head>
 	<body data-sveltekit-preload-data="hover">
