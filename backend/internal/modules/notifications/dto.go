@@ -42,6 +42,14 @@ package notifications
 //	                    client profile is missing address/city/state/postcode/phone)
 //	ticket_opened       .TicketNumber .Subject .TicketURL
 //	ticket_replied      .TicketNumber .Subject .TicketURL
+//	snipe_active        .Domain [.DeadlineAt] (payment received, the hunt started)
+//	snipe_won           .Domain .ExpiryDate (the domain sniper registered it)
+//	snipe_expired       .Domain [.RefundAmount] (hunt window closed without a win)
+//	snipe_failed        .Domain [.RefundAmount]
+//	snipe_cancelled     .Domain [.RefundAmount]
+//	                    (.RefundAmount is a preformatted rupiah string, set only
+//	                    when money was credited back; the templates guard it
+//	                    with {{if .RefundAmount}})
 //	admin_alert         .Subject .Detail (sent by AlertAdmin)
 //
 // Missing keys render as "<no value>" instead of failing the send.

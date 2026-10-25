@@ -130,6 +130,14 @@ func TestProcessPaidErrorBranches(t *testing.T) {
 		assert.Error(t, env.service().ProcessPaid(context.Background(), 1))
 	})
 
+	t.Run("snipe activation fails", func(t *testing.T) {
+		env := newFixture()
+		env.invoices.GetByIDFn = func(_ context.Context, id int64) (*domain.Invoice, error) { return paidInvoice(id), nil }
+		env.invoices.GetItemsFn = items(domain.InvoiceItem{RelatedType: domain.RelatedDomainSnipe, RelatedID: rid(9)})
+		env.snipes.ActivateSnipeAfterPaymentFn = func(context.Context, int64) error { return errBoom }
+		assert.Error(t, env.service().ProcessPaid(context.Background(), 1), "the payment must not commit without the hunt starting")
+	})
+
 	t.Run("deposit credit fails", func(t *testing.T) {
 		env := newFixture()
 		env.invoices.GetByIDFn = func(_ context.Context, id int64) (*domain.Invoice, error) { return paidInvoice(id), nil }
@@ -577,6 +585,16 @@ func TestAdminOpsErrorBranches(t *testing.T) {
 		}
 		env.invoices.UpdateStatusFn = func(context.Context, int64, domain.InvoiceStatus, *time.Time) error { return errBoom }
 		_, err := env.service().CancelInvoice(context.Background(), 42, 1)
+		assert.Equal(t, apperr.CodeInternal, codeOf(t, err))
+	})
+
+	t.Run("refund item listing fails", func(t *testing.T) {
+		env := newFixture()
+		env.invoices.GetByIDForUpdateFn = func(_ context.Context, id int64) (*domain.Invoice, error) {
+			return &domain.Invoice{ID: id, Status: domain.InvoicePaid, Total: 100}, nil
+		}
+		env.invoices.GetItemsFn = func(context.Context, int64) ([]domain.InvoiceItem, error) { return nil, errBoom }
+		_, err := env.service().RefundInvoice(context.Background(), 42, 1, RefundInput{})
 		assert.Equal(t, apperr.CodeInternal, codeOf(t, err))
 	})
 

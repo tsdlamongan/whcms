@@ -1335,24 +1335,34 @@ func (s *Service) registrantContact(ctx context.Context, dom *domain.Domain) (po
 	if err != nil {
 		return ports.RegistrantContact{}, 0, err
 	}
-	if !cl.HasRegistrantAddress() {
+	contact, err := contactFromClient(cl, u.Email)
+	if err != nil {
 		s.notify(ctx, cl.UserID, tplDomainProfileIncomplete, dom)
-		return ports.RegistrantContact{}, cl.UserID, apperr.Validation(
+		return ports.RegistrantContact{}, cl.UserID, err
+	}
+	return contact, cl.UserID, nil
+}
+
+// contactFromClient builds the registrar contact from a client profile and the
+// owning user's email, VALIDATION when the profile lacks the address details
+// the registrar requires for every registration.
+func contactFromClient(cl *domain.Client, email string) (ports.RegistrantContact, error) {
+	if !cl.HasRegistrantAddress() {
+		return ports.RegistrantContact{}, apperr.Validation(
 			"client profile is missing registrant details (address, city, state, postal code, phone) required for domain registration")
 	}
-	contact := ports.RegistrantContact{
+	return ports.RegistrantContact{
 		FirstName: cl.FirstName,
 		LastName:  cl.LastName,
 		Company:   cl.Company,
-		Email:     u.Email,
+		Email:     email,
 		Phone:     cl.Phone,
 		Address1:  cl.Address1,
 		City:      cl.City,
 		State:     cl.State,
 		Postcode:  cl.Postcode,
 		Country:   cl.Country,
-	}
-	return contact, cl.UserID, nil
+	}, nil
 }
 
 // clientUserID resolves the owning user id for notifications.
