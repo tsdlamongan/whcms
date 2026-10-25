@@ -2,7 +2,9 @@ import { expect, test, type APIRequestContext, type Locator, type Page } from '.
 import {
 	API_BASE,
 	MOCK_BASE,
+	adminToken,
 	authHeaders,
+	ensureSellableTld,
 	createOrder,
 	newApi,
 	payInvoiceViaMock,
@@ -93,11 +95,27 @@ async function checkStatus(page: Page): Promise<void> {
 test.describe('client domain documents & verification', () => {
 	test.describe.configure({ mode: 'parallel' });
 	let api: APIRequestContext;
+	let admin: string;
+	// extensions this spec put on sale itself (removed again afterwards)
+	const createdTlds: number[] = [];
 
 	test.beforeAll(async () => {
 		api = await newApi();
+		admin = await adminToken(api);
+		// A domain can only be ordered under an extension priced in Domain
+		// Pricing. co.id comes from the seed, but admin-domain-pricing deletes
+		// and re-imports my.id, so neither is assumed to still exist.
+		for (const tld of ['co.id', 'my.id', 'com']) {
+			const id = await ensureSellableTld(api, admin, tld);
+			if (id !== null) createdTlds.push(id);
+		}
 	});
 	test.afterAll(async () => {
+		for (const id of createdTlds) {
+			await api.delete(`${API_BASE}/api/v1/admin/tld-pricing/${id}`, {
+				headers: authHeaders(admin)
+			});
+		}
 		await api?.dispose();
 	});
 

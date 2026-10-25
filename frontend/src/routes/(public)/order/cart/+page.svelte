@@ -57,6 +57,15 @@
 	let checkingOut = $state(false);
 	let captchaReset = $state(0);
 	let captchaReady = $state(false);
+
+	/** Extension of a domain line when it is not on sale, else null. */
+	function unsoldExtension(item: { item_type: string; domain?: string }): string | null {
+		if (item.item_type !== 'domain_register' && item.item_type !== 'domain_transfer') return null;
+		if (!item.domain || !data.sellableTlds) return null;
+		const ext = item.domain.slice(item.domain.indexOf('.') + 1).toLowerCase();
+		return data.sellableTlds.includes(ext) ? null : ext;
+	}
+	const hasUnsoldDomain = $derived(cart.items.some((item) => unsoldExtension(item) !== null));
 	// Login, register and checkout each render their own Turnstile, but never
 	// more than one at a time, so a single flag gates whichever is on screen.
 	const captchaPending = $derived(
@@ -122,8 +131,14 @@
 		</div>
 	</section>
 {:else}
-	<div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
-		<div class="space-y-6 lg:col-span-2">
+	<!-- The summary/checkout column is a fixed 22rem on desktop: its card body
+	     (20px padding + 1px border each side) then leaves 310px, above the 300px
+	     Cloudflare needs to render the Turnstile widget at `flexible` (full
+	     container width, flush with the checkout button). A proportional column
+	     went as narrow as ~215px, which forced the 150px `compact` widget. Below
+	     xl the cart stacks, so the card (and the widget) spans the full width. -->
+	<div class="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_22rem]">
+		<div class="space-y-6">
 			<div data-testid="cart-items" style="overflow-x:auto;">
 				<table class="ca-cart-table">
 					<thead>
@@ -140,6 +155,15 @@
 									<div style="font-weight:600;color:#333;">{itemTitle(index)}</div>
 									{#if item.domain}
 										<div class="ca-muted" style="font-size:0.8rem;">{item.domain}</div>
+									{/if}
+									{#if unsoldExtension(item) !== null}
+										<div
+											style="font-size:0.8rem;color:#c43c35;"
+											role="alert"
+											data-testid={`cart-tld-not-offered-${index}`}
+										>
+											{t('orderfe.cart.notOffered', { ext: unsoldExtension(item) ?? '' })}
+										</div>
 									{/if}
 									{#if item.domain && requiresDocuments(item.domain)}
 										<div
@@ -671,7 +695,7 @@
 							<button
 								type="submit"
 								class="ca-btn ca-btn-success ca-btn-block ca-btn-lg"
-								disabled={checkingOut || cart.count === 0 || captchaPending}
+								disabled={checkingOut || cart.count === 0 || captchaPending || hasUnsoldDomain}
 								aria-busy={checkingOut}
 								data-testid="checkout-submit"
 							>
