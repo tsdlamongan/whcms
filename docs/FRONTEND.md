@@ -85,7 +85,12 @@ List: DataTable (domain, registrar status badge, expiry DateText, auto-renew tog
 tabs Overview (dates, status, renew now → POST /domains/:id/renew → redirect invoice), Nameservers (2-4 inputs,
 PATCH), DNS (records table editor: type select A/AAAA/CNAME/MX/TXT/NS, host, value, TTL, prio; add/edit/delete
 rows client-side then PUT full set), EPP (reveal button GET /domains/:id/epp shows code copyable), Contact
-(registrant form PATCH).
+(registrant form PATCH). Above the tabs, `VerificationPanel.svelte` (CONTRACTS §16): while a domain owes documents it shows the
+verification state, the documented upload/suspend/delete timeline, the per-extension requirement list (`$lib/domainDocuments.ts`), a
+bounced-review / suspended alert, **Upload Documents** (`?/documentLink` → the registrar-hosted page as a `target=_blank` link — the API
+has no upload endpoint) and **Check Status** (`?/refresh`); email-verified TLDs get **Resend Verification Email**
+(`?/resendVerification`); a `rejected` domain shows the registrar reason and the refund outcome (credited / documented no-refund /
+non-refundable). The list flags such domains with a "Documents needed" badge; `/order/domain` results and the cart flag document extensions.
 
 ### FE-CLIENT-BILLING — `(client)/billing/**`, `(public)/payments/return`
 `/billing`: tabs Invoices (DataTable: number, date, due, total, status; filter status) + Transactions (history) +
@@ -130,7 +135,8 @@ mode select, API-key-presence indicator), save.
 Services: DataTable (filters status/product/server), detail: overview + lifecycle action buttons (Create/Suspend
 w/ reason/Unsuspend/Terminate/Change Package select/Change Password) each ConfirmDialog → POST
 /admin/services/:id/<action>, pending_upgrade banner, edit next_due_date/notes. Domains admin: DataTable, detail
-(sync button, renew, NS override, status). Servers: list (name, module badge, host, accounts/capacity, active),
+(sync button, renew, NS override, status, a Verification & Refund panel — documents required, verification status, registrar reason,
+deadlines, refund record — and, for rejected/cancelled domains not yet refunded, a confirmed "Refund to Client Credit" form). Servers: list (name, module badge, host, accounts/capacity, active),
 create/edit form (module select cpanel|directadmin, host/port/username/token|password/ssl/nameservers/max),
 test-connection button showing result, server groups CRUD (strategy select, member servers). Registrars: rdash row
 config (non-secret JSONB fields + key-presence), test button.

@@ -19,6 +19,10 @@
 
 	let syncForm = $state<HTMLFormElement>();
 	let renewForm = $state<HTMLFormElement>();
+	let refundOpen = $state(false);
+	let refundForm = $state<HTMLFormElement>();
+	let refundAmount = $state('');
+	let refundReason = $state('');
 
 	const initialNs = untrack(() => data.domain.nameservers ?? []);
 	let ns1 = $state(initialNs[0] ?? '');
@@ -48,8 +52,31 @@
 		{ value: 'active', label: 'Active' },
 		{ value: 'pending_transfer', label: 'Pending Transfer' },
 		{ value: 'expired', label: 'Expired' },
+		{ value: 'suspended', label: 'Suspended' },
+		{ value: 'rejected', label: 'Rejected' },
 		{ value: 'cancelled', label: 'Cancelled' }
 	];
+
+	/** domain.verification_status -> label (registrar "verification_status" 0..3). */
+	const VERIFICATION_LABELS: Record<string, string> = {
+		waiting: 'Waiting',
+		verifying: 'Verifying',
+		document_validating: 'Document validating',
+		active: 'Verified'
+	};
+	const verificationLabel = $derived(VERIFICATION_LABELS[domain.verification_status] ?? '—');
+
+	/** The panel is shown whenever the registrar's verification/refund state matters. */
+	const showVerification = $derived(
+		domain.document_required ||
+			!!domain.verification_status ||
+			domain.status === 'suspended' ||
+			domain.status === 'rejected' ||
+			!!domain.refunded_at
+	);
+	const canRefund = $derived(
+		(domain.status === 'rejected' || domain.status === 'cancelled') && !domain.refunded_at
+	);
 
 	const ERROR_FALLBACKS: Record<string, string> = {
 		'adminops.domains.nsRequired': 'At least 2 nameservers are required.'
@@ -63,7 +90,7 @@
 	function statusClass(s: string): string {
 		if (s === 'active') return 'active';
 		if (s === 'pending' || s === 'pending_transfer') return 'pending';
-		if (s === 'expired') return 'terminated';
+		if (s === 'expired' || s === 'suspended' || s === 'rejected') return 'terminated';
 		return 'cancelled';
 	}
 
@@ -86,6 +113,22 @@
 			};
 		};
 	}
+
+	/** Refund: the confirm modal closes on any outcome so the toast/banner is visible. */
+	const refundEnhance: SubmitFunction = () => {
+		actionLoading = 'refund';
+		return async ({ result, update }) => {
+			actionLoading = null;
+			refundOpen = false;
+			if (result.type === 'success') {
+				toast.success('Refund credited to the client account');
+			} else if (result.type === 'failure') {
+				const d = result.data as { errorMessage?: string } | undefined;
+				toast.error(d?.errorMessage ?? 'Something went wrong');
+			}
+			await update();
+		};
+	};
 </script>
 
 <svelte:head>
@@ -298,6 +341,135 @@
 		</form>
 	</section>
 
+	{#if showVerification}
+		<section class="hp-panel full" data-testid="admin-domain-verification">
+			<div class="hp-panel-hd"><span class="title">Verification &amp; Refund</span></div>
+			<div class="hp-fieldgrid">
+				<div>
+					<div class="lbl">Documents Required</div>
+					<div class="val" data-testid="admin-domain-documents-required">
+						{domain.document_required ? 'Yes' : 'No'}
+					</div>
+				</div>
+				<div>
+					<div class="lbl">Verification</div>
+					<div class="val" data-testid="admin-domain-verification-status">{verificationLabel}</div>
+				</div>
+				<div>
+					<div class="lbl">Registrar Reason</div>
+					<div class="val" data-testid="admin-domain-status-reason">
+						{domain.status_reason || '—'}
+					</div>
+				</div>
+				{#if domain.document_rejected_at}
+					<div>
+						<div class="lbl">Documents Rejected</div>
+						<div class="val" data-testid="admin-domain-documents-rejected">
+							<DateText value={domain.document_rejected_at} mode="datetime" />
+						</div>
+					</div>
+				{/if}
+				<div>
+					<div class="lbl">Registrar Refundable</div>
+					<div class="val" data-testid="admin-domain-refundable">
+						{domain.registrar_refundable ? 'Yes' : 'No'}
+					</div>
+				</div>
+				{#if domain.verification_deadlines}
+					{@const dl = domain.verification_deadlines}
+					<div data-testid="admin-domain-deadlines">
+						{#if dl.upload_by}
+							<div class="lbl">Upload By</div>
+							<div class="val" data-testid="admin-domain-deadline-upload">
+								<DateText value={dl.upload_by} />
+							</div>
+						{/if}
+						<div class="lbl" style={dl.upload_by ? 'margin-top:8px' : ''}>Suspended On</div>
+						<div class="val" data-testid="admin-domain-deadline-suspend">
+							<DateText value={dl.suspend_on} />
+						</div>
+						{#if dl.delete_on}
+							<div class="lbl" style="margin-top:8px">Deleted On (no refund)</div>
+							<div class="val" data-testid="admin-domain-deadline-delete">
+								<DateText value={dl.delete_on} />
+							</div>
+						{/if}
+					</div>
+				{/if}
+				{#if domain.refunded_at}
+					<div data-testid="admin-domain-refunded">
+						<div class="lbl">Refunded to Client Credit</div>
+						<div class="val">
+							<MoneyText amount={domain.refund_amount} />
+							<span style="color:#999;font-size:12px"
+								>on <DateText value={domain.refunded_at} mode="datetime" /></span
+							>
+						</div>
+					</div>
+				{/if}
+			</div>
+
+			{#if canRefund}
+				<form
+					method="POST"
+					action="?/refund"
+					style="padding:0 16px 14px"
+					data-testid="admin-domain-refund-form"
+					bind:this={refundForm}
+					use:enhance={refundEnhance}
+				>
+					<p style="color:#666;font-size:12px;margin:0 0 10px">
+						The registrar's policy is no refund when required documents were never uploaded or were
+						rejected. You can still credit the client's account balance with what they paid for this
+						domain.
+					</p>
+					<div class="hp-formrow">
+						<label for="field-refund-amount">Refund Amount (IDR)</label>
+						<div class="hp-field">
+							<input
+								id="field-refund-amount"
+								name="amount"
+								type="number"
+								min="1"
+								step="1"
+								class="hp-input"
+								placeholder="Full amount paid"
+								bind:value={refundAmount}
+								data-testid="admin-domain-refund-amount"
+							/>
+						</div>
+					</div>
+					<div class="hp-formrow">
+						<label for="field-refund-reason">Reason</label>
+						<div class="hp-field">
+							<input
+								id="field-refund-reason"
+								name="reason"
+								class="hp-input"
+								maxlength="500"
+								bind:value={refundReason}
+								data-testid="admin-domain-refund-reason"
+							/>
+						</div>
+					</div>
+					<div class="hp-form-actions" style="justify-content:flex-end">
+						<button
+							type="button"
+							class="hp-btn hp-btn-danger"
+							data-testid="admin-domain-refund-submit"
+							disabled={actionLoading === 'refund'}
+							aria-busy={actionLoading === 'refund'}
+							onclick={() => (refundOpen = true)}
+						>
+							{#if actionLoading === 'refund'}<i class="fas fa-spinner fa-spin"></i>{/if}Refund to
+							Client Credit
+						</button>
+					</div>
+				</form>
+			{/if}
+		</section>
+	{/if}
+
 	<section class="hp-panel full">
 		<div class="hp-panel-hd"><span class="title">Nameservers</span></div>
 		<form
@@ -393,6 +565,7 @@
 			type="button"
 			class="hp-btn hp-btn-primary"
 			disabled={actionLoading === 'sync'}
+			data-testid="domain-sync-confirm"
 			onclick={() => syncForm?.requestSubmit()}
 		>
 			{#if actionLoading === 'sync'}<i class="fas fa-spinner fa-spin"></i>{/if}Sync Now
@@ -420,6 +593,33 @@
 			onclick={() => renewForm?.requestSubmit()}
 		>
 			{#if actionLoading === 'renew'}<i class="fas fa-spinner fa-spin"></i>{/if}Renew Now
+		</button>
+	</div>
+</HpModal>
+
+<HpModal open={refundOpen} title="Refund Domain" onClose={() => (refundOpen = false)}>
+	<p style="color:#555;margin-bottom:16px" data-testid="admin-domain-refund-confirm-text">
+		Credit {refundAmount ? `Rp${refundAmount}` : 'the full amount paid'} for
+		<strong>{domain.name}</strong> to the client's account balance? A domain can be refunded only once.
+	</p>
+	<div style="display:flex;justify-content:flex-end;gap:8px">
+		<button
+			type="button"
+			class="hp-btn"
+			disabled={actionLoading === 'refund'}
+			onclick={() => (refundOpen = false)}
+		>
+			Cancel
+		</button>
+		<button
+			type="button"
+			class="hp-btn hp-btn-danger"
+			data-testid="admin-domain-refund-confirm"
+			disabled={actionLoading === 'refund'}
+			aria-busy={actionLoading === 'refund'}
+			onclick={() => refundForm?.requestSubmit()}
+		>
+			{#if actionLoading === 'refund'}<i class="fas fa-spinner fa-spin"></i>{/if}Refund Now
 		</button>
 	</div>
 </HpModal>

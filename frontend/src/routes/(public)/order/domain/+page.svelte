@@ -194,6 +194,14 @@
 						{#if result.premium}
 							<span class="ca-badge ca-badge--warning">{t('orderfe.domain.premium')}</span>
 						{/if}
+						{#if result.document_required}
+							<span
+								class="ca-badge ca-badge--info"
+								title={t('orderfe.domain.docsRequiredHint')}
+								data-testid={`domain-docs-badge-${result.name}`}
+								>{t('orderfe.domain.docsRequired')}</span
+							>
+						{/if}
 					{:else}
 						<span class="ca-badge ca-badge--danger">{t('orderfe.domain.taken')}</span>
 					{/if}

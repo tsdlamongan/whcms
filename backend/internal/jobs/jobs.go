@@ -32,7 +32,11 @@ const (
 	TypeCronAutoTerminate    = "cron:auto_terminate"
 	TypeCronPaymentReconcile = "cron:payment_reconcile"
 	TypeCronDomainSync       = "cron:domain_sync"
-	TypeCronHousekeeping     = "cron:housekeeping"
+	// TypeCronDomainVerificationSync polls only the domains whose document /
+	// email verification is still open, so an approved, bounced or lapsed
+	// upload surfaces within minutes instead of at the daily sync.
+	TypeCronDomainVerificationSync = "cron:domain_verification_sync"
+	TypeCronHousekeeping           = "cron:housekeeping"
 )
 
 // DefaultMaxRetry is the standard retry policy (exponential backoff). On final

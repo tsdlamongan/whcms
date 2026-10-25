@@ -124,6 +124,82 @@ const messages: Partial<Record<Locale, Record<string, unknown>>> = {
 				annually: 'Tahunan',
 				biennially: '2 Tahunan'
 			},
+			docs: {
+				badge: 'Perlu dokumen',
+				badgeEmail: 'Perlu verifikasi',
+				title: 'Dokumen persyaratan diperlukan',
+				titleEmail: 'Verifikasi email diperlukan',
+				intro:
+					'Ekstensi {tld} mewajibkan dokumen persyaratan. Domain ini aktif sementara; unggah dokumennya agar tidak ditangguhkan.',
+				introEmail:
+					'Registran harus mengonfirmasi domain melalui email verifikasi yang dikirim registrar. Domain ditangguhkan bila tidak dikonfirmasi tepat waktu.',
+				stateLabel: 'Status verifikasi',
+				state: {
+					waiting: 'Menunggu dokumen',
+					verifying: 'Sedang diverifikasi',
+					document_validating: 'Dokumen sedang divalidasi',
+					active: 'Terverifikasi'
+				},
+				emailState: {
+					waiting: 'Menunggu verifikasi email',
+					verifying: 'Sedang diverifikasi'
+				},
+				rejectedTitle: 'Dokumen ditolak',
+				rejectedWithReason:
+					'Dokumen yang Anda unggah ditolak: {reason}. Unggah ulang dokumen yang benar.',
+				rejected: 'Dokumen yang Anda unggah ditolak. Unggah ulang dokumen yang benar.',
+				suspendedTitle: 'Domain ditangguhkan',
+				suspendedWithReason:
+					'Domain ditangguhkan: {reason}. Lengkapi verifikasi agar domain aktif kembali.',
+				suspended: 'Domain ditangguhkan. Lengkapi verifikasi agar domain aktif kembali.',
+				deadlinesTitle: 'Jadwal verifikasi',
+				uploadBy: 'Unggah dokumen paling lambat',
+				suspendOn: 'Domain ditangguhkan jika belum ada dokumen valid',
+				suspendOnEmail: 'Domain ditangguhkan jika email belum diverifikasi',
+				deleteOn: 'Domain dihapus tanpa pengembalian dana',
+				requirementsTitle: 'Dokumen yang dibutuhkan',
+				req: {
+					identity: 'KTP elektronik / paspor / e.id / identitas lain yang sah',
+					companyLegal:
+						'Badan hukum Indonesia: NIB / NPWP / SK Kumham (atas nama perusahaan, mis. PT, CV, Firma)',
+					intlBrand:
+						'Merek internasional: sertifikat merek internasional / sertifikat PSE (Indonesia) dan surat kuasa kepada subjek hukum Indonesia',
+					orgDeed:
+						'Organisasi / perkumpulan / yayasan: akta notaris pendirian atau surat permohonan domain dari ketua',
+					highEdDecree: 'SK pendirian perguruan tinggi dari kementerian / lembaga yang berwenang',
+					requestLetterRector: 'Surat permohonan domain dari rektor atau pimpinan lembaga',
+					requestLetterHead: 'Surat permohonan domain dari kepala sekolah / pimpinan lembaga',
+					schoolPermit:
+						'SK izin operasional sekolah (atau SK pendirian lembaga untuk pendidikan non-formal)',
+					requestLetterPesantren:
+						'Surat permohonan domain dari pimpinan pondok pesantren / lembaga',
+					nameMatchesInstitution:
+						'Nama domain harus sesuai dengan nama sekolah / lembaga yang mendaftar'
+				},
+				upload: 'Unggah Dokumen',
+				reupload: 'Unggah Ulang Dokumen',
+				linkReadyTitle: 'Halaman unggah dokumen siap',
+				openLink: 'Buka halaman unggah dokumen',
+				linkHint:
+					'Dokumen diunggah di halaman verifikasi registrar. Tautan ini bersifat pribadi - gunakan segera, lalu kembali ke sini dan klik "Periksa Status".',
+				refresh: 'Periksa Status',
+				refreshed: 'Status verifikasi diperbarui.',
+				resend: 'Kirim Ulang Email Verifikasi',
+				resent: 'Email verifikasi dikirim ulang.',
+				errors: {
+					noLink: 'Registrar tidak memberikan tautan unggah dokumen. Coba lagi sesaat lagi.'
+				},
+				rejectedPanel: {
+					title: 'Domain ditolak oleh registrar',
+					body: 'Pendaftaran {domain} ditolak atau dihapus oleh registrar.',
+					reason: 'Alasan registrar: {reason}',
+					refunded: 'Dana {amount} telah dikembalikan sebagai kredit akun Anda.',
+					noRefundDocuments:
+						'Sesuai kebijakan registrar, tidak ada pengembalian dana ketika dokumen persyaratan tidak diunggah atau ditolak.',
+					noRefundOther:
+						'Registrar menandai pendaftaran ini tidak dapat dikembalikan dananya. Hubungi dukungan bila Anda keberatan.'
+				}
+			},
 			toast: {
 				autoRenewOn: 'Perpanjangan otomatis diaktifkan.',
 				autoRenewOff: 'Perpanjangan otomatis dinonaktifkan.',
@@ -134,7 +210,9 @@ const messages: Partial<Record<Locale, Record<string, unknown>>> = {
 				actionFailed: 'Tindakan gagal. Silakan coba lagi.',
 				loadFailed: 'Gagal memuat data: {message}'
 			}
-		}
+		},
+		// domain.status 'rejected' has no label in the base dictionary
+		status: { rejected: 'Ditolak' }
 	},
 	en: {
 		clientDomains: {
@@ -255,6 +333,84 @@ const messages: Partial<Record<Locale, Record<string, unknown>>> = {
 				annually: 'Annually',
 				biennially: 'Biennially'
 			},
+			docs: {
+				badge: 'Documents needed',
+				badgeEmail: 'Verification needed',
+				title: 'Supporting documents required',
+				titleEmail: 'Email verification required',
+				intro:
+					'The {tld} extension requires supporting documents. This domain is active for now; upload the documents so it is not suspended.',
+				introEmail:
+					'The registrant must confirm the domain through the verification email the registrar sent. The domain is suspended if it is not confirmed in time.',
+				stateLabel: 'Verification status',
+				state: {
+					waiting: 'Waiting for documents',
+					verifying: 'Being verified',
+					document_validating: 'Documents under review',
+					active: 'Verified'
+				},
+				emailState: {
+					waiting: 'Waiting for email verification',
+					verifying: 'Being verified'
+				},
+				rejectedTitle: 'Documents rejected',
+				rejectedWithReason:
+					'The documents you uploaded were rejected: {reason}. Upload the correct documents again.',
+				rejected: 'The documents you uploaded were rejected. Upload the correct documents again.',
+				suspendedTitle: 'Domain suspended',
+				suspendedWithReason:
+					'The domain was suspended: {reason}. Complete the verification to reactivate it.',
+				suspended: 'The domain was suspended. Complete the verification to reactivate it.',
+				deadlinesTitle: 'Verification timeline',
+				uploadBy: 'Upload documents by',
+				suspendOn: 'Suspended if there are no valid documents',
+				suspendOnEmail: 'Suspended if the email is not verified',
+				deleteOn: 'Deleted with no refund',
+				requirementsTitle: 'Documents required',
+				req: {
+					identity: 'Electronic ID card (KTP) / passport / e.id / other valid identity',
+					companyLegal:
+						'Indonesian legal entity: NIB / NPWP / Kumham decree (in the company name, e.g. PT, CV, Firma)',
+					intlBrand:
+						'International brand: international trademark certificate / PSE certificate (Indonesia) and a power of attorney to an Indonesian legal subject',
+					orgDeed:
+						'Organisation / association / foundation: notarial deed of establishment or a domain request letter from its chair',
+					highEdDecree:
+						'Higher-education establishment decree from the competent ministry / institution',
+					requestLetterRector: 'Domain request letter from the rector or head of the institution',
+					requestLetterHead:
+						'Domain request letter from the school principal / head of the institution',
+					schoolPermit:
+						'School operating permit (or the institution establishment decree for non-formal education)',
+					requestLetterPesantren:
+						'Domain request letter from the head of the pesantren / institution',
+					nameMatchesInstitution:
+						'The domain name must match the name of the registering school / institution'
+				},
+				upload: 'Upload Documents',
+				reupload: 'Re-upload Documents',
+				linkReadyTitle: 'Your document upload page is ready',
+				openLink: 'Open the document upload page',
+				linkHint:
+					'Documents are uploaded on the registrar verification page. The link is private - use it right away, then come back here and click "Check Status".',
+				refresh: 'Check Status',
+				refreshed: 'Verification status updated.',
+				resend: 'Resend Verification Email',
+				resent: 'Verification email re-sent.',
+				errors: {
+					noLink: 'The registrar did not return a document upload link. Please try again shortly.'
+				},
+				rejectedPanel: {
+					title: 'Domain rejected by the registrar',
+					body: 'The registration of {domain} was rejected or deleted by the registrar.',
+					reason: 'Registrar reason: {reason}',
+					refunded: '{amount} has been returned to your account credit.',
+					noRefundDocuments:
+						'Under the registrar policy there is no refund when the required documents were not uploaded or were rejected.',
+					noRefundOther:
+						'The registrar marked this registration as non-refundable. Contact support if you disagree.'
+				}
+			},
 			toast: {
 				autoRenewOn: 'Auto renew enabled.',
 				autoRenewOff: 'Auto renew disabled.',
@@ -265,7 +421,8 @@ const messages: Partial<Record<Locale, Record<string, unknown>>> = {
 				actionFailed: 'The action failed. Please try again.',
 				loadFailed: 'Failed to load data: {message}'
 			}
-		}
+		},
+		status: { rejected: 'Rejected' }
 	}
 };
 

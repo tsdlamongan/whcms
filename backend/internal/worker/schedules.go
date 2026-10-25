@@ -21,7 +21,8 @@ func Schedules() []PeriodicTask {
 		{Spec: "0 3 * * *", Type: jobs.TypeCronAutoSuspend},       // daily 03:00 UTC
 		{Spec: "30 3 * * *", Type: jobs.TypeCronAutoTerminate},    // daily 03:30 UTC
 		{Spec: "*/10 * * * *", Type: jobs.TypeCronPaymentReconcile},
-		{Spec: "0 4 * * *", Type: jobs.TypeCronDomainSync},   // daily 04:00 UTC
+		{Spec: "0 4 * * *", Type: jobs.TypeCronDomainSync}, // daily 04:00 UTC
+		{Spec: "*/30 * * * *", Type: jobs.TypeCronDomainVerificationSync},
 		{Spec: "0 5 * * 0", Type: jobs.TypeCronHousekeeping}, // weekly Sunday 05:00 UTC
 	}
 }

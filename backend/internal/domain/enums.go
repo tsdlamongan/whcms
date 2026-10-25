@@ -183,7 +183,37 @@ const (
 	DomainPendingTransfer DomainStatus = "pending_transfer"
 	DomainExpired         DomainStatus = "expired"
 	DomainCancelled       DomainStatus = "cancelled"
+	// DomainSuspended: the registrar switched the domain off - documents or
+	// the registrant's email verification are overdue (day 5 / day 30 of the
+	// RDash auto-activation lifecycle), or an operator suspended it there.
+	DomainSuspended DomainStatus = "suspended"
+	// DomainRejected: the registrar refused or deleted the registration. The
+	// refund rules (DomainRefundDecision) apply when a domain enters it.
+	DomainRejected DomainStatus = "rejected"
 )
+
+// DomainVerification mirrors the registrar's `verification_status` of a
+// domain: 0 Waiting, 1 Verifying, 2 Document Validating, 3 Active. The empty
+// value means the registrar never reported one.
+type DomainVerification string
+
+const (
+	VerificationNone               DomainVerification = ""
+	VerificationWaiting            DomainVerification = "waiting"
+	VerificationVerifying          DomainVerification = "verifying"
+	VerificationDocumentValidating DomainVerification = "document_validating"
+	VerificationActive             DomainVerification = "active"
+)
+
+// Valid reports whether v is one of the five known values.
+func (v DomainVerification) Valid() bool {
+	switch v {
+	case VerificationNone, VerificationWaiting, VerificationVerifying,
+		VerificationDocumentValidating, VerificationActive:
+		return true
+	}
+	return false
+}
 
 // SnipeStatus is the status of a domain snipe (a background hunt that keeps
 // trying to register a dropping domain). won/expired/cancelled/failed are

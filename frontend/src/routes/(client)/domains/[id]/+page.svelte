@@ -18,6 +18,7 @@
 	import type { PageProps } from './$types';
 	import ContactForm from './ContactForm.svelte';
 	import DnsEditor from './DnsEditor.svelte';
+	import VerificationPanel from './VerificationPanel.svelte';
 
 	let { data, form }: PageProps = $props();
 
@@ -194,6 +195,8 @@
 			</span>
 		{/if}
 	</div>
+
+	<VerificationPanel {domain} {form} />
 
 	<div class="mb-5" data-testid="domain-tabs">
 		<Tabs {tabs} active={data.tab} />

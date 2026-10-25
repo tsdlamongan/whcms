@@ -105,6 +105,9 @@ func (f *fakeDeps) SyncDomainJob(_ context.Context, domainID int64) error {
 func (f *fakeDeps) SyncAllDomains(_ context.Context) (int, error) {
 	return f.recordCount("SyncAllDomains")
 }
+func (f *fakeDeps) SyncAwaitingVerification(_ context.Context) (int, error) {
+	return f.recordCount("SyncAwaitingVerification")
+}
 
 // BillingJobs
 func (f *fakeDeps) GenerateRenewalInvoices(_ context.Context) (int, error) {
@@ -256,6 +259,7 @@ var cronDispatch = []struct {
 	{jobs.TypeCronAutoTerminate, "AutoTerminate"},
 	{jobs.TypeCronPaymentReconcile, "ReconcilePending"},
 	{jobs.TypeCronDomainSync, "SyncAllDomains"},
+	{jobs.TypeCronDomainVerificationSync, "SyncAwaitingVerification"},
 	{jobs.TypeCronHousekeeping, "Housekeep"},
 }
 
@@ -506,6 +510,7 @@ func TestSchedules_ExactSpecTable(t *testing.T) {
 		{Spec: "30 3 * * *", Type: jobs.TypeCronAutoTerminate},
 		{Spec: "*/10 * * * *", Type: jobs.TypeCronPaymentReconcile},
 		{Spec: "0 4 * * *", Type: jobs.TypeCronDomainSync},
+		{Spec: "*/30 * * * *", Type: jobs.TypeCronDomainVerificationSync},
 		{Spec: "0 5 * * 0", Type: jobs.TypeCronHousekeeping},
 	}
 	require.Equal(t, want, Schedules())

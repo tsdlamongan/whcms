@@ -15,7 +15,12 @@
 	import { toast } from '$lib/stores/toast.svelte';
 	import type { SubmitFunction } from '@sveltejs/kit';
 	import type { PageProps } from './$types';
-	import { DOMAIN_STATUSES, type DomainRow } from './shared';
+	import {
+		DOMAIN_STATUSES,
+		needsDocuments,
+		needsEmailVerification,
+		type DomainRow
+	} from './shared';
 
 	let { data }: PageProps = $props();
 
@@ -148,6 +153,19 @@
 				</a>
 			{:else if column.key === 'status'}
 				<StatusBadge status={row.status} />
+				{#if needsDocuments(row)}
+					<span
+						class="ca-badge ca-badge--warning"
+						style="margin-left:4px"
+						data-testid={`domain-docs-badge-${row.id}`}>{t('clientDomains.docs.badge')}</span
+					>
+				{:else if needsEmailVerification(row)}
+					<span
+						class="ca-badge ca-badge--warning"
+						style="margin-left:4px"
+						data-testid={`domain-verify-badge-${row.id}`}>{t('clientDomains.docs.badgeEmail')}</span
+					>
+				{/if}
 			{:else if column.key === 'expiry_date'}
 				<DateText value={row.expiry_date} />
 			{:else if column.key === 'recurring_amount'}

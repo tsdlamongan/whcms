@@ -59,17 +59,19 @@ type Server struct {
 	daAccounts map[string]*daAccount
 	daPackages map[string]*panelPackage
 	// RDash
-	rdashCustomerSeq   int64
-	rdashContactSeq    int64
-	rdashDomainSeq     int64
-	rdashCustomers     map[int64]*rdashCustomer
-	rdashContacts      map[int64]*rdashContact
-	rdashDomains       map[int64]*rdashDomain
-	rdashDomainsByName map[string]int64
-	rdashBalance       int64                   // reseller balance, whole IDR; debited by POST /v1/domains
-	rdashScripts       map[string]*rdashScript // drop scripts by normalized domain name
-	rdashAttempts      map[string]int          // POST /v1/domains attempts by normalized domain name
-	rdashFaults        []*rdashFault           // armed fault injections, consumed in order
+	rdashCustomerSeq    int64
+	rdashContactSeq     int64
+	rdashDomainSeq      int64
+	rdashCustomers      map[int64]*rdashCustomer
+	rdashContacts       map[int64]*rdashContact
+	rdashDomains        map[int64]*rdashDomain
+	rdashDomainsByName  map[string]int64
+	rdashBalance        int64                   // reseller balance, whole IDR; debited by POST /v1/domains
+	rdashScripts        map[string]*rdashScript // drop scripts by normalized domain name
+	rdashAttempts       map[string]int          // POST /v1/domains attempts by normalized domain name
+	rdashFaults         []*rdashFault           // armed fault injections, consumed in order
+	rdashAutoActivation bool                    // reseller's Auto Activation switch (default on)
+	rdashDocTokens      map[string]int64        // upload-page token -> domain id
 	// Mail capture
 	mailSeq int64
 	mails   []mailMessage
@@ -119,6 +121,8 @@ func NewServer(cfg Config) *Server {
 	mux.HandleFunc("GET /v1/domains/{id}/auth_code", s.handleRDashAuthCode)
 	mux.HandleFunc("GET /v1/domains/{id}/dns", s.handleRDashDNSGet)
 	mux.HandleFunc("POST /v1/domains/{id}/dns", s.handleRDashDNSReplace)
+	mux.HandleFunc("POST /v1/domains/{id}/documents/link", s.handleRDashDocumentLink)
+	mux.HandleFunc("POST /v1/domains/{id}/verification/resend", s.handleRDashVerificationResend)
 	mux.HandleFunc("GET /v1/customers", s.handleRDashCustomerList)
 	mux.HandleFunc("POST /v1/customers", s.handleRDashCustomerCreate)
 	mux.HandleFunc("POST /v1/customers/{customer_id}/contacts", s.handleRDashContactCreate)
@@ -140,6 +144,11 @@ func NewServer(cfg Config) *Server {
 	mux.HandleFunc("GET /mock/rdash/attempts", s.handleRDashAttempts)
 	mux.HandleFunc("POST /mock/rdash/fault", s.handleRDashFault)
 	mux.HandleFunc("POST /mock/rdash/balance", s.handleRDashSetBalance)
+	mux.HandleFunc("POST /mock/rdash/domain-state", s.handleRDashDomainState)
+	mux.HandleFunc("GET /mock/rdash/state", s.handleRDashGetState)
+	mux.HandleFunc("POST /mock/rdash/auto-activation", s.handleRDashAutoActivation)
+	mux.HandleFunc("GET /documents/upload/{token}", s.handleDocumentUploadPage)
+	mux.HandleFunc("POST /documents/upload/{token}", s.handleDocumentUploadSubmit)
 	mux.HandleFunc("GET /mock/whm/packages", s.handleListWHMPackages)
 	mux.HandleFunc("GET /mock/da/packages", s.handleListDAPackages)
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
@@ -174,6 +183,8 @@ func (s *Server) resetState() {
 	s.rdashScripts = make(map[string]*rdashScript)
 	s.rdashAttempts = make(map[string]int)
 	s.rdashFaults = nil
+	s.rdashAutoActivation = true
+	s.rdashDocTokens = make(map[string]int64)
 	s.mailSeq = 0
 	s.mails = nil
 }

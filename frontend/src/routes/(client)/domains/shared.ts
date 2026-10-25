@@ -1,4 +1,5 @@
 /** Shared types/constants for the client domains routes (FE-CLIENT-DOMAINS). */
+import { requiresEmailVerification } from '$lib/domainDocuments';
 
 export const DOMAIN_TABS = ['overview', 'nameservers', 'dns', 'epp', 'contact', 'addons'] as const;
 export type DomainTab = (typeof DOMAIN_TABS)[number];
@@ -9,8 +10,22 @@ export const DOMAIN_STATUSES = [
 	'active',
 	'pending_transfer',
 	'expired',
-	'cancelled'
+	'cancelled',
+	'suspended',
+	'rejected'
 ] as const;
+
+/** Registrar-reported verification state (`domain.DomainVerification`). */
+export type VerificationStatus = '' | 'waiting' | 'verifying' | 'document_validating' | 'active';
+
+/** The documented upload/suspend/delete timeline while verification is open
+ *  (`domain.VerificationDeadlines`). Dates are YYYY-MM-DD. */
+export interface VerificationDeadlines {
+	kind: 'documents' | 'email';
+	upload_by?: string;
+	suspend_on: string;
+	delete_on?: string;
+}
 
 /** Matches what the registrar actually accepts (no TXT/NS/SRV/CAA; SPF is its
  *  own legacy record type there, not folded into TXT). */
@@ -36,6 +51,35 @@ export interface DomainRow {
 	registrar_meta?: unknown;
 	created_at?: string;
 	updated_at?: string;
+	/** Document / verification lifecycle (RDash Auto Activation). */
+	document_required: boolean;
+	verification_status: VerificationStatus;
+	status_reason: string;
+	document_rejected_at: string | null;
+	registrar_refundable: boolean;
+	refund_amount: number;
+	refunded_at: string | null;
+	verification_deadlines: VerificationDeadlines | null;
+}
+
+/** Statuses in which a domain can still owe the registrar documents/verification. */
+const OPEN_STATUSES = ['pending', 'active', 'pending_transfer', 'suspended'];
+
+/** The domain still owes the registrar its documents. */
+export function needsDocuments(d: DomainRow): boolean {
+	return (
+		d.document_required && d.verification_status !== 'active' && OPEN_STATUSES.includes(d.status)
+	);
+}
+
+/** The domain still owes the registrant's email verification (.id, .my.id, ...). */
+export function needsEmailVerification(d: DomainRow): boolean {
+	return (
+		!d.document_required &&
+		requiresEmailVerification(d.name) &&
+		(d.verification_status === 'waiting' || d.verification_status === 'verifying') &&
+		(d.status === 'active' || d.status === 'suspended')
+	);
 }
 
 /** GET /api/v1/domains/addons response row (domain.DomainAddon JSON tags). */

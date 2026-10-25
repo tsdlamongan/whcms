@@ -7,7 +7,7 @@ import "github.com/tsdlamongan/whcms/backend/pkg/apperr"
 //	invoice: draft->unpaid; unpaid->paid|cancelled|overdue; overdue->paid|cancelled; paid->refunded
 //	order:   pending->active|fraud|cancelled
 //	service: pending->active|cancelled; active->suspended|terminated; suspended->active|terminated
-//	domain:  pending->active|cancelled; active->expired; pending_transfer->active|cancelled; expired->active(renew)
+//	domain:  pending->active|cancelled|rejected; active->expired|suspended|rejected; pending_transfer->active|cancelled|rejected; expired->active(renew); suspended->active|rejected|cancelled
 //	cancellation_request: pending->accepted|rejected|auto_processed
 //	snipe:   pending_payment->active|cancelled|failed; active->won|expired|cancelled|failed
 
@@ -28,11 +28,17 @@ var serviceTransitions = map[ServiceStatus][]ServiceStatus{
 	ServiceSuspended: {ServiceActive, ServiceTerminated},
 }
 
+// domainTransitions: suspended/rejected come from the registrar's own
+// lifecycle (RDash auto-activation: documents overdue -> suspended on day 5,
+// deleted on day 30 -> rejected). A suspended domain returns to active when
+// the documents verify or the registrar unsuspends it. cancelled and
+// rejected are terminal.
 var domainTransitions = map[DomainStatus][]DomainStatus{
-	DomainPending:         {DomainActive, DomainCancelled},
-	DomainActive:          {DomainExpired},
-	DomainPendingTransfer: {DomainActive, DomainCancelled},
+	DomainPending:         {DomainActive, DomainCancelled, DomainRejected},
+	DomainActive:          {DomainExpired, DomainSuspended, DomainRejected},
+	DomainPendingTransfer: {DomainActive, DomainCancelled, DomainRejected},
 	DomainExpired:         {DomainActive}, // renew
+	DomainSuspended:       {DomainActive, DomainRejected, DomainCancelled},
 }
 
 // cancellationRequestTransitions: accepted/rejected/auto_processed are

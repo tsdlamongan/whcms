@@ -25,6 +25,8 @@
 //	GET  /domains/details?domain_name=     GetContact (registrant_contact embedded in the detail payload)
 //	PUT  /domains/{id}/contacts            UpdateContact (creates a fresh contact, applied to all 4 roles)
 //	GET  /domains/{id}/auth_code           GetEPPCode
+//	POST /domains/{id}/documents/link      DocumentUploadLink (registrar-hosted upload page; no upload API exists)
+//	POST /domains/{id}/verification/resend ResendVerification (registrant email verification)
 //	GET  /domains/{id}/dns                 GetDNSRecords
 //	POST /domains/{id}/dns                 UpdateDNSRecords (replaces the full record set)
 //	GET  /account/profile, /account/balance AccountInfo (registrar test-connection)
@@ -235,6 +237,87 @@ type domainPayload struct {
 	Status            *int         `json:"status"`
 	StatusLabel       string       `json:"status_label"`
 	ExpiredAt         string       `json:"expired_at"`
+
+	// Document / verification lifecycle (docs.dewabiz.co.id "Auto
+	// Activation"). Absent on endpoints that return a trimmed domain object;
+	// the register example carries a null numeric verification_status with a
+	// populated label, hence the label fallback.
+	IsRequiredDocument      *flexBool `json:"is_required_document"`
+	VerificationStatus      *int      `json:"verification_status"`
+	VerificationStatusLabel string    `json:"verification_status_label"`
+	StatusReason            *string   `json:"status_reason"`
+	IsRefundable            *flexBool `json:"is_refundable"`
+}
+
+// flexBool decodes a JSON boolean the API sometimes sends as 0/1 or "0"/"1"
+// (is_required_document: 0, is_premium: false in the same payload).
+type flexBool bool
+
+// UnmarshalJSON accepts true/false, numbers and numeric/boolean strings.
+func (b *flexBool) UnmarshalJSON(raw []byte) error {
+	v := strings.Trim(strings.TrimSpace(string(raw)), `"`)
+	switch strings.ToLower(v) {
+	case "true", "1":
+		*b = true
+	case "false", "0", "", "null":
+		*b = false
+	default:
+		n, err := strconv.ParseFloat(v, 64)
+		if err != nil {
+			return fmt.Errorf("rdash: not a boolean: %s", raw)
+		}
+		*b = n != 0
+	}
+	return nil
+}
+
+// verification maps the wire verification fields onto the port: 0 Waiting,
+// 1 Verifying, 2 Document Validating, 3 Active; the numeric code wins, the
+// label is the fallback. is_required_document falls back to the documented
+// TLD list only when the registrar did not report it at all.
+func (d domainPayload) verification() ports.DomainVerificationInfo {
+	info := ports.DomainVerificationInfo{
+		DocumentRequired: domain.NameRequiresDocuments(d.Name),
+		Verification:     verificationFromLabel(d.VerificationStatusLabel),
+	}
+	if d.IsRequiredDocument != nil {
+		info.DocumentRequired = bool(*d.IsRequiredDocument)
+	}
+	if d.VerificationStatus != nil {
+		switch *d.VerificationStatus {
+		case 0:
+			info.Verification = domain.VerificationWaiting
+		case 1:
+			info.Verification = domain.VerificationVerifying
+		case 2:
+			info.Verification = domain.VerificationDocumentValidating
+		case 3:
+			info.Verification = domain.VerificationActive
+		}
+	}
+	if d.StatusReason != nil {
+		info.StatusReason = strings.TrimSpace(*d.StatusReason)
+	}
+	if d.IsRefundable != nil {
+		info.Refundable = bool(*d.IsRefundable)
+	}
+	return info
+}
+
+// verificationFromLabel maps a verification_status_label ("Document
+// Validating") to the enum; unknown labels are "not reported".
+func verificationFromLabel(label string) domain.DomainVerification {
+	switch strings.ToLower(strings.Join(strings.Fields(label), "_")) {
+	case "waiting":
+		return domain.VerificationWaiting
+	case "verifying":
+		return domain.VerificationVerifying
+	case "document_validating":
+		return domain.VerificationDocumentValidating
+	case "active":
+		return domain.VerificationActive
+	}
+	return domain.VerificationNone
 }
 
 // nameservers collects the non-empty nameserver_1..5 fields.
@@ -288,10 +371,11 @@ func (d domainPayload) toResult() (*ports.DomainResult, error) {
 		return nil, err
 	}
 	return &ports.DomainResult{
-		Name:       d.Name,
-		Status:     d.statusString(),
-		ExpiryDate: exp,
-		OrderID:    strconv.FormatInt(d.ID, 10),
+		Name:                   d.Name,
+		Status:                 d.statusString(),
+		ExpiryDate:             exp,
+		OrderID:                strconv.FormatInt(d.ID, 10),
+		DomainVerificationInfo: d.verification(),
 	}, nil
 }
 
@@ -740,7 +824,45 @@ func (c *Client) SyncDomain(ctx context.Context, name string) (*ports.DomainSync
 	if err != nil {
 		return nil, err
 	}
-	return &ports.DomainSyncInfo{Status: detail.statusString(), ExpiryDate: exp, NS: detail.nameservers()}, nil
+	return &ports.DomainSyncInfo{
+		Status: detail.statusString(), ExpiryDate: exp, NS: detail.nameservers(),
+		DomainVerificationInfo: detail.verification(),
+	}, nil
+}
+
+// DocumentUploadLink asks the registrar for the hosted page where the
+// registrant uploads the documents the domain requires (POST
+// /domains/{id}/documents/link). The registrar has no upload API: this link
+// is the whole mechanism, and it is a bearer secret - it is neither stored
+// nor logged (the integration log redacts this endpoint's response). The
+// link is checked to be an absolute http(s) URL before it is handed on, so a
+// malformed or hostile value can never reach a client's browser.
+func (c *Client) DocumentUploadLink(ctx context.Context, name string) (string, error) {
+	detail, err := c.detailsByName(ctx, name)
+	if err != nil {
+		return "", err
+	}
+	var link string
+	path := fmt.Sprintf("/domains/%d/documents/link", detail.ID)
+	if err := c.do(ctx, http.MethodPost, path, nil, nil, &link); err != nil {
+		return "", err
+	}
+	link = strings.TrimSpace(link)
+	u, perr := url.Parse(link)
+	if link == "" || perr != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return "", apperr.Conflict("the registrar returned no document upload link for this domain")
+	}
+	return link, nil
+}
+
+// ResendVerification re-sends the registrant's domain verification email
+// (POST /domains/{id}/verification/resend).
+func (c *Client) ResendVerification(ctx context.Context, name string) error {
+	detail, err := c.detailsByName(ctx, name)
+	if err != nil {
+		return err
+	}
+	return c.do(ctx, http.MethodPost, fmt.Sprintf("/domains/%d/verification/resend", detail.ID), nil, nil, nil)
 }
 
 // AccountInfo fetches the reseller account profile and balance
@@ -1099,7 +1221,7 @@ func (c *Client) attempt(ctx context.Context, method, fullPath string, form url.
 			HTTPStatus: resp.StatusCode, Message: "read response: " + err.Error(), Ambiguous: true, Err: err,
 		})
 	}
-	call.Response = redactJSON(raw)
+	call.Response = redactResponse(fullPath, raw)
 
 	var env envelope
 	parseErr := json.Unmarshal(raw, &env)

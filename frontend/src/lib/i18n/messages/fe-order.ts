@@ -84,6 +84,9 @@ const messages: Partial<Record<Locale, Record<string, unknown>>> = {
 				available: 'Tersedia',
 				taken: 'Tidak Tersedia',
 				premium: 'Premium',
+				docsRequired: 'Perlu dokumen',
+				docsRequiredHint:
+					'Ekstensi ini memerlukan dokumen persyaratan setelah pendaftaran. Domain aktif dulu; dokumen diunggah sesudahnya.',
 				register: 'Daftarkan',
 				transfer: 'Transfer',
 				inCart: 'Di keranjang',
@@ -119,6 +122,8 @@ const messages: Partial<Record<Locale, Record<string, unknown>>> = {
 				removed: 'Item dihapus dari keranjang.',
 				setupFee: 'Biaya setup',
 				domainRegisterItem: 'Registrasi Domain',
+				docsNote:
+					'Ekstensi ini memerlukan dokumen persyaratan (KTP/identitas dan dokumen legalitas). Domain aktif dulu setelah pembayaran; unggah dokumennya dari halaman domain.',
 				domainTransferItem: 'Transfer Domain',
 				eppFilled: 'Kode EPP terisi',
 				eppMissing: 'Kode EPP belum diisi (dapat dilengkapi nanti)',
@@ -255,6 +260,9 @@ const messages: Partial<Record<Locale, Record<string, unknown>>> = {
 				available: 'Available',
 				taken: 'Taken',
 				premium: 'Premium',
+				docsRequired: 'Documents needed',
+				docsRequiredHint:
+					'This extension requires supporting documents after registration. The domain is active first; the documents are uploaded afterwards.',
 				register: 'Register',
 				transfer: 'Transfer',
 				inCart: 'In cart',
@@ -289,6 +297,8 @@ const messages: Partial<Record<Locale, Record<string, unknown>>> = {
 				removed: 'Item removed from the cart.',
 				setupFee: 'Setup fee',
 				domainRegisterItem: 'Domain Registration',
+				docsNote:
+					'This extension requires supporting documents (ID and legal documents). The domain is active right after payment; upload the documents from the domain page.',
 				domainTransferItem: 'Domain Transfer',
 				eppFilled: 'EPP code provided',
 				eppMissing: 'EPP code not provided yet (can be added later)',

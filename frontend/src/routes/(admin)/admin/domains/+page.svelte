@@ -7,7 +7,15 @@
 
 	let { data }: PageProps = $props();
 
-	const statuses = ['pending', 'active', 'pending_transfer', 'expired', 'cancelled'] as const;
+	const statuses = [
+		'pending',
+		'active',
+		'pending_transfer',
+		'expired',
+		'suspended',
+		'rejected',
+		'cancelled'
+	] as const;
 
 	function hasActiveFilters(): boolean {
 		return !!(data.search || data.status);
@@ -24,7 +32,7 @@
 	function statusClass(s: string): string {
 		if (s === 'active') return 'active';
 		if (s === 'pending' || s === 'pending_transfer') return 'pending';
-		if (s === 'expired') return 'terminated';
+		if (s === 'expired' || s === 'suspended' || s === 'rejected') return 'terminated';
 		return 'cancelled';
 	}
 </script>
