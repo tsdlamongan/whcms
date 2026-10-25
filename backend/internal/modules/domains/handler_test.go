@@ -120,6 +120,11 @@ type fakeService struct {
 
 	UpdateDomainAddonsFn func(ctx context.Context, clientID, domainID int64, keys []string) (*domain.Domain, error)
 
+	DocumentUploadLinkFn func(ctx context.Context, clientID, domainID int64) (string, error)
+	ResendVerificationFn func(ctx context.Context, clientID, domainID int64) error
+	RefreshForClientFn   func(ctx context.Context, clientID, domainID int64) (*domain.Domain, error)
+	AdminRefundFn        func(ctx context.Context, actorUserID, id int64, in domains.AdminRefundRequest) (*domain.Domain, error)
+
 	ListActiveTLDsFn         func(ctx context.Context) ([]domain.TLDPricing, error)
 	ListActiveDomainAddonsFn func(ctx context.Context) ([]domain.DomainAddon, error)
 
@@ -429,6 +434,34 @@ func (f *fakeService) UpdateDomainAddon(ctx context.Context, actorUserID, id int
 		return f.UpdateDomainAddonFn(ctx, actorUserID, id, in)
 	}
 	return nil, nil
+}
+
+func (f *fakeService) DocumentUploadLink(ctx context.Context, clientID, domainID int64) (string, error) {
+	if f.DocumentUploadLinkFn != nil {
+		return f.DocumentUploadLinkFn(ctx, clientID, domainID)
+	}
+	return "", nil
+}
+
+func (f *fakeService) ResendVerification(ctx context.Context, clientID, domainID int64) error {
+	if f.ResendVerificationFn != nil {
+		return f.ResendVerificationFn(ctx, clientID, domainID)
+	}
+	return nil
+}
+
+func (f *fakeService) RefreshForClient(ctx context.Context, clientID, domainID int64) (*domain.Domain, error) {
+	if f.RefreshForClientFn != nil {
+		return f.RefreshForClientFn(ctx, clientID, domainID)
+	}
+	return &domain.Domain{}, nil
+}
+
+func (f *fakeService) AdminRefund(ctx context.Context, actorUserID, id int64, in domains.AdminRefundRequest) (*domain.Domain, error) {
+	if f.AdminRefundFn != nil {
+		return f.AdminRefundFn(ctx, actorUserID, id, in)
+	}
+	return &domain.Domain{}, nil
 }
 
 var _ domains.DomainService = (*fakeService)(nil)

@@ -28,9 +28,10 @@ var (
 	_ ports.KnowledgebaseRepo  = (*MockKnowledgebaseRepo)(nil)
 	_ ports.NetworkStatusRepo  = (*MockNetworkStatusRepo)(nil)
 
-	_ ports.PaymentGateway  = (*MockPaymentGateway)(nil)
-	_ ports.ServerModule    = (*MockServerModule)(nil)
-	_ ports.RegistrarModule = (*MockRegistrarModule)(nil)
+	_ ports.PaymentGateway      = (*MockPaymentGateway)(nil)
+	_ ports.ServerModule        = (*MockServerModule)(nil)
+	_ ports.RegistrarModule     = (*MockRegistrarModule)(nil)
+	_ ports.DomainPaymentSource = (*MockDomainPaymentSource)(nil)
 
 	_ ports.Mailer            = (*MockMailer)(nil)
 	_ ports.Storage           = (*MockStorage)(nil)

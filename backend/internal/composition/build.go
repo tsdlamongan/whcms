@@ -441,6 +441,7 @@ func Build(ctx context.Context, cfg config.Config, database *db.DB, rdb *redis.C
 		Enqueuer:               enqueuer,
 		Invoices:               icFwd,
 		RenewalCheck:           billingRepo,
+		Payments:               domainsRepo,
 		Notifier:               notifyFwd,
 		Encryptor:              encryptor,
 		Audit:                  auditLogger,

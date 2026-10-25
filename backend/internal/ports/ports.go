@@ -317,6 +317,28 @@ type DomainRepo interface {
 	// ListRenewalsDue returns active auto_renew domains with next_due_date <= before.
 	ListRenewalsDue(ctx context.Context, before time.Time) ([]domain.Domain, error)
 	ListForSync(ctx context.Context, limit int) ([]domain.Domain, error)
+	// ListAwaitingVerification returns domains whose document/email
+	// verification is still open (including suspended ones), least recently
+	// updated first, bounded by limit - the fast verification poller's work list.
+	ListAwaitingVerification(ctx context.Context, limit int) ([]domain.Domain, error)
+}
+
+// DomainRegistrationPayment is what the client paid for one domain's
+// registration or transfer: its order-item invoice line plus its share of the
+// invoice discount and tax.
+type DomainRegistrationPayment struct {
+	InvoiceID     int64
+	InvoiceNumber string
+	Amount        int64 // whole IDR
+}
+
+// DomainPaymentSource resolves what a domain cost its client. Implemented by
+// domains.Repo (it joins order items to their paid invoice).
+type DomainPaymentSource interface {
+	// RegistrationPayment returns NOT_FOUND when the domain was not bought
+	// through a paid order (admin-added, won by a hunt, or its invoice was
+	// never paid / already refunded).
+	RegistrationPayment(ctx context.Context, domainID int64) (*DomainRegistrationPayment, error)
 }
 
 // RegistrarRepo persists registrar configuration rows.
@@ -726,6 +748,10 @@ type DomainAvailability struct {
 	Available bool   `json:"available"`
 	Premium   bool   `json:"premium"`
 	Price     int64  `json:"price"` // register price for a 1-year term
+	// DocumentRequired: the extension needs identity/legal documents after
+	// registration (.co.id, .or.id, .ac.id, .sch.id, .ponpes.id) - shown at
+	// checkout so the client is not surprised by the upload step.
+	DocumentRequired bool `json:"document_required"`
 	// RegisterPrices is the full year-1..10 register price matrix, set only
 	// when Price was sourced from an active TLDPricing row (the one pricing
 	// source that isn't a flat annual rate - see domains.overlayPricing).
@@ -767,12 +793,24 @@ type TransferDomainRequest struct {
 	EPPCode string
 }
 
+// DomainVerificationInfo is the registrar's document/verification and refund
+// view of a domain (RDash `is_required_document`, `verification_status`,
+// `status_reason`, `is_refundable`). It rides along on every register,
+// transfer and sync result.
+type DomainVerificationInfo struct {
+	DocumentRequired bool
+	Verification     domain.DomainVerification // "" when the registrar did not report one
+	StatusReason     string
+	Refundable       bool
+}
+
 // DomainResult is returned by register/transfer/renew calls.
 type DomainResult struct {
 	Name       string
 	Status     string
 	ExpiryDate time.Time
 	OrderID    string // registrar-side order/reference id
+	DomainVerificationInfo
 }
 
 // DNSRecord is one DNS record at the registrar.
@@ -789,6 +827,7 @@ type DomainSyncInfo struct {
 	Status     string
 	ExpiryDate time.Time
 	NS         []string
+	DomainVerificationInfo
 }
 
 // RegistrarAccountInfo is the reseller account profile/balance used for a
@@ -831,6 +870,13 @@ type RegistrarModule interface {
 	// (paginating through every page). Read-only, no side effects - feeds
 	// the admin TLD Pricing "Import from Registrar" flow.
 	ListCatalogPrices(ctx context.Context) ([]RegistrarCatalogPrice, error)
+	// DocumentUploadLink returns the registrar-hosted page where the
+	// registrant uploads the documents a domain requires. The registrar has no
+	// upload API - the link is the only way in, and it is a bearer secret:
+	// fetch it on demand, never persist or log it.
+	DocumentUploadLink(ctx context.Context, name string) (string, error)
+	// ResendVerification re-sends the registrant's domain verification email.
+	ResendVerification(ctx context.Context, name string) error
 }
 
 // Infra ports

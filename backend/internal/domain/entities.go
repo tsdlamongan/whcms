@@ -430,6 +430,18 @@ type Domain struct {
 	RegistrarMeta          json.RawMessage `json:"registrar_meta"`
 	CreatedAt              time.Time       `json:"created_at"`
 	UpdatedAt              time.Time       `json:"updated_at"`
+
+	// Registrar-reported verification state (docs.dewabiz.co.id "Auto
+	// Activation"); see documents.go for the lifecycle these drive.
+	DocumentRequired    bool               `json:"document_required"`
+	Verification        DomainVerification `json:"verification_status"`
+	StatusReason        string             `json:"status_reason"`
+	DocumentRejectedAt  *time.Time         `json:"document_rejected_at"`
+	RegistrarRefundable bool               `json:"registrar_refundable"`
+	// RefundAmount/RefundedAt record the credit-back issued when the
+	// registrar rejected the registration (whole IDR; zero/nil = none).
+	RefundAmount int64      `json:"refund_amount"`
+	RefundedAt   *time.Time `json:"refunded_at"`
 }
 
 // TLDPricing is the admin-configured selling price for one TLD/extension -

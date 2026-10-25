@@ -26,6 +26,7 @@
 //	cron:auto_terminate       -> Provisioning.AutoTerminate       (locked)
 //	cron:payment_reconcile    -> Payments.ReconcilePending        (locked)
 //	cron:domain_sync          -> Domains.SyncAllDomains           (locked)
+//	cron:domain_verification_sync -> Domains.SyncAwaitingVerification (locked)
 //	cron:housekeeping         -> AdminOps.Housekeep               (locked)
 //
 // Every cron handler runs single-flight under Locker.WithLock("cron:<name>",
@@ -87,6 +88,7 @@ type DomainJobs interface {
 	RenewDomainJob(ctx context.Context, domainID int64) error
 	SyncDomainJob(ctx context.Context, domainID int64) error
 	SyncAllDomains(ctx context.Context) (int, error)
+	SyncAwaitingVerification(ctx context.Context) (int, error)
 }
 
 // MailDeliverer delivers one queued email_log row (implemented by
@@ -148,5 +150,7 @@ func RegisterHandlers(mux *asynq.ServeMux, d Deps) {
 	mux.HandleFunc(jobs.TypeCronAutoTerminate, h.wrap(h.cron(jobs.TypeCronAutoTerminate, d.Provisioning.AutoTerminate)))
 	mux.HandleFunc(jobs.TypeCronPaymentReconcile, h.wrap(h.cron(jobs.TypeCronPaymentReconcile, d.Payments.ReconcilePending)))
 	mux.HandleFunc(jobs.TypeCronDomainSync, h.wrap(h.cron(jobs.TypeCronDomainSync, d.Domains.SyncAllDomains)))
+	mux.HandleFunc(jobs.TypeCronDomainVerificationSync,
+		h.wrap(h.cron(jobs.TypeCronDomainVerificationSync, d.Domains.SyncAwaitingVerification)))
 	mux.HandleFunc(jobs.TypeCronHousekeeping, h.wrap(h.cron(jobs.TypeCronHousekeeping, d.AdminOps.Housekeep)))
 }

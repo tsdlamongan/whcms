@@ -95,6 +95,19 @@ func TestDomainTransitions(t *testing.T) {
 		{domain.DomainExpired, domain.DomainActive, true},
 		{domain.DomainExpired, domain.DomainCancelled, false},
 		{domain.DomainCancelled, domain.DomainActive, false},
+		// registrar document/verification lifecycle
+		{domain.DomainPending, domain.DomainRejected, true},
+		{domain.DomainActive, domain.DomainSuspended, true},
+		{domain.DomainActive, domain.DomainRejected, true},
+		{domain.DomainPendingTransfer, domain.DomainRejected, true},
+		{domain.DomainPendingTransfer, domain.DomainSuspended, false},
+		{domain.DomainSuspended, domain.DomainActive, true},
+		{domain.DomainSuspended, domain.DomainRejected, true},
+		{domain.DomainSuspended, domain.DomainCancelled, true},
+		{domain.DomainSuspended, domain.DomainExpired, false},
+		{domain.DomainRejected, domain.DomainActive, false},
+		{domain.DomainRejected, domain.DomainCancelled, false},
+		{domain.DomainExpired, domain.DomainSuspended, false},
 	}
 	for _, tt := range tests {
 		assert.Equal(t, tt.ok, domain.DomainCanTransition(tt.from, tt.to),

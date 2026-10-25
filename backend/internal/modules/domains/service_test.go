@@ -39,6 +39,7 @@ type deps struct {
 	enqueuer             *mocks.MockEnqueuer
 	invoices             *mocks.MockInvoiceCreator
 	renewalCheck         *mocks.MockRenewalInvoiceChecker
+	payments             *mocks.MockDomainPaymentSource
 	notifier             *mocks.MockNotificationSender
 	encryptor            *mocks.MockEncryptor
 	audit                *mocks.MockAuditLogger
@@ -61,6 +62,7 @@ func newFixture() *deps {
 		enqueuer:             &mocks.MockEnqueuer{},
 		invoices:             &mocks.MockInvoiceCreator{},
 		renewalCheck:         &mocks.MockRenewalInvoiceChecker{},
+		payments:             &mocks.MockDomainPaymentSource{},
 		notifier:             &mocks.MockNotificationSender{},
 		encryptor:            &mocks.MockEncryptor{},
 		audit:                &mocks.MockAuditLogger{},
@@ -84,6 +86,7 @@ func (d *deps) svc() *domains.Service {
 		Enqueuer:             d.enqueuer,
 		Invoices:             d.invoices,
 		RenewalCheck:         d.renewalCheck,
+		Payments:             d.payments,
 		Notifier:             d.notifier,
 		Encryptor:            d.encryptor,
 		Audit:                d.audit,

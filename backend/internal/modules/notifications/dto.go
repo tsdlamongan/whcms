@@ -40,6 +40,16 @@ package notifications
 //	domain_renewed      .Domain .ExpiryDate
 //	domain_profile_incomplete .Domain (sent when registrantContact fails: the
 //	                    client profile is missing address/city/state/postcode/phone)
+//	domain_documents_required .Domain .DomainID [.UploadBy .SuspendOn .DeleteOn]
+//	                    (a document-requiring domain is active but its documents
+//	                    are still due; the dates follow the registrar's
+//	                    auto-activation timeline and are empty once verified)
+//	domain_documents_rejected .Domain .DomainID .Reason [.UploadBy .SuspendOn .DeleteOn]
+//	domain_suspended    .Domain .DomainID .Reason [.SuspendOn .DeleteOn]
+//	domain_rejected     .Domain .DomainID .Reason .Refunded .RefundAmount .DocumentFailure
+//	                    (.Refunded is a bool; .RefundAmount a preformatted rupiah
+//	                    string; .DocumentFailure marks the documented "no refund
+//	                    when documents were missing/rejected" case)
 //	ticket_opened       .TicketNumber .Subject .TicketURL
 //	ticket_replied      .TicketNumber .Subject .TicketURL
 //	snipe_active        .Domain [.DeadlineAt] (payment received, the hunt started)

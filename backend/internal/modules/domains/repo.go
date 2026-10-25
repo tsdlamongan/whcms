@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/bits"
 	"strconv"
 	"time"
 
@@ -22,7 +23,9 @@ const pgUniqueViolation = "23505"
 
 const domainCols = `id, client_id, registrar_id, name, status, registration_date, expiry_date,
 	next_due_date, recurring_amount, billing_cycle, auto_renew, nameservers, epp_code_enc,
-	id_protection, dns_management_enabled, email_forwarding_enabled, registrar_meta, created_at, updated_at`
+	id_protection, dns_management_enabled, email_forwarding_enabled, registrar_meta, created_at, updated_at,
+	document_required, verification_status, status_reason, document_rejected_at,
+	registrar_refundable, refund_amount, refunded_at`
 
 // Repo is the pgx ports.DomainRepo.
 type Repo struct {
@@ -47,6 +50,8 @@ func scanDomain(row rowScanner) (*domain.Domain, error) {
 		&d.Nameservers, &d.EPPCodeEnc, &d.IDProtection,
 		&d.DNSManagementEnabled, &d.EmailForwardingEnabled, &d.RegistrarMeta,
 		&d.CreatedAt, &d.UpdatedAt,
+		&d.DocumentRequired, &d.Verification, &d.StatusReason, &d.DocumentRejectedAt,
+		&d.RegistrarRefundable, &d.RefundAmount, &d.RefundedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -75,14 +80,18 @@ func (r *Repo) Create(ctx context.Context, d *domain.Domain) error {
 		INSERT INTO domains (client_id, registrar_id, name, status, registration_date,
 			expiry_date, next_due_date, recurring_amount, billing_cycle, auto_renew,
 			nameservers, epp_code_enc, id_protection, dns_management_enabled,
-			email_forwarding_enabled, registrar_meta)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+			email_forwarding_enabled, registrar_meta, document_required,
+			verification_status, status_reason, document_rejected_at,
+			registrar_refundable, refund_amount, refunded_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
 		RETURNING id, created_at, updated_at`,
 		d.ClientID, d.RegistrarID, d.Name, status, d.RegistrationDate,
 		d.ExpiryDate, d.NextDueDate, d.RecurringAmount, cycle, d.AutoRenew,
 		jsonbOr(d.Nameservers, "[]"), d.EPPCodeEnc, d.IDProtection,
 		d.DNSManagementEnabled, d.EmailForwardingEnabled,
-		jsonbOr(d.RegistrarMeta, "{}"),
+		jsonbOr(d.RegistrarMeta, "{}"), d.DocumentRequired,
+		d.Verification, d.StatusReason, d.DocumentRejectedAt,
+		d.RegistrarRefundable, d.RefundAmount, d.RefundedAt,
 	).Scan(&d.ID, &d.CreatedAt, &d.UpdatedAt)
 	if err != nil {
 		var pgErr *pgconn.PgError
@@ -110,10 +119,10 @@ func (r *Repo) GetByID(ctx context.Context, id int64) (*domain.Domain, error) {
 	return d, nil
 }
 
-// GetByName fetches the non-cancelled domain with this name.
+// GetByName fetches the live (neither cancelled nor rejected) domain with this name.
 func (r *Repo) GetByName(ctx context.Context, name string) (*domain.Domain, error) {
 	row := r.db.Querier(ctx).QueryRow(ctx,
-		`SELECT `+domainCols+` FROM domains WHERE name = $1 AND status <> 'cancelled'`, name)
+		`SELECT `+domainCols+` FROM domains WHERE name = $1 AND status NOT IN ('cancelled','rejected')`, name)
 	d, err := scanDomain(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, apperr.NotFound("domain")
@@ -161,13 +170,18 @@ func (r *Repo) Update(ctx context.Context, d *domain.Domain) error {
 			expiry_date = $6, next_due_date = $7, recurring_amount = $8,
 			billing_cycle = $9, auto_renew = $10, nameservers = $11,
 			epp_code_enc = $12, id_protection = $13, dns_management_enabled = $14,
-			email_forwarding_enabled = $15, registrar_meta = $16
+			email_forwarding_enabled = $15, registrar_meta = $16,
+			document_required = $17, verification_status = $18, status_reason = $19,
+			document_rejected_at = $20, registrar_refundable = $21,
+			refund_amount = $22, refunded_at = $23
 		WHERE id = $1`,
 		d.ID, d.ClientID, d.RegistrarID, d.Status, d.RegistrationDate,
 		d.ExpiryDate, d.NextDueDate, d.RecurringAmount, d.BillingCycle,
 		d.AutoRenew, jsonbOr(d.Nameservers, "[]"), d.EPPCodeEnc,
 		d.IDProtection, d.DNSManagementEnabled, d.EmailForwardingEnabled,
-		jsonbOr(d.RegistrarMeta, "{}"))
+		jsonbOr(d.RegistrarMeta, "{}"), d.DocumentRequired, d.Verification,
+		d.StatusReason, d.DocumentRejectedAt, d.RegistrarRefundable,
+		d.RefundAmount, d.RefundedAt)
 	if err != nil {
 		return fmt.Errorf("domains: update %d: %w", d.ID, err)
 	}
@@ -255,15 +269,16 @@ func (r *Repo) ListRenewalsDue(ctx context.Context, before time.Time) ([]domain.
 	return collectDomains(rows)
 }
 
-// ListForSync returns syncable domains (active, pending_transfer or expired),
-// least-recently-updated first, bounded by limit.
+// ListForSync returns syncable domains (active, pending_transfer, expired or
+// suspended - a suspended domain can still be unsuspended or deleted at the
+// registrar), least-recently-updated first, bounded by limit.
 func (r *Repo) ListForSync(ctx context.Context, limit int) ([]domain.Domain, error) {
 	if limit <= 0 {
 		limit = syncBatchLimit
 	}
 	rows, err := r.db.Querier(ctx).Query(ctx, `
 		SELECT `+domainCols+` FROM domains
-		WHERE status IN ('active','pending_transfer','expired')
+		WHERE status IN ('active','pending_transfer','expired','suspended')
 		ORDER BY updated_at ASC, id ASC
 		LIMIT $1`, limit)
 	if err != nil {
@@ -271,6 +286,78 @@ func (r *Repo) ListForSync(ctx context.Context, limit int) ([]domain.Domain, err
 	}
 	defer rows.Close()
 	return collectDomains(rows)
+}
+
+// verificationTLDPattern matches the names whose extension is verified through
+// the registrant's email (.id, .my.id, .biz.id, .web.id) - the SQL twin of
+// domain.NameRequiresEmailVerification. A gTLD the registrar reports as
+// "waiting" is not an open verification and must not be polled forever.
+const verificationTLDPattern = `\.(my\.|biz\.|web\.)?id$`
+
+// ListAwaitingVerification returns domains whose document/email verification
+// is still open (pending ones that are already registered at the registrar,
+// active, pending_transfer and suspended), least-recently-updated first,
+// bounded by limit.
+func (r *Repo) ListAwaitingVerification(ctx context.Context, limit int) ([]domain.Domain, error) {
+	if limit <= 0 {
+		limit = syncBatchLimit
+	}
+	rows, err := r.db.Querier(ctx).Query(ctx, `
+		SELECT `+domainCols+` FROM domains
+		WHERE status IN ('pending','active','pending_transfer','suspended')
+		  AND verification_status IN ('waiting','verifying','document_validating')
+		  AND (document_required OR name ~ '`+verificationTLDPattern+`')
+		ORDER BY updated_at ASC, id ASC
+		LIMIT $1`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("domains: list awaiting verification: %w", err)
+	}
+	defer rows.Close()
+	return collectDomains(rows)
+}
+
+var _ ports.DomainPaymentSource = (*Repo)(nil)
+
+// RegistrationPayment returns what the client paid for the domain's
+// registration/transfer: the order item's invoice line, scaled to the
+// invoice's real total so the line carries its share of any discount and
+// tax. Only a paid invoice counts (an unpaid or already refunded one means
+// nothing was collected, or it was already handed back).
+func (r *Repo) RegistrationPayment(ctx context.Context, domainID int64) (*ports.DomainRegistrationPayment, error) {
+	var (
+		p                         ports.DomainRegistrationPayment
+		lineAmount, subtotal, due int64
+	)
+	err := r.db.Querier(ctx).QueryRow(ctx, `
+		SELECT i.id, i.invoice_number, ii.amount, i.subtotal, i.total
+		FROM order_items oi
+		JOIN invoice_items ii ON ii.related_type = 'order_item' AND ii.related_id = oi.id
+		JOIN invoices i ON i.id = ii.invoice_id
+		WHERE oi.domain_id = $1 AND i.status = 'paid'
+		ORDER BY i.id ASC
+		LIMIT 1`, domainID).Scan(&p.InvoiceID, &p.InvoiceNumber, &lineAmount, &subtotal, &due)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, apperr.NotFound("domain payment")
+	}
+	if err != nil {
+		return nil, fmt.Errorf("domains: registration payment %d: %w", domainID, err)
+	}
+	p.Amount = proRata(lineAmount, due, subtotal)
+	return &p, nil
+}
+
+// proRata returns amount * num / den rounded down, 0 for a non-positive
+// input. 128-bit math, so large IDR amounts cannot overflow the product.
+func proRata(amount, num, den int64) int64 {
+	if amount <= 0 || num <= 0 || den <= 0 {
+		return 0
+	}
+	hi, lo := bits.Mul64(uint64(amount), uint64(num))
+	if hi >= uint64(den) {
+		return 0 // quotient would not fit 64 bits; unreachable for sane invoices
+	}
+	q, _ := bits.Div64(hi, lo, uint64(den))
+	return int64(q)
 }
 
 func collectDomains(rows pgx.Rows) ([]domain.Domain, error) {

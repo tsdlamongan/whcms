@@ -41,6 +41,9 @@ type DomainService interface {
 	GetContact(ctx context.Context, clientID, domainID int64) (*ports.RegistrantContact, error)
 	RenewNow(ctx context.Context, clientID, domainID int64) (*domain.Invoice, error)
 	UpdateDomainAddons(ctx context.Context, clientID, domainID int64, keys []string) (*domain.Domain, error)
+	DocumentUploadLink(ctx context.Context, clientID, domainID int64) (string, error)
+	ResendVerification(ctx context.Context, clientID, domainID int64) error
+	RefreshForClient(ctx context.Context, clientID, domainID int64) (*domain.Domain, error)
 
 	AdminList(ctx context.Context, p ports.ListParams) ([]domain.Domain, int64, error)
 	AdminCreate(ctx context.Context, actorUserID int64, in AdminCreateDomainRequest) (*domain.Domain, error)
@@ -48,6 +51,7 @@ type DomainService interface {
 	AdminUpdate(ctx context.Context, actorUserID, id int64, in AdminUpdateDomainRequest) (*domain.Domain, error)
 	AdminSync(ctx context.Context, actorUserID, id int64) (*domain.Domain, error)
 	AdminForceRenew(ctx context.Context, actorUserID, id int64) error
+	AdminRefund(ctx context.Context, actorUserID, id int64, in AdminRefundRequest) (*domain.Domain, error)
 	ListRegistrars(ctx context.Context) ([]domain.Registrar, error)
 	GetRegistrar(ctx context.Context, id int64) (*domain.Registrar, error)
 	UpdateRegistrar(ctx context.Context, actorUserID, id int64, in UpdateRegistrarRequest) (*domain.Registrar, error)
@@ -112,6 +116,10 @@ func (h *Handler) RegisterRoutes(r fiber.Router) {
 	cl.Get("/:id/epp", h.GetEPP)
 	cl.Post("/:id/renew", h.Renew)
 	cl.Post("/:id/addons", h.UpdateDomainAddons)
+	// Document / verification lifecycle (registrar-hosted upload page).
+	cl.Post("/:id/documents/link", h.mw.RateLimit("domain_doc_link", 20, time.Minute), h.DocumentLink)
+	cl.Post("/:id/verification/resend", h.mw.RateLimit("domain_verify_resend", 5, time.Minute), h.ResendVerification)
+	cl.Post("/:id/refresh", h.mw.RateLimit("domain_refresh", 20, time.Minute), h.Refresh)
 
 	ad := r.Group("/admin/domains",
 		h.mw.RequireAuth(), h.mw.RequireRole("admin", "staff"), h.mw.RequirePermission("domains"))
@@ -121,6 +129,7 @@ func (h *Handler) RegisterRoutes(r fiber.Router) {
 	ad.Patch("/:id", h.AdminUpdate)
 	ad.Post("/:id/sync", h.AdminSync)
 	ad.Post("/:id/renew", h.AdminForceRenew)
+	ad.Post("/:id/refund", h.AdminRefund)
 
 	reg := r.Group("/admin/registrars", h.mw.RequireAuth(), h.mw.RequireRole("admin"))
 	reg.Get("/", h.ListRegistrars)
@@ -345,6 +354,51 @@ func (h *Handler) Renew(c fiber.Ctx) error {
 	return httpx.Created(c, inv)
 }
 
+// DocumentLink handles POST /domains/:id/documents/link - the registrar-hosted
+// upload page for the documents the domain requires. no-store: the URL is a
+// bearer secret that must not linger in any cache.
+func (h *Handler) DocumentLink(c fiber.Ctx) error {
+	id := httpx.MustIdentity(c)
+	domainID, err := parseID(c)
+	if err != nil {
+		return err
+	}
+	link, err := h.svc.DocumentUploadLink(c.Context(), id.ClientID, domainID)
+	if err != nil {
+		return err
+	}
+	c.Set("Cache-Control", "no-store")
+	return httpx.OK(c, DocumentLinkResponse{URL: link})
+}
+
+// ResendVerification handles POST /domains/:id/verification/resend.
+func (h *Handler) ResendVerification(c fiber.Ctx) error {
+	id := httpx.MustIdentity(c)
+	domainID, err := parseID(c)
+	if err != nil {
+		return err
+	}
+	if err := h.svc.ResendVerification(c.Context(), id.ClientID, domainID); err != nil {
+		return err
+	}
+	return httpx.OK(c, map[string]any{"sent": true})
+}
+
+// Refresh handles POST /domains/:id/refresh - sync the domain with the
+// registrar now (e.g. right after uploading documents) and return it.
+func (h *Handler) Refresh(c fiber.Ctx) error {
+	id := httpx.MustIdentity(c)
+	domainID, err := parseID(c)
+	if err != nil {
+		return err
+	}
+	dom, err := h.svc.RefreshForClient(c.Context(), id.ClientID, domainID)
+	if err != nil {
+		return err
+	}
+	return httpx.OK(c, dom)
+}
+
 // UpdateDomainAddons handles POST /domains/:id/addons (client self-service -
 // replaces the set of active addons and adjusts the recurring amount).
 func (h *Handler) UpdateDomainAddons(c fiber.Ctx) error {
@@ -449,6 +503,29 @@ func (h *Handler) AdminSync(c fiber.Ctx) error {
 		return err
 	}
 	dom, err := h.svc.AdminSync(c.Context(), actor.UserID, id)
+	if err != nil {
+		return err
+	}
+	return httpx.OK(c, dom)
+}
+
+// AdminRefund handles POST /admin/domains/:id/refund {amount?, reason?}.
+func (h *Handler) AdminRefund(c fiber.Ctx) error {
+	actor := httpx.MustIdentity(c)
+	id, err := parseID(c)
+	if err != nil {
+		return err
+	}
+	var req AdminRefundRequest
+	if len(c.Body()) > 0 {
+		if err := c.Bind().Body(&req); err != nil {
+			return apperr.Validation("invalid request body")
+		}
+	}
+	if err := h.val.Struct(req); err != nil {
+		return err
+	}
+	dom, err := h.svc.AdminRefund(c.Context(), actor.UserID, id, req)
 	if err != nil {
 		return err
 	}
