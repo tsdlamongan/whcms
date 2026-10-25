@@ -34,6 +34,7 @@ import (
 	"github.com/tsdlamongan/whcms/backend/internal/modules/orders"
 	"github.com/tsdlamongan/whcms/backend/internal/modules/payments"
 	"github.com/tsdlamongan/whcms/backend/internal/modules/provisioning"
+	"github.com/tsdlamongan/whcms/backend/internal/modules/snipe"
 	"github.com/tsdlamongan/whcms/backend/internal/modules/tickets"
 	"github.com/tsdlamongan/whcms/backend/internal/platform/cache"
 	"github.com/tsdlamongan/whcms/backend/internal/platform/clock"
@@ -66,6 +67,7 @@ type App struct {
 	Payments      *payments.Service
 	Provisioning  *provisioning.Service
 	Domains       *domains.Service
+	Snipe         *snipe.Service
 	Tickets       *tickets.Service
 	Notifications *notifications.Service
 	AdminOps      *adminops.Service
@@ -76,6 +78,10 @@ type App struct {
 	Settings      *settingssvc.Service
 	Install       *install.Service
 	Captcha       *captcha.Guard
+
+	// SnipeSupervisor is the domain-sniper runtime. Only cmd/worker starts
+	// it (Run); cmd/api builds it for symmetry but never runs it.
+	SnipeSupervisor *snipe.Supervisor
 
 	AuthUsersRepo ports.UserRepo     // needed by cmd/api for the PermissionSource
 	Tokens        *authtoken.Manager // needed by cmd/api for the auth middleware's AccessParser
@@ -126,6 +132,8 @@ func Build(ctx context.Context, cfg config.Config, database *db.DB, rdb *redis.C
 	saFwd := &serviceActivatorFwd{}
 	srFwd := &serviceRenewerFwd{}
 	drFwd := &domainRenewerFwd{}
+	snFwd := &snipeActivatorFwd{}
+	icnFwd := &invoiceCancellerFwd{}
 	paFwd := &paymentApplierFwd{}
 	pipFwd := &paidInvoiceProcessorFwd{}
 	creditFwd := &creditServiceFwd{}
@@ -218,6 +226,34 @@ func Build(ctx context.Context, cfg config.Config, database *db.DB, rdb *redis.C
 		ResellerID: cfg.RDashResellerID,
 		APIKey:     cfg.RDashAPIKey,
 	}, resolveRDashCredentials, nil, integrationLogger, clk)
+	// The domain sniper gets its OWN rdash client. It fires a register call
+	// every few hundred milliseconds, which on the shared client would (a) trip
+	// the one circuit breaker that guards checkout registrations the moment
+	// the registrar has a bad minute, (b) write an integration_logs row per
+	// HTTP call, and (c) hit the registrars table plus an AES decrypt per call.
+	// So: its own breaker (high threshold, short cooldown), a sampled logger,
+	// credentials cached for a few seconds, and a transport whose idle pool
+	// is sized for the in-flight cap.
+	sniperHTTP := &http.Client{
+		Timeout: snipeHTTPTimeout,
+		Transport: &http.Transport{
+			Proxy:               http.ProxyFromEnvironment,
+			MaxIdleConns:        100,
+			MaxIdleConnsPerHost: 50,
+			IdleConnTimeout:     90 * time.Second,
+			TLSHandshakeTimeout: 10 * time.Second,
+			ForceAttemptHTTP2:   true,
+		},
+	}
+	sniperAdapter := rdash.New(rdash.Config{
+		BaseURL:          cfg.RDashBaseURL,
+		ResellerID:       cfg.RDashResellerID,
+		APIKey:           cfg.RDashAPIKey,
+		Timeout:          snipeHTTPTimeout,
+		BreakerThreshold: snipeBreakerThreshold,
+		BreakerCooldown:  snipeBreakerCooldown,
+	}, rdash.CacheCredentials(resolveRDashCredentials, snipeCredentialsTTL, clk), sniperHTTP,
+		snipe.NewSampledLogger(integrationLogger, clk, snipeLogEvery, snipeLogMaxQuiet), clk)
 	turnstileAdapter := turnstile.New(turnstile.Config{
 		SecretKey: cfg.TurnstileSecretKey,
 		VerifyURL: cfg.TurnstileVerifyURL,
@@ -327,6 +363,7 @@ func Build(ctx context.Context, cfg config.Config, database *db.DB, rdb *redis.C
 		Activator:     saFwd,
 		Renewer:       srFwd,
 		DomainRenewer: drFwd,
+		Snipes:        snFwd,
 		Notifier:      notifyFwd,
 		PDF:           pdf.New(),
 		Storage:       s3,
@@ -336,6 +373,7 @@ func Build(ctx context.Context, cfg config.Config, database *db.DB, rdb *redis.C
 		FrontendURL:   cfg.FrontendURL,
 	})
 	icFwd.inner = billingSvc
+	icnFwd.inner = billingSvc
 	pipFwd.inner = billingSvc
 
 	paymentsSvc := payments.New(payments.Deps{
@@ -412,6 +450,29 @@ func Build(ctx context.Context, cfg config.Config, database *db.DB, rdb *redis.C
 		AllowPrivateBaseURL:    !cfg.IsProduction(),
 	})
 	drFwd.inner = domainsSvc
+
+	snipeDeps := snipe.Deps{
+		Tx:         txManager,
+		Snipes:     snipe.NewRepo(database),
+		Plans:      snipe.NewPlanRepo(database),
+		Domains:    domainsSvc,
+		DomainRepo: domainsRepo,
+		Clients:    clientsRepo,
+		Users:      authUsersRepo,
+		Registrar:  sniperAdapter,
+		Settings:   settingsRepo,
+		Notifier:   notifyFwd,
+		Audit:      auditLogger,
+		Clock:      clk,
+		Log:        log,
+
+		Invoices:      icFwd,
+		InvoiceCancel: icnFwd,
+		Transactions:  paymentsRepo,
+	}
+	snipeSvc := snipe.New(snipeDeps)
+	snFwd.inner = snipeSvc
+	snipeSupervisor := snipe.NewSupervisor(snipeDeps)
 
 	ticketsSvc := tickets.New(tickets.Deps{
 		Tx:          txManager,
@@ -518,6 +579,7 @@ func Build(ctx context.Context, cfg config.Config, database *db.DB, rdb *redis.C
 		Payments:      paymentsSvc,
 		Provisioning:  provisioningSvc,
 		Domains:       domainsSvc,
+		Snipe:         snipeSvc,
 		Tickets:       ticketsSvc,
 		Notifications: notificationsSvc,
 		AdminOps:      adminopsSvc,
@@ -528,11 +590,24 @@ func Build(ctx context.Context, cfg config.Config, database *db.DB, rdb *redis.C
 		Settings:      settingsSvc,
 		Install:       installSvc,
 		Captcha:       captchaGuard,
+
+		SnipeSupervisor: snipeSupervisor,
+
 		AuthUsersRepo: authUsersRepo,
 		Tokens:        tokens,
 		Enqueuer:      enqueuer,
 	}, nil
 }
+
+// Tuning of the domain sniper's dedicated registrar client (see Build).
+const (
+	snipeHTTPTimeout      = 15 * time.Second // ceiling; each hunt call carries its own shorter deadline
+	snipeBreakerThreshold = 50               // consecutive transport failures before the sniper's own breaker opens
+	snipeBreakerCooldown  = 5 * time.Second
+	snipeCredentialsTTL   = 10 * time.Second
+	snipeLogEvery         = 50 // log every Nth identical registrar outcome ...
+	snipeLogMaxQuiet      = 30 * time.Second
+)
 
 // resolveDuitkuBaseURL applies the live Duitku base URL precedence:
 //  1. settingBaseURL - the admin-configured gateway.duitku.base_url setting

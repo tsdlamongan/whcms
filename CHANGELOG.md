@@ -7,6 +7,24 @@ All notable changes to WHCMS are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- Domain sniper (admin side): background hunts that keep trying to register a
+  dropping domain until the registrar accepts it. A supervisor in the worker
+  claims hunts under a Postgres lease (restart/second-worker safe), probes
+  availability cheaply and bursts register calls inside the drop window,
+  verifies ambiguous replies before retrying, pauses all hunts when the
+  reseller credentials/balance fail, and refunds paid hunts that lose.
+  Admin pages under `/admin/snipes`; new `snipe.*` settings, migrations
+  `000025`/`000026`; mockserver gains `/mock/rdash/{script,attempts,fault,balance}`.
+- Domain sniper (client side, paid up front): admin-priced plans
+  (`/admin/snipes/plans`), a client area under `/snipes` with a live price
+  breakdown, one invoice (service fee + domain price) whose payment starts
+  the hunt, and refunds to account credit when a hunt ends without winning
+  (domain price back, service fee kept; a payment that arrives after the
+  hunt ended is credited back in full). Unpaid hunts are swept once their
+  invoice is a day overdue. Client drop windows need both ends and are capped
+  at 6 hours; the sniper accepts new paid hunts only while `snipe.max_active_global`
+  (default 50) has room; refunds are held back until the registrar confirms the
+  domain is not ours.
 - Modular payment-gateway registry: Duitku config (incl. base URL) editable
   live from the admin, plus a manual bank-transfer gateway with
   admin-confirmed settlement; VA/QRIS instructions render inline and pending

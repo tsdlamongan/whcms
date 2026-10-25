@@ -107,8 +107,11 @@ type Client struct {
 	openUntil time.Time // breaker fast-fail deadline (zero = closed)
 }
 
-// Compile-time interface assertion.
-var _ ports.RegistrarModule = (*Client)(nil)
+// Compile-time interface assertions.
+var (
+	_ ports.RegistrarModule = (*Client)(nil)
+	_ ports.DomainSniper    = (*Client)(nil)
+)
 
 // New builds a Client. hc, log and clock may be nil (a default 30s-timeout
 // http.Client, a no-op logger and the system clock are used respectively).
@@ -491,18 +494,61 @@ func (c *Client) Register(ctx context.Context, req ports.RegisterDomainRequest) 
 	if err != nil {
 		return nil, err
 	}
+	return c.RegisterForCustomer(ctx, name, req.Years, customerID, req.NS)
+}
+
+// RegisterForCustomer registers a domain under an already-resolved registrar
+// customer (POST /domains only - Register's per-call customer lookup is what a
+// hot retry loop must not pay for). A 2xx whose result cannot be read is
+// reported as an ambiguous registrar error (the order may well be placed).
+func (c *Client) RegisterForCustomer(ctx context.Context, name string, years int, customerID int64, ns []string) (*ports.DomainResult, error) {
+	name = normalizeName(name)
+	if name == "" {
+		return nil, apperr.Validation("domain name is required")
+	}
+	if customerID <= 0 {
+		return nil, apperr.Validation("registrar customer id is required")
+	}
 	form := url.Values{
 		"name":        {name},
-		"period":      {strconv.Itoa(atLeastOne(req.Years))},
+		"period":      {strconv.Itoa(atLeastOne(years))},
 		"customer_id": {strconv.FormatInt(customerID, 10)},
 	}
-	addNameservers(form, req.NS)
+	addNameservers(form, ns)
 
 	var data domainPayload
 	if err := c.do(ctx, http.MethodPost, "/domains", nil, form, &data); err != nil {
 		return nil, err
 	}
-	return data.toResult()
+	res, err := data.toResult()
+	if err != nil {
+		return nil, apperr.External(Provider, &ports.RegistrarCallError{
+			HTTPStatus: http.StatusOK, Ambiguous: true, Message: "unreadable registration result", Err: err,
+		})
+	}
+	return res, nil
+}
+
+// EnsureCustomer finds or creates the registrar customer for contact and
+// returns its id (the same lookup Register runs on every call).
+func (c *Client) EnsureCustomer(ctx context.Context, contact ports.RegistrantContact) (int64, error) {
+	return c.ensureCustomer(ctx, contact)
+}
+
+// IsAvailable is one availability probe: GET /domains/availability and
+// nothing else (CheckAvailability also looks up the TLD price per name).
+func (c *Client) IsAvailable(ctx context.Context, name string) (bool, error) {
+	name = normalizeName(name)
+	if name == "" {
+		return false, apperr.Validation("domain name is required")
+	}
+	var data struct {
+		Available int `json:"available"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/domains/availability", url.Values{"domain": {name}}, nil, &data); err != nil {
+		return false, err
+	}
+	return data.Available != 0, nil
 }
 
 // Transfer transfers a domain in using its EPP/auth code: creates a
@@ -1038,9 +1084,10 @@ func (c *Client) attempt(ctx context.Context, method, fullPath string, form url.
 		c.recordFailure()
 		call.Error = err.Error()
 		c.logCall(ctx, call)
-		return true, nil, apperr.External(Provider, err)
+		return true, nil, apperr.External(Provider, &ports.RegistrarCallError{Message: err.Error(), Ambiguous: true, Err: err})
 	}
 	defer resp.Body.Close()
+	retryAfter := parseRetryAfter(resp.Header.Get("Retry-After"), c.clock.Now())
 
 	call.StatusCode = resp.StatusCode
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes))
@@ -1048,7 +1095,9 @@ func (c *Client) attempt(ctx context.Context, method, fullPath string, form url.
 		c.recordFailure()
 		call.Error = err.Error()
 		c.logCall(ctx, call)
-		return true, nil, apperr.External(Provider, fmt.Errorf("read response: %w", err))
+		return true, nil, apperr.External(Provider, &ports.RegistrarCallError{
+			HTTPStatus: resp.StatusCode, Message: "read response: " + err.Error(), Ambiguous: true, Err: err,
+		})
 	}
 	call.Response = redactJSON(raw)
 
@@ -1058,7 +1107,7 @@ func (c *Client) attempt(ctx context.Context, method, fullPath string, form url.
 	// 5xx: provider fault - counts toward the breaker, retryable for GETs.
 	if resp.StatusCode >= 500 {
 		c.recordFailure()
-		appErr := mapError(resp.StatusCode, env.Message, env.Errors)
+		appErr := withWire(mapError(resp.StatusCode, env.Message, env.Errors), resp.StatusCode, retryAfter, env.Message, true)
 		call.Error = appErr.Error()
 		c.logCall(ctx, call)
 		return true, nil, appErr
@@ -1069,14 +1118,16 @@ func (c *Client) attempt(ctx context.Context, method, fullPath string, form url.
 			// The server answered with a clear HTTP error but a non-envelope
 			// body; map by status.
 			c.recordSuccess()
-			appErr := mapError(resp.StatusCode, "", nil)
+			appErr := withWire(mapError(resp.StatusCode, "", nil), resp.StatusCode, retryAfter, "", false)
 			call.Error = appErr.Error()
 			c.logCall(ctx, call)
 			return false, nil, appErr
 		}
 		// 2xx with an unparseable body: provider fault.
 		c.recordFailure()
-		appErr := apperr.External(Provider, fmt.Errorf("invalid response body: %w", parseErr))
+		appErr := apperr.External(Provider, &ports.RegistrarCallError{
+			HTTPStatus: resp.StatusCode, Message: "invalid response body: " + parseErr.Error(), Ambiguous: true, Err: parseErr,
+		})
 		call.Error = appErr.Error()
 		c.logCall(ctx, call)
 		return false, nil, appErr
@@ -1090,7 +1141,7 @@ func (c *Client) attempt(ctx context.Context, method, fullPath string, form url.
 		status = http.StatusBadRequest // defensive: envelope explicitly disagrees with HTTP status
 	}
 	if status >= 400 {
-		appErr := mapError(status, env.Message, env.Errors)
+		appErr := withWire(mapError(status, env.Message, env.Errors), resp.StatusCode, retryAfter, env.Message, false)
 		call.Error = appErr.Error()
 		c.logCall(ctx, call)
 		return false, nil, appErr
@@ -1101,7 +1152,9 @@ func (c *Client) attempt(ctx context.Context, method, fullPath string, form url.
 
 	if out != nil && len(env.Data) > 0 && !bytes.Equal(env.Data, []byte("null")) {
 		if err := json.Unmarshal(env.Data, out); err != nil {
-			return false, nil, apperr.External(Provider, fmt.Errorf("decode response data: %w", err))
+			return false, nil, apperr.External(Provider, &ports.RegistrarCallError{
+				HTTPStatus: resp.StatusCode, Message: "decode response data: " + err.Error(), Ambiguous: true, Err: err,
+			})
 		}
 	}
 	return false, env.Meta, nil
@@ -1153,6 +1206,71 @@ func fieldErrorsFrom(errs map[string][]string) []apperr.FieldError {
 	return out
 }
 
+// withWire attaches the wire-level detail of a failed call (HTTP status,
+// Retry-After, whether the registrar may have acted) as the apperr cause, so a
+// caller such as the domain sniper can tell "taken" from "rate limited" from
+// "maybe placed" without parsing messages. The apperr code/message callers
+// already depend on are unchanged.
+func withWire(appErr *apperr.Error, status int, retryAfter time.Duration, message string, ambiguous bool) *apperr.Error {
+	if message == "" {
+		message = http.StatusText(status)
+	}
+	return appErr.WithCause(&ports.RegistrarCallError{
+		HTTPStatus: status, RetryAfter: retryAfter, Message: message, Ambiguous: ambiguous,
+	})
+}
+
+// parseRetryAfter reads a Retry-After header as delta-seconds or an HTTP
+// date; absent, malformed or already-past values yield zero.
+func parseRetryAfter(h string, now time.Time) time.Duration {
+	h = strings.TrimSpace(h)
+	if h == "" {
+		return 0
+	}
+	if secs, err := strconv.Atoi(h); err == nil {
+		if secs < 0 {
+			return 0
+		}
+		return time.Duration(secs) * time.Second
+	}
+	if t, err := http.ParseTime(h); err == nil {
+		if d := t.Sub(now); d > 0 {
+			return d
+		}
+	}
+	return 0
+}
+
+// CacheCredentials wraps a credentials resolver with a short TTL cache. The
+// shared adapter re-reads the registrar row and decrypts the API key on every
+// HTTP call (an acceptable cost next to a slow external call); a hot retry
+// loop would turn that into a database read per attempt, so the sniper's
+// dedicated client resolves through this. Errors are not cached.
+func CacheCredentials(resolve func(ctx context.Context) (Credentials, error), ttl time.Duration, clock ports.Clock) func(ctx context.Context) (Credentials, error) {
+	if clock == nil {
+		clock = sysClock{}
+	}
+	var (
+		mu      sync.Mutex
+		cached  Credentials
+		expires time.Time
+	)
+	return func(ctx context.Context) (Credentials, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		now := clock.Now()
+		if !expires.IsZero() && now.Before(expires) {
+			return cached, nil
+		}
+		creds, err := resolve(ctx)
+		if err != nil {
+			return Credentials{}, err
+		}
+		cached, expires = creds, now.Add(ttl)
+		return creds, nil
+	}
+}
+
 // Circuit breaker (lite)
 
 // checkBreaker fails fast with an EXTERNAL apperr while the breaker is open.
@@ -1160,7 +1278,8 @@ func (c *Client) checkBreaker() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if !c.openUntil.IsZero() && c.clock.Now().Before(c.openUntil) {
-		return apperr.New(apperr.CodeExternal, "rdash: circuit breaker open, failing fast")
+		return apperr.New(apperr.CodeExternal, "rdash: circuit breaker open, failing fast").
+			WithCause(&ports.RegistrarCallError{NotSent: true, Message: "circuit breaker open"})
 	}
 	return nil
 }

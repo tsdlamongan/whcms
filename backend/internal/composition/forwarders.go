@@ -48,6 +48,20 @@ func (f *domainRenewerFwd) RenewDomainAfterPayment(ctx context.Context, domainID
 	return f.inner.RenewDomainAfterPayment(ctx, domainID)
 }
 
+// snipeActivatorFwd forwards ports.SnipeActivator to the snipe service.
+type snipeActivatorFwd struct{ inner ports.SnipeActivator }
+
+func (f *snipeActivatorFwd) ActivateSnipeAfterPayment(ctx context.Context, snipeID int64) error {
+	return f.inner.ActivateSnipeAfterPayment(ctx, snipeID)
+}
+
+// invoiceCancellerFwd forwards ports.InvoiceCanceller to the billing service.
+type invoiceCancellerFwd struct{ inner ports.InvoiceCanceller }
+
+func (f *invoiceCancellerFwd) CancelInvoice(ctx context.Context, actorUserID, invoiceID int64) (*domain.Invoice, error) {
+	return f.inner.CancelInvoice(ctx, actorUserID, invoiceID)
+}
+
 // paymentApplierFwd forwards ports.PaymentApplier to the payments service.
 type paymentApplierFwd struct{ inner ports.PaymentApplier }
 

@@ -135,6 +135,36 @@ create/edit form (module select cpanel|directadmin, host/port/username/token|pas
 test-connection button showing result, server groups CRUD (strategy select, member servers). Registrars: rdash row
 config (non-secret JSONB fields + key-presence), test button.
 
+### FE-ADMIN-SNIPES — `/admin/snipes/**` (HostPanel `hp-*` theme)
+`/admin/snipes`: overview cards (hunting now, active, won, reseller balance), supervisor state badge (Running/
+Paused/Disabled) + red banner with the pause reason, Search/Filter (domain, status), DataTable + `HpPager`, and a
+"Hunt Settings" panel editing the `snipe.*` settings through the generic settings endpoint (hidden when the
+staff user lacks the `settings` permission). `/admin/snipes/new`: free hunt on behalf of a client (search-driven
+client picker, domain, years, optional drop window start/end and give-up time — `datetime-local` values are
+Asia/Jakarta and sent as RFC 3339 `+07:00` — or run-for-days, optional nameservers). `/admin/snipes/[id]`: status,
+phase, attempts, billing/refund figures, activity trail, Cancel Hunt (modal; "also refund the fee" for paid
+snipes). testids: `snipes-table`, `row-snipe-<id>`, `snipe-row-status-<id>`, `snipe-add-new`, `snipe-create-*`,
+`snipe-status`, `snipe-cancel-button`/`-confirm`, `snipe-events`, `snipe-paused`, `snipe-settings-*`. E2E:
+`tests/e2e/admin-snipes.spec.ts`.
+
+### FE-CLIENT-SNIPES — `(client)/snipes/**` (Twenty-One `.ca` theme, i18n `portal.snipe.*` in `messages/fe-client-snipes.ts`)
+`/snipes`: DataTable (status filter, domain search, page-size selector) with an empty state inviting the first
+hunt. `/snipes/new`: domain, plan radios (only active plans), years, optional drop window (`datetime-local`,
+WIB), optional nameservers, and a LIVE price breakdown (debounced `POST /snipes/quote`, a BFF proxy endpoint so
+the browser never calls the Go API) showing fee, domain price, success fee, tax, total and "credited back if not
+secured"; submit creates the hunt and redirects to `/billing/invoices/:id` to pay (spinner + `aria-busy` per the
+`.ca` rule). `/snipes/[id]`: status, phase, deadline, attempts, billing/refund figures, owner-visible history,
+Pay Now (unpaid), Manage Domain (won), Cancel (modal states what is refunded). Nav: account menu `nav-snipes`,
+store menu `nav-domain-snipe`. testids: `snipes-table`, `row-snipe-<id>`, `snipe-row-status-<id>`,
+`snipe-new-cta`, `snipe-domain-input`, `snipe-plan-<id>`, `snipe-years-select`, `snipe-quote-total`,
+`snipe-quote-refundable`, `snipe-quote-error`, `snipe-submit`, `snipe-create-error`, `snipe-status`, `snipe-phase`,
+`snipe-pay`, `snipe-cancel`, `snipe-cancel-confirm`, `snipe-refunded`, `snipe-events`. E2E: `client-snipes.spec.ts`.
+
+Admin plans (`hp-*`): `/admin/snipes/plans` — table + add/edit modal (name, window days, service fee, success
+fee, sort, active) and a per-row activate/deactivate toggle; testids `snipe-plan-add`, `snipe-plans-table`,
+`row-snipe-plan-<id>`, `snipe-plan-edit-<id>`, `snipe-plan-toggle-<id>`, `snipe-plan-form`, `snipe-plan-submit`,
+`snipe-plan-error`. E2E: `admin-snipe-plans.spec.ts`.
+
 ### FE-ADMIN-CATALOG — `/admin/products/**`, `/admin/product-groups`, `/admin/coupons`
 Groups: CRUD (name, slug, sort, hidden). Products: DataTable, create/edit multi-tab form (Details: name/slug/type/
 group/description/hidden/welcome template select; Module: module select + package_name + server group + auto_setup

@@ -130,6 +130,7 @@ const (
 	RelatedLateFee        InvoiceItemRelatedType = "late_fee"
 	RelatedDeposit        InvoiceItemRelatedType = "deposit"
 	RelatedManual         InvoiceItemRelatedType = "manual"
+	RelatedDomainSnipe    InvoiceItemRelatedType = "domain_snipe"
 )
 
 // TransactionStatus is the status of a payment transaction.
@@ -182,6 +183,38 @@ const (
 	DomainPendingTransfer DomainStatus = "pending_transfer"
 	DomainExpired         DomainStatus = "expired"
 	DomainCancelled       DomainStatus = "cancelled"
+)
+
+// SnipeStatus is the status of a domain snipe (a background hunt that keeps
+// trying to register a dropping domain). won/expired/cancelled/failed are
+// terminal.
+type SnipeStatus string
+
+const (
+	SnipePendingPayment SnipeStatus = "pending_payment"
+	SnipeActive         SnipeStatus = "active"
+	SnipeWon            SnipeStatus = "won"
+	SnipeExpired        SnipeStatus = "expired"
+	SnipeCancelled      SnipeStatus = "cancelled"
+	SnipeFailed         SnipeStatus = "failed"
+)
+
+// SnipePhase is what an active hunt is doing right now: probing availability
+// cheaply (patient) or hammering the register call (burst).
+type SnipePhase string
+
+const (
+	SnipePhasePatient SnipePhase = "patient"
+	SnipePhaseBurst   SnipePhase = "burst"
+)
+
+// SnipeSource tells who created a snipe: a client (billed) or an admin
+// (free, no invoice).
+type SnipeSource string
+
+const (
+	SnipeSourceClient SnipeSource = "client"
+	SnipeSourceAdmin  SnipeSource = "admin"
 )
 
 // TicketStatus is the status of a support ticket.
