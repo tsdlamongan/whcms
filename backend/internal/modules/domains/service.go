@@ -172,31 +172,38 @@ func (s *Service) CheckAvailability(ctx context.Context, names []string) ([]port
 	return res, nil
 }
 
-// overlayPricing replaces a live registrar quote with admin-configured
-// pricing when available, in priority order: an exact premium-domain
-// override, else a premium length-tier match (TLD + registrable-label
-// character count, e.g. Dewabiz's "Limited Character" table), else the
-// active TLD pricing row's year-1 register price (plus its full per-year
+// overlayPricing turns the registrar's availability answer into what the shop
+// sells. The extension must have an ACTIVE row in Domain Pricing (Sellable);
+// otherwise the domain is not for sale: no price is shown - the registrar's
+// own quote is the shop's cost, never a selling price - and checkout refuses
+// it. For a sellable extension the price is, in priority order: an exact
+// premium-domain override, else a premium length-tier match (TLD +
+// registrable-label character count, e.g. Dewabiz's "Limited Character"
+// table), else the TLD row's year-1 register price (plus its full per-year
 // matrix, via RegisterPrices - see orders/pricing.go's planDomain, which
 // prices a >1-year registration from that same matrix rather than a flat
 // Price*years multiple, since the matrix isn't guaranteed linear, e.g. a
-// free-first-year promo). Every lookup miss (unconfigured TLD, no premium
-// override/tier) leaves the registrar's own quote untouched - never a hard
-// failure.
+// free-first-year promo).
 func (s *Service) overlayPricing(ctx context.Context, avail *ports.DomainAvailability) {
+	ext := domainExtension(avail.Name)
+	tld, err := s.d.TLDPricing.GetByTLD(ctx, ext)
+	if err != nil && apperr.From(err).Code != apperr.CodeNotFound {
+		s.d.Log.WarnContext(ctx, "domain availability: tld pricing lookup failed", "tld", ext, "error", err)
+	}
+	avail.Sellable = err == nil && tld != nil && tld.Active
+	if !avail.Sellable {
+		avail.Price = 0
+		avail.Premium = false
+		return
+	}
 	if premium, err := s.d.PremiumPricing.GetByName(ctx, avail.Name); err == nil && premium != nil {
 		avail.Premium = true
 		avail.Price = premium.RegisterPrice
 		return
 	}
-	ext := domainExtension(avail.Name)
 	if tier, err := s.d.PremiumLengthPricing.GetByTLDAndLength(ctx, ext, domainLabelLength(avail.Name, ext)); err == nil && tier != nil {
 		avail.Premium = true
 		avail.Price = tier.Price
-		return
-	}
-	tld, err := s.d.TLDPricing.GetByTLD(ctx, ext)
-	if err != nil || tld == nil || !tld.Active {
 		return
 	}
 	if price, ok := tld.RegisterPrices["1"]; ok {

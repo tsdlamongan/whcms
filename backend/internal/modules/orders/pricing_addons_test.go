@@ -3,10 +3,12 @@ package orders_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/tsdlamongan/whcms/backend/internal/domain"
 	"github.com/tsdlamongan/whcms/backend/internal/modules/orders"
+	"github.com/tsdlamongan/whcms/backend/internal/ports"
 	"github.com/tsdlamongan/whcms/backend/pkg/apperr"
 
 	"github.com/stretchr/testify/assert"
@@ -90,18 +92,79 @@ func TestCreateOrderDomainTLDMissingYearPrice(t *testing.T) {
 	assert.Equal(t, apperr.CodeValidation, apperr.From(err).Code)
 }
 
-func TestCreateOrderDomainInactiveTLDFallsBackToRegistrarQuote(t *testing.T) {
+// A domain is only sold when its extension has an ACTIVE Domain Pricing row:
+// the registrar's own (cost) quote must never become the selling price.
+func TestCreateOrderDomainExtensionNotOffered(t *testing.T) {
+	notOffered := map[string]func(context.Context, string) (*domain.TLDPricing, error){
+		"no pricing row": func(_ context.Context, _ string) (*domain.TLDPricing, error) {
+			return nil, apperr.NotFound("tld pricing")
+		},
+		"nil row": func(_ context.Context, _ string) (*domain.TLDPricing, error) { return nil, nil },
+		"inactive row": func(_ context.Context, tld string) (*domain.TLDPricing, error) {
+			return &domain.TLDPricing{TLD: tld, Active: false, MinYears: 1, MaxYears: 10, RegisterPrices: map[string]int64{"1": 999999}}, nil
+		},
+	}
+	for name, lookup := range notOffered {
+		for _, itemType := range []string{"domain_register", "domain_transfer"} {
+			t.Run(name+"/"+itemType, func(t *testing.T) {
+				e := newFixture()
+				e.tldPricing.GetByTLDFn = lookup
+				e.registrar.CheckAvailabilityFn = func(_ context.Context, names []string) ([]ports.DomainAvailability, error) {
+					t.Fatal("an extension that is not on sale must be refused before the registrar is asked")
+					return nil, nil
+				}
+				svc := orders.New(e.deps)
+
+				_, err := svc.CreateOrder(context.Background(), 7, "ip", orders.CreateOrderRequest{
+					Items: []orders.OrderItemRequest{{ItemType: itemType, Domain: "example.co.id", EPPCode: "epp"}},
+				})
+				require.Error(t, err)
+				ae := apperr.From(err)
+				assert.Equal(t, apperr.CodeValidation, ae.Code)
+				require.NotEmpty(t, ae.Details)
+				assert.Equal(t, "items[0].domain", ae.Details[0].Field)
+				assert.Contains(t, ae.Details[0].Message, ".co.id")
+				assert.Contains(t, ae.Details[0].Message, "not offered")
+			})
+		}
+	}
+}
+
+func TestCreateOrderDomainExtensionLookupErrorAbortsCheckout(t *testing.T) {
 	e := newFixture()
-	e.tldPricing.GetByTLDFn = func(_ context.Context, tld string) (*domain.TLDPricing, error) {
-		return &domain.TLDPricing{TLD: "com", Active: false, RegisterPrices: map[string]int64{"1": 999999}}, nil
+	e.tldPricing.GetByTLDFn = func(_ context.Context, _ string) (*domain.TLDPricing, error) {
+		return nil, errors.New("db down")
 	}
 	svc := orders.New(e.deps)
 
-	res, err := svc.CreateOrder(context.Background(), 7, "ip", orders.CreateOrderRequest{
+	_, err := svc.CreateOrder(context.Background(), 7, "ip", orders.CreateOrderRequest{
 		Items: []orders.OrderItemRequest{{ItemType: "domain_register", Domain: "example.com"}},
 	})
-	require.NoError(t, err)
-	assert.Equal(t, int64(150000), res.Items[0].UnitPrice, "inactive TLD row is ignored, registrar quote used")
+	require.Error(t, err)
+	assert.NotEqual(t, apperr.CodeValidation, apperr.From(err).Code,
+		"an infrastructure failure is not 'extension not offered'")
+}
+
+// Premium overrides and length tiers re-price a domain inside an extension that
+// is on sale; they cannot make an extension the shop does not carry sellable.
+func TestCreateOrderDomainPremiumCannotSellAnUnofferedExtension(t *testing.T) {
+	e := newFixture()
+	e.tldPricing.GetByTLDFn = func(_ context.Context, _ string) (*domain.TLDPricing, error) {
+		return nil, apperr.NotFound("tld pricing")
+	}
+	e.premiumPricing.GetByNameFn = func(_ context.Context, name string) (*domain.PremiumDomainPricing, error) {
+		return &domain.PremiumDomainPricing{DomainName: name, RegisterPrice: 9000000}, nil
+	}
+	e.premiumLengthPricing.GetByTLDAndLengthFn = func(_ context.Context, _ string, _ int) (*domain.PremiumLengthPricing, error) {
+		return &domain.PremiumLengthPricing{Price: 7000000}, nil
+	}
+	svc := orders.New(e.deps)
+
+	_, err := svc.CreateOrder(context.Background(), 7, "ip", orders.CreateOrderRequest{
+		Items: []orders.OrderItemRequest{{ItemType: "domain_register", Domain: "ab.ac.id"}},
+	})
+	require.Error(t, err)
+	assert.Equal(t, apperr.CodeValidation, apperr.From(err).Code)
 }
 
 func TestCreateOrderDomainPremiumOverride(t *testing.T) {

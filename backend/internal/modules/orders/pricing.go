@@ -325,13 +325,16 @@ func domainExtensionOf(name string) string {
 // planDomain prices a domain registration/transfer line. The third return is
 // a hard error (e.g. registrar unreachable) that must abort the checkout.
 //
-// Price resolution order: an exact premium-domain override, else a premium
-// length-tier match (TLD + registrable-label character count), else the
-// active TLD pricing row for the extension (validating the requested years
-// against its min/max and looking up the year-count in its register/renew
-// matrix), else product pricing (type domain, annual cycle) when a product is
-// referenced, else the registrar's live quote. Requested domain addons add
-// their annual price on top of every path.
+// A domain is only sold when its extension has an ACTIVE row in Domain
+// Pricing (admin -> TLD pricing): an extension the operator never priced -
+// or switched off - is refused, so the registrar's own (cost) quote can never
+// become the selling price and extensions the shop does not carry cannot be
+// bought. Within a sellable extension the price resolves in this order: an
+// exact premium-domain override, else a premium length-tier match (TLD +
+// registrable-label character count), else the TLD row itself (validating the
+// requested years against its min/max and looking up the year-count in its
+// register/renew matrix). Requested domain addons add their annual price on
+// top of every path.
 func (s *Service) planDomain(ctx context.Context, it OrderItemRequest) (itemPlan, []apperr.FieldError, error) {
 	var errs []apperr.FieldError
 	fieldErr := func(field, msg string) {
@@ -353,63 +356,60 @@ func (s *Service) planDomain(ctx context.Context, it OrderItemRequest) (itemPlan
 	}
 	isTransfer := domain.OrderItemType(it.ItemType) == domain.ItemDomainTransfer
 
+	// The extension must be on sale: an active TLD pricing row.
+	ext := domainExtensionOf(name)
+	tld, err := s.d.TLDPricing.GetByTLD(ctx, ext)
+	if err != nil && apperr.From(err).Code != apperr.CodeNotFound {
+		return itemPlan{}, nil, err
+	}
+	if err != nil || tld == nil || !tld.Active {
+		fieldErr("domain", fmt.Sprintf("the .%s extension is not offered for sale", ext))
+		return itemPlan{}, errs, nil
+	}
+
 	var (
 		unit         int64 // total charged for this term (register/transfer + years)
 		renewPerYear int64 // base renewal rate for future years (excludes addons)
-		priced       bool
 		product      *domain.Product
 	)
 
-	// 1. Exact premium-domain override wins over everything else.
-	if premium, err := s.d.PremiumPricing.GetByName(ctx, name); err == nil && premium != nil {
+	switch premium, tier := s.premiumFor(ctx, name, ext); {
+	case premium != nil:
+		// 1. Exact premium-domain override wins over everything else.
 		if isTransfer {
 			unit = premium.TransferPrice * int64(years)
 		} else {
 			unit = premium.RegisterPrice * int64(years)
 		}
 		renewPerYear = premium.RenewPrice
-		priced = true
-	}
-
-	// 2. Premium length-tier match (TLD + registrable-label character count,
-	// e.g. Dewabiz's "Limited Character" table) - one flat price covers
-	// register/renew/transfer for the tier.
-	if !priced {
-		ext := domainExtensionOf(name)
-		if tier, err := s.d.PremiumLengthPricing.GetByTLDAndLength(ctx, ext, len(strings.TrimSuffix(name, "."+ext))); err == nil && tier != nil {
-			unit = tier.Price * int64(years)
-			renewPerYear = tier.Price
-			priced = true
+	case tier != nil:
+		// 2. Premium length-tier match (e.g. Dewabiz's "Limited Character"
+		// table) - one flat price covers register/renew/transfer for the tier.
+		unit = tier.Price * int64(years)
+		renewPerYear = tier.Price
+	default:
+		// 3. The TLD row owns the price - a years count outside its bounds, or
+		// missing from its register-price matrix, is a configuration gap to
+		// fix, not a silent fallback trigger to a different price source.
+		if years < tld.MinYears || years > tld.MaxYears {
+			fieldErr("domain_years", fmt.Sprintf("must be between %d and %d years for this TLD", tld.MinYears, tld.MaxYears))
+			return itemPlan{}, errs, nil
 		}
-	}
-
-	// 3. Active TLD pricing row for the extension. Once matched, this row
-	// owns the price - a years count outside its bounds, or missing from its
-	// register-price matrix, is a configuration gap to fix, not a silent
-	// fallback trigger to a different price source.
-	if !priced {
-		tld, err := s.d.TLDPricing.GetByTLD(ctx, domainExtensionOf(name))
-		if err == nil && tld != nil && tld.Active {
-			if years < tld.MinYears || years > tld.MaxYears {
-				fieldErr("domain_years", fmt.Sprintf("must be between %d and %d years for this TLD", tld.MinYears, tld.MaxYears))
+		if isTransfer {
+			unit = tld.TransferPrice * int64(years)
+		} else {
+			price, ok := tld.RegisterPrices[strconv.Itoa(years)]
+			if !ok {
+				fieldErr("domain_years", "no price configured for this many years")
 				return itemPlan{}, errs, nil
 			}
-			if isTransfer {
-				unit = tld.TransferPrice * int64(years)
-			} else {
-				price, ok := tld.RegisterPrices[strconv.Itoa(years)]
-				if !ok {
-					fieldErr("domain_years", "no price configured for this many years")
-					return itemPlan{}, errs, nil
-				}
-				unit = price
-			}
-			renewPerYear = tld.RenewPrices["1"]
-			priced = true
+			unit = price
 		}
+		renewPerYear = tld.RenewPrices["1"]
 	}
 
-	// 4. Product pricing (type domain, annual cycle) when a product is referenced.
+	// A referenced product must be a domain product; it only labels the line
+	// (the price always comes from Domain Pricing above).
 	if it.ProductID != 0 {
 		p, err := s.d.Products.GetByID(ctx, it.ProductID)
 		if err != nil && apperr.From(err).Code != apperr.CodeNotFound {
@@ -420,54 +420,26 @@ func (s *Service) planDomain(ctx context.Context, it OrderItemRequest) (itemPlan
 			return itemPlan{}, errs, nil
 		}
 		product = p
-		if !priced {
-			pricing, err := s.d.Products.GetPricing(ctx, p.ID, domain.CycleAnnually)
-			if err != nil && apperr.From(err).Code != apperr.CodeNotFound {
-				return itemPlan{}, nil, err
-			}
-			if pricing != nil {
-				unit = pricing.Price * int64(years)
-				renewPerYear = pricing.Price
-				priced = true
-			}
-		}
 	}
 
-	// Availability check is mandatory for registrations; for transfers it is
-	// only consulted as a price fallback.
-	if !isTransfer || !priced {
+	// Availability is mandatory for registrations (a transfer moves a name
+	// that is, by definition, already registered).
+	if !isTransfer {
 		res, err := s.d.Registrar.CheckAvailability(ctx, []string{name})
 		if err != nil {
 			return itemPlan{}, nil, err
 		}
-		var avail *struct {
-			available bool
-			price     int64
-		}
+		available := false
 		for _, r := range res {
 			if strings.EqualFold(r.Name, name) {
-				avail = &struct {
-					available bool
-					price     int64
-				}{r.Available, r.Price}
+				available = r.Available
 				break
 			}
 		}
-		if !isTransfer {
-			if avail == nil || !avail.available {
-				fieldErr("domain", "domain is not available for registration")
-				return itemPlan{}, errs, nil
-			}
+		if !available {
+			fieldErr("domain", "domain is not available for registration")
+			return itemPlan{}, errs, nil
 		}
-		if !priced && avail != nil && avail.price > 0 {
-			unit = avail.price * int64(years)
-			renewPerYear = avail.price
-			priced = true
-		}
-	}
-	if !priced {
-		fieldErr("domain", "no pricing available for this domain")
-		return itemPlan{}, errs, nil
 	}
 
 	// Requested, currently-active addons add their annual price on top -
@@ -507,6 +479,20 @@ func (s *Service) planDomain(ctx context.Context, it OrderItemRequest) (itemPlan
 		opts:       opts,
 		years:      years,
 	}, nil, nil
+}
+
+// premiumFor looks up a premium-domain override for the exact name, else a
+// premium length-tier for its extension; lookup misses (and lookup errors)
+// just mean "no premium" - the TLD row then prices the domain.
+func (s *Service) premiumFor(ctx context.Context, name, ext string) (*domain.PremiumDomainPricing, *domain.PremiumLengthPricing) {
+	if premium, err := s.d.PremiumPricing.GetByName(ctx, name); err == nil && premium != nil {
+		return premium, nil
+	}
+	label := len(strings.TrimSuffix(name, "."+ext))
+	if tier, err := s.d.PremiumLengthPricing.GetByTLDAndLength(ctx, ext, label); err == nil && tier != nil {
+		return nil, tier
+	}
+	return nil, nil
 }
 
 // domainAddonsTotal sums the annual price of every requested addon key,

@@ -748,6 +748,11 @@ type DomainAvailability struct {
 	Available bool   `json:"available"`
 	Premium   bool   `json:"premium"`
 	Price     int64  `json:"price"` // register price for a 1-year term
+	// Sellable: the extension has an ACTIVE row in Domain Pricing, i.e. the
+	// shop actually sells it. An extension that is not on sale is shown as
+	// such (no price, no add-to-cart) and checkout refuses it; Price is only
+	// meaningful when Sellable.
+	Sellable bool `json:"sellable"`
 	// DocumentRequired: the extension needs identity/legal documents after
 	// registration (.co.id, .or.id, .ac.id, .sch.id, .ponpes.id) - shown at
 	// checkout so the client is not surprised by the upload step.

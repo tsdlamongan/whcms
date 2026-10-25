@@ -171,10 +171,10 @@ func TestCreateOrderDependencyFailures(t *testing.T) {
 }
 
 func TestPlanDomainEdgeCases(t *testing.T) {
-	t.Run("transfer without any price source", func(t *testing.T) {
+	t.Run("transfer of an extension that is not offered", func(t *testing.T) {
 		e := newFixture()
-		e.registrar.CheckAvailabilityFn = func(_ context.Context, names []string) ([]ports.DomainAvailability, error) {
-			return []ports.DomainAvailability{{Name: names[0], Available: false, Price: 0}}, nil
+		e.tldPricing.GetByTLDFn = func(_ context.Context, _ string) (*domain.TLDPricing, error) {
+			return nil, apperr.NotFound("tld pricing")
 		}
 		err := mustFailCreate(t, e, orders.OrderItemRequest{ItemType: "domain_transfer", Domain: "x.com"})
 		assert.Equal(t, apperr.CodeValidation, apperr.From(err).Code)
@@ -189,13 +189,15 @@ func TestPlanDomainEdgeCases(t *testing.T) {
 		require.NotEmpty(t, ae.Details)
 		assert.Equal(t, "items[0].product_id", ae.Details[0].Field)
 	})
-	t.Run("register with unpriced domain product falls back to registrar", func(t *testing.T) {
+	t.Run("registrar quote is never the selling price", func(t *testing.T) {
+		// Even with a domain product that has no price, the TLD row prices the
+		// line - and the registrar's (cost) quote is not consulted for price.
 		e := newFixture()
 		e.products.GetByIDFn = func(_ context.Context, id int64) (*domain.Product, error) {
 			return &domain.Product{ID: id, Type: domain.ProductDomain, Name: ".com"}, nil
 		}
-		e.products.GetPricingFn = func(_ context.Context, _ int64, _ domain.BillingCycle) (*domain.ProductPricing, error) {
-			return nil, apperr.NotFound("pricing")
+		e.registrar.CheckAvailabilityFn = func(_ context.Context, names []string) ([]ports.DomainAvailability, error) {
+			return []ports.DomainAvailability{{Name: names[0], Available: true, Price: 1}}, nil
 		}
 		svc := orders.New(e.deps)
 		res, err := svc.CreateOrder(context.Background(), 7, "ip", orders.CreateOrderRequest{

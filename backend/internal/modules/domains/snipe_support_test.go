@@ -54,9 +54,9 @@ func TestQuoteRegistration(t *testing.T) {
 		d.premiumPricing.GetByNameFn = func(context.Context, string) (*domain.PremiumDomainPricing, error) {
 			return &domain.PremiumDomainPricing{RegisterPrice: 5_000_000, RenewPrice: 4_000_000}, nil
 		}
+		// the extension must be on sale, but its matrix is not what prices the domain
 		d.tldPricing.GetByTLDFn = func(context.Context, string) (*domain.TLDPricing, error) {
-			t.Fatal("tld matrix must not be consulted once a premium override matched")
-			return nil, nil
+			return activeTLD(func(p *domain.TLDPricing) { p.RegisterPrices = map[string]int64{"1": 1} }), nil
 		}
 		q, err := d.svc().QuoteRegistration(ctx, "hunt.com", 3)
 		require.NoError(t, err)
@@ -66,6 +66,7 @@ func TestQuoteRegistration(t *testing.T) {
 
 	t.Run("length tier beats the tld matrix", func(t *testing.T) {
 		d := newFixture()
+		d.tldPricing.GetByTLDFn = func(context.Context, string) (*domain.TLDPricing, error) { return activeTLD(nil), nil }
 		d.premiumLengthPricing.GetByTLDAndLengthFn = func(_ context.Context, tld string, n int) (*domain.PremiumLengthPricing, error) {
 			assert.Equal(t, "id", tld)
 			assert.Equal(t, 3, n)
@@ -92,6 +93,18 @@ func TestQuoteRegistration(t *testing.T) {
 			return nil, apperr.NotFound("tld pricing")
 		}
 		_, err = d.svc().QuoteRegistration(ctx, "hunt.com", 1)
+		assertCode(t, err, apperr.CodeValidation)
+	})
+
+	t.Run("a premium override or length tier cannot sell an extension that is not on sale", func(t *testing.T) {
+		d := newFixture() // no TLD pricing row at all
+		d.premiumPricing.GetByNameFn = func(context.Context, string) (*domain.PremiumDomainPricing, error) {
+			return &domain.PremiumDomainPricing{RegisterPrice: 5_000_000}, nil
+		}
+		d.premiumLengthPricing.GetByTLDAndLengthFn = func(context.Context, string, int) (*domain.PremiumLengthPricing, error) {
+			return &domain.PremiumLengthPricing{Price: 900000}, nil
+		}
+		_, err := d.svc().QuoteRegistration(ctx, "hunt.ac.id", 1)
 		assertCode(t, err, apperr.CodeValidation)
 	})
 
@@ -128,11 +141,13 @@ func TestQuoteRegistration(t *testing.T) {
 
 	t.Run("a real lookup failure is returned, not swallowed", func(t *testing.T) {
 		d := newFixture()
+		d.tldPricing.GetByTLDFn = func(context.Context, string) (*domain.TLDPricing, error) { return activeTLD(nil), nil }
 		d.premiumPricing.GetByNameFn = func(context.Context, string) (*domain.PremiumDomainPricing, error) { return nil, errBoom }
 		_, err := d.svc().QuoteRegistration(ctx, "hunt.com", 1)
 		assert.ErrorIs(t, err, errBoom)
 
 		d = newFixture()
+		d.tldPricing.GetByTLDFn = func(context.Context, string) (*domain.TLDPricing, error) { return activeTLD(nil), nil }
 		d.premiumLengthPricing.GetByTLDAndLengthFn = func(context.Context, string, int) (*domain.PremiumLengthPricing, error) {
 			return nil, errBoom
 		}
