@@ -26,7 +26,11 @@ every signature check fails with `400 {"statusCode":"XX","statusMessage":"invali
 | Endpoint             | Behavior                                              |
 |----------------------|-------------------------------------------------------|
 | `GET /healthz`       | `200 ok`                                              |
-| `POST /mock/reset`   | Clears ALL state (Duitku txs, WHM/DA accounts, RDash domains, captured mail) |
+| `POST /mock/reset`   | Clears ALL state (Duitku txs, WHM/DA accounts, RDash domains + scripts/attempts/faults/balance, captured mail) |
+| `POST /mock/rdash/script`   | JSON `{domain, fail_times, fail_status?, fail_message?}` — make a domain fail its first N registrations, then drop (see [RDash scripted drop / fault injection](#rdash-scripted-drop--fault-injection)) |
+| `GET /mock/rdash/attempts?domain=` | `{domain, attempts}` — `POST /v1/domains` attempts seen for that name |
+| `POST /mock/rdash/fault`    | JSON `{path, status, count?, retry_after?, message?, delay_ms?}` — next N requests to a `/v1` path answer 429/5xx (and/or slowly) |
+| `POST /mock/rdash/balance`  | JSON `{amount}` — set the reseller balance in whole IDR (default `10000000`) |
 
 Every request is logged as one line to stdout: `METHOD /path -> status (latency)`.
 
@@ -142,11 +146,11 @@ numeric `id` for every per-domain mutation — not the domain name.
 
 | Endpoint | Behavior |
 |---|---|
-| `GET /v1/domains/availability?domain=` | `data[]` of `{name, available:0\|1, message}`. Names containing `taken` (and already-registered names) are unavailable. One name per call, matching the real API. |
+| `GET /v1/domains/availability?domain=` | `data` is one `{name, available:0\|1, message}` object. Names containing `taken` (and already-registered names) are unavailable, unless a drop script owns the name (see below). One name per call, matching the real API. |
 | `GET /v1/domains/details?domain_name=` | Full domain payload (`id, name, nameserver_1..5, status, status_label, expired_at, customer{id}, registrant_contact{...}`) — the only name→id lookup; `404` if unknown. |
 | `POST /v1/customers` | Form fields `name,email,organization,street_1,city,state,country_code,postal_code,voice,password,password_confirmation` (all required) → `{id,...}`. `422` on any missing field or password mismatch. |
 | `POST /v1/customers/{customer_id}/contacts` | Form fields `label,name,email,organization,street_1,city,state,country_code,postal_code,voice` → `{id,...}`. `404` unknown customer. |
-| `POST /v1/domains` | Form `name,period,customer_id,nameserver[0..4],registrant_contact_id?` → registers, `status:1/"Active"`, `expired_at = today + period`. Auto-creates a "Default" contact from the customer when `registrant_contact_id` is omitted (matches the real API). `taken`/duplicate → `409`; unknown `customer_id` → `422`. |
+| `POST /v1/domains` | Form `name,period,customer_id,nameserver[0..4],registrant_contact_id?` → registers, `status:1/"Active"`, `expired_at = today + period`. Auto-creates a "Default" contact from the customer when `registrant_contact_id` is omitted (matches the real API). `taken`/duplicate → `409`; unknown `customer_id` → `422`. Debits `10000 × period` from the reseller balance (`422 "Insufficient balance"`, nothing registered, when it does not cover it). Honors drop scripts and counts every attempt (see below). |
 | `POST /v1/domains/transfer` | Form `name,auth_code,period,customer_id,nameserver[0..4]` → `auth_code:"WRONG"` → `422`; already-registered `name` → `409`; else registers active, same shape as register. |
 | `POST /v1/domains/{id}/renew` | Form `period,current_date` → extends `expired_at` by `period` years; `current_date` must equal the domain's current `expired_at` (`422 "Expiry date is not correct."` otherwise, same as production). |
 | `PUT /v1/domains/{id}/ns` | Form `nameserver[0..4]` (0/1 required) → replaces nameservers. |
@@ -154,7 +158,56 @@ numeric `id` for every per-domain mutation — not the domain name.
 | `GET /v1/domains/{id}/auth_code` | `data:"MOCK-EPP-<name>"` |
 | `GET|POST /v1/domains/{id}/dns` | GET → `data[]` of `{prefix,type,content,ttl}` (new domains get 2 default records: `A @` + `CNAME www`). POST `records[N][name\|type\|content\|ttl]` replaces the full set — at least one record required (matches production). |
 | `GET /v1/account/profile` | `{id:<basic user as int>, name, email, currency:"IDR"}` |
-| `GET /v1/account/balance` | `{currency:"IDR", balance:"10000000.00"}` |
+| `GET /v1/account/balance` | `{currency:"IDR", balance:"10000000.00"}` — stateful: starts at `10000000`, set with `POST /mock/rdash/balance`, debited by `POST /v1/domains` (renew/transfer never touch it) |
+
+### RDash scripted drop / fault injection
+
+Test hooks for the backend's domain sniper (repeated `POST /v1/domains` until a
+dropping domain is won). All state is in memory and cleared by `POST /mock/reset`.
+Like the other `/mock/*` endpoints they take JSON, need no auth, and answer
+`400 {"error":"..."}` on bad input. Domain names are matched lowercase.
+
+**Drop script** — `POST /mock/rdash/script`
+`{"domain":"x.com","fail_times":3,"fail_status":409,"fail_message":"Domain not available"}`
+(`fail_status`/`fail_message` optional, defaults shown; `fail_status` must be 4xx/5xx).
+Responds `200 {"ok":true}`. Each `POST /v1/domains` for that name bumps its attempt counter;
+the first `fail_times` attempts answer `fail_status` + `fail_message` in the usual error
+envelope (`{"success":false,"data":null,"message":"Domain not available"}`) and register
+nothing. The next attempt registers exactly like a normal registration. Availability reports
+`available:0` until the `fail_times` failures have been served, then `available:1` (until the
+domain is registered). A scripted name ignores the `taken` substring rule. Re-posting a
+script for a name restarts its sequence (counter back to 0).
+
+**Attempts** — `GET /mock/rdash/attempts?domain=x.com` → `{"domain":"x.com","attempts":N}`:
+every `POST /v1/domains` that named the domain (scripted failure, fault, 409, 422 or success),
+`0` if never seen; `400` without `domain`.
+
+**Fault** — `POST /mock/rdash/fault`
+`{"path":"/v1/domains","status":429,"count":3,"retry_after":2,"message":"Too Many Requests","delay_ms":0}`.
+Responds `200 {"ok":true}`. The next `count` (default 1) requests whose URL path is exactly
+`path` (must start with `/v1/`, any method) are answered with `status` (any 4xx/5xx; 429/500/502/503/504
+are the intended ones), a `Retry-After: <retry_after>` header when `retry_after > 0`, and the standard
+error envelope with `message` (default: the status text). A fault is consumed before the real handler
+runs but after Basic auth (`bad:bad` → `401` leaves it armed); faults for one path fire in the order
+they were armed. A faulted `POST /v1/domains` still counts as an attempt. `delay_ms` (capped at 10000)
+sleeps before answering; with `status` omitted/0 the request is only delayed, then handled normally.
+`400` for a missing/non-`/v1/` path, a status that is neither 4xx/5xx nor 0-with-`delay_ms`, or a
+negative `count`/`retry_after`/`delay_ms`.
+
+**Balance** — `POST /mock/rdash/balance` `{"amount":50000}` → `200 {"ok":true,"balance":50000}`
+(`400` when `amount` is missing or negative). `POST /v1/domains` debits `10000` per year of `period`;
+if the balance is lower than that it answers `422` with message `Insufficient balance`
+(same envelope, nothing registered; the attempt is still counted).
+
+```sh
+# snipe.com drops on the 4th POST /v1/domains (3 scripted 409s first)
+curl -XPOST localhost:9090/mock/rdash/script  -d '{"domain":"snipe.com","fail_times":3}'
+# ...and the next 2 POST /v1/domains answer 429 first (faulted attempts count too)
+curl -XPOST localhost:9090/mock/rdash/fault   -d '{"path":"/v1/domains","status":429,"count":2,"retry_after":1}'
+# a reseller who cannot afford 1 year (10000) gets 422 "Insufficient balance"
+curl -XPOST localhost:9090/mock/rdash/balance -d '{"amount":5000}'
+curl 'localhost:9090/mock/rdash/attempts?domain=snipe.com'
+```
 
 ## 5. Mail capture (`MAIL_DRIVER=http`, `MAIL_HTTP_URL=http://localhost:9090/mail/send`)
 
