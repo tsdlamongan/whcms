@@ -10,6 +10,8 @@ export interface DomainCheckResult {
 	 *  from an active TLDPricing row (not a flat annual rate; a multi-year
 	 *  estimate must look this up instead of assuming price * years). */
 	register_prices?: Record<string, number>;
+	/** The extension needs identity/legal documents after registration. */
+	document_required?: boolean;
 	min_years: number;
 	max_years: number;
 }

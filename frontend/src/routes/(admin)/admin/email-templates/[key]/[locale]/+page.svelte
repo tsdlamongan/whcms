@@ -58,6 +58,40 @@
 		service_renewed: ['{{.ServiceName}}', '{{.Domain}}', '{{.NextDueDate}}'],
 		domain_registered: ['{{.Domain}}', '{{.ExpiryDate}}'],
 		domain_renewed: ['{{.Domain}}', '{{.ExpiryDate}}'],
+		domain_documents_required: [
+			'{{.Name}}',
+			'{{.Domain}}',
+			'{{.DomainID}}',
+			'{{.UploadBy}}',
+			'{{.SuspendOn}}',
+			'{{.DeleteOn}}'
+		],
+		domain_documents_rejected: [
+			'{{.Name}}',
+			'{{.Domain}}',
+			'{{.DomainID}}',
+			'{{.Reason}}',
+			'{{.UploadBy}}',
+			'{{.SuspendOn}}',
+			'{{.DeleteOn}}'
+		],
+		domain_suspended: [
+			'{{.Name}}',
+			'{{.Domain}}',
+			'{{.DomainID}}',
+			'{{.Reason}}',
+			'{{.SuspendOn}}',
+			'{{.DeleteOn}}'
+		],
+		domain_rejected: [
+			'{{.Name}}',
+			'{{.Domain}}',
+			'{{.DomainID}}',
+			'{{.Reason}}',
+			'{{.Refunded}}',
+			'{{.RefundAmount}}',
+			'{{.DocumentFailure}}'
+		],
 		ticket_opened: ['{{.TicketNumber}}', '{{.Subject}}', '{{.TicketURL}}'],
 		ticket_replied: ['{{.TicketNumber}}', '{{.Subject}}', '{{.TicketURL}}'],
 		admin_alert: ['{{.Subject}}', '{{.Detail}}']

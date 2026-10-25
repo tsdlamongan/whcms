@@ -325,5 +325,70 @@ export const actions: Actions = {
 			});
 		}
 		return { section: 'addons' as const, success: true };
+	},
+
+	/**
+	 * Ask the registrar for the hosted page where this domain's documents are
+	 * uploaded - POST /domains/:id/documents/link. The registrar has no upload
+	 * API, so the link IS the upload step. It is a bearer secret: it only ever
+	 * lives in this action's result (never stored), and only a plain http(s)
+	 * URL is handed to the browser.
+	 */
+	documentLink: async (event) => {
+		const res = await apiFetch<{ url?: string }>(
+			event,
+			`/api/v1/domains/${event.params.id}/documents/link`,
+			{ method: 'POST' }
+		);
+		if (res.error) {
+			return fail(res.status >= 400 ? res.status : 500, {
+				section: 'documents' as const,
+				errorMessage: res.error.message
+			});
+		}
+		let uploadUrl = '';
+		try {
+			const u = new URL(res.data?.url ?? '');
+			if (u.protocol === 'https:' || u.protocol === 'http:') uploadUrl = u.toString();
+		} catch {
+			/* fall through to the failure below */
+		}
+		if (!uploadUrl) {
+			return fail(502, {
+				section: 'documents' as const,
+				errorKey: 'clientDomains.docs.errors.noLink'
+			});
+		}
+		return { section: 'documents' as const, success: true, uploadUrl };
+	},
+
+	/** Re-sync with the registrar right now - POST /domains/:id/refresh. */
+	refresh: async (event) => {
+		const res = await apiFetch<DomainRow>(event, `/api/v1/domains/${event.params.id}/refresh`, {
+			method: 'POST'
+		});
+		if (res.error) {
+			return fail(res.status >= 400 ? res.status : 500, {
+				section: 'documents' as const,
+				errorMessage: res.error.message
+			});
+		}
+		return { section: 'documents' as const, success: true, refreshed: true as const };
+	},
+
+	/** Re-send the registrant's verification email - POST /domains/:id/verification/resend. */
+	resendVerification: async (event) => {
+		const res = await apiFetch<unknown>(
+			event,
+			`/api/v1/domains/${event.params.id}/verification/resend`,
+			{ method: 'POST' }
+		);
+		if (res.error) {
+			return fail(res.status >= 400 ? res.status : 500, {
+				section: 'documents' as const,
+				errorMessage: res.error.message
+			});
+		}
+		return { section: 'documents' as const, success: true, resent: true as const };
 	}
 };

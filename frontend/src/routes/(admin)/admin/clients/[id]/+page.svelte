@@ -185,10 +185,10 @@
 			? s
 			: 'cancelled';
 	}
-	/** domain.status: pending|active|pending_transfer|expired|cancelled. */
+	/** domain.status: pending|active|pending_transfer|expired|suspended|rejected|cancelled. */
 	function domainBadgeClass(s: string): string {
 		if (s === 'pending_transfer') return 'pending';
-		if (s === 'expired') return 'terminated';
+		if (s === 'expired' || s === 'suspended' || s === 'rejected') return 'terminated';
 		return ['pending', 'active', 'cancelled'].includes(s) ? s : 'cancelled';
 	}
 	/** invoice.status: draft|unpaid|paid|overdue|cancelled|refunded. */

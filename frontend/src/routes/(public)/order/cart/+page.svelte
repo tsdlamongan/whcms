@@ -3,6 +3,7 @@
 	import { enhance } from '$app/forms';
 	import { Alert, EmptyState, FormField, MoneyText, Tabs } from '$lib/components';
 	import Turnstile from '$lib/components/ca/Turnstile.svelte';
+	import { requiresDocuments } from '$lib/domainDocuments';
 	import { t } from '$lib/i18n';
 	import {
 		cart,
@@ -139,6 +140,16 @@
 									<div style="font-weight:600;color:#333;">{itemTitle(index)}</div>
 									{#if item.domain}
 										<div class="ca-muted" style="font-size:0.8rem;">{item.domain}</div>
+									{/if}
+									{#if item.domain && requiresDocuments(item.domain)}
+										<div
+											class="ca-muted"
+											style="font-size:0.8rem;"
+											data-testid={`cart-docs-note-${index}`}
+										>
+											<i class="fas fa-file-alt" aria-hidden="true"></i>
+											{t('orderfe.cart.docsNote')}
+										</div>
 									{/if}
 									{#if item.item_type === 'domain_transfer'}
 										<div class="ca-muted" style="font-size:0.8rem;font-style:italic;">
