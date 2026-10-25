@@ -69,6 +69,16 @@ type rdashDomain struct {
 	ExpiredAt                                                            time.Time
 	AdminContactID, TechContactID, BillingContactID, RegistrantContactID int64
 	DNS                                                                  []rdashDnsRecord
+
+	// Document / verification lifecycle (rdash_documents.go).
+	RequiredDocument bool
+	Verification     int // 0 Waiting, 1 Verifying, 2 Document Validating, 3 Active
+	StatusReason     string
+	Refundable       bool
+	DocToken         string
+	LinkRequests     int
+	Uploads          int
+	ResendCount      int
 }
 
 func defaultNameservers() []string {
@@ -124,11 +134,30 @@ func (s *Server) domainPayload(d *rdashDomain) map[string]any {
 		"status_label": d.StatusLabel,
 		"expired_at":   d.ExpiredAt.UTC().Format(rdashDateFormat),
 		"customer":     map[string]any{"id": d.CustomerID},
+
+		"is_required_document":      boolToInt(d.RequiredDocument),
+		"verification_status":       d.Verification,
+		"verification_status_label": rdashVerificationLabels[d.Verification],
+		"is_refundable":             d.Refundable,
+		"token":                     d.DocToken,
+		"tld":                       "." + rdashTLD(d.Name),
+	}
+	if d.StatusReason != "" {
+		payload["status_reason"] = d.StatusReason
+	} else {
+		payload["status_reason"] = nil
 	}
 	if c, ok := s.rdashContacts[d.RegistrantContactID]; ok {
 		payload["registrant_contact"] = contactPayload(c)
 	}
 	return payload
+}
+
+func boolToInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 func contactPayload(c *rdashContact) map[string]any {
@@ -386,6 +415,7 @@ func (s *Server) handleRDashRegisterDomain(w http.ResponseWriter, r *http.Reques
 	}
 	s.rdashDomains[d.ID] = d
 	s.rdashDomainsByName[name] = d.ID
+	s.initVerificationLocked(d, false)
 	payload := s.domainPayload(d)
 	s.mu.Unlock()
 
@@ -445,6 +475,7 @@ func (s *Server) handleRDashTransferDomain(w http.ResponseWriter, r *http.Reques
 	}
 	s.rdashDomains[d.ID] = d
 	s.rdashDomainsByName[name] = d.ID
+	s.initVerificationLocked(d, true)
 	payload := s.domainPayload(d)
 	s.mu.Unlock()
 

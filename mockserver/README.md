@@ -26,11 +26,14 @@ every signature check fails with `400 {"statusCode":"XX","statusMessage":"invali
 | Endpoint             | Behavior                                              |
 |----------------------|-------------------------------------------------------|
 | `GET /healthz`       | `200 ok`                                              |
-| `POST /mock/reset`   | Clears ALL state (Duitku txs, WHM/DA accounts, RDash domains + scripts/attempts/faults/balance, captured mail) |
+| `POST /mock/reset`   | Clears ALL state (Duitku txs, WHM/DA accounts, RDash domains + scripts/attempts/faults/balance/Auto Activation/upload tokens, captured mail) |
 | `POST /mock/rdash/script`   | JSON `{domain, fail_times, fail_status?, fail_message?}` — make a domain fail its first N registrations, then drop (see [RDash scripted drop / fault injection](#rdash-scripted-drop--fault-injection)) |
 | `GET /mock/rdash/attempts?domain=` | `{domain, attempts}` — `POST /v1/domains` attempts seen for that name |
 | `POST /mock/rdash/fault`    | JSON `{path, status, count?, retry_after?, message?, delay_ms?}` — next N requests to a `/v1` path answer 429/5xx (and/or slowly) |
 | `POST /mock/rdash/balance`  | JSON `{amount}` — set the reseller balance in whole IDR (default `10000000`) |
+| `POST /mock/rdash/domain-state` | JSON `{domain, status?, verification_status?, status_reason?, is_refundable?, required_document?}` — play the registrar's reviewer/lifecycle on a registered domain (see [RDash documents & verification](#rdash-documents--verification)) |
+| `GET /mock/rdash/state?domain=` | `{id, name, status, verification_status, required_document, status_reason, is_refundable, link_requests, uploads, resend_count}` — mock-side bookkeeping for assertions |
+| `POST /mock/rdash/auto-activation` | JSON `{enabled}` — the reseller's Auto Activation switch (default on); off holds new document domains `Pending` |
 
 Every request is logged as one line to stdout: `METHOD /path -> status (latency)`.
 
@@ -159,6 +162,21 @@ numeric `id` for every per-domain mutation — not the domain name.
 | `GET|POST /v1/domains/{id}/dns` | GET → `data[]` of `{prefix,type,content,ttl}` (new domains get 2 default records: `A @` + `CNAME www`). POST `records[N][name\|type\|content\|ttl]` replaces the full set — at least one record required (matches production). |
 | `GET /v1/account/profile` | `{id:<basic user as int>, name, email, currency:"IDR"}` |
 | `GET /v1/account/balance` | `{currency:"IDR", balance:"10000000.00"}` — stateful: starts at `10000000`, set with `POST /mock/rdash/balance`, debited by `POST /v1/domains` (renew/transfer never touch it) |
+
+### RDash documents & verification
+
+Mirrors the registrar's document lifecycle (docs.dewabiz.co.id "Auto Activation" / "Syarat Domain Indonesia"):
+
+- `.co.id .or.id .ac.id .sch.id .ponpes.id` register **Active** with `is_required_document: 1`, `verification_status: 0` (Waiting) and
+  `is_refundable: true`; `.id .my.id .biz.id .web.id` register Active with verification Waiting (email); other TLDs register verified (3).
+  Every domain payload also carries `verification_status_label`, `status_reason` (null when empty), `token` and `tld`.
+- `POST /v1/domains/{id}/documents/link` → `{success, data: "<mock>/documents/upload/<token>"}` (422 when the domain needs no documents);
+  `GET|POST /documents/upload/{token}` is a tiny hosted upload page — submitting it moves the domain to Document Validating (2).
+- `POST /v1/domains/{id}/verification/resend` → "Email verification sent to your email address!" (422 once verified).
+- `POST /mock/rdash/domain-state` plays the reviewer: approve = `{verification_status: 3}`; bounce = `{verification_status: 0,
+  status_reason: "..."}`; suspend = `{status: 7}`; delete/reject = `{status: 4|8, is_refundable: ...}`. Status ints: 0 Pending, 1 Active,
+  2 Expired, 3 Pending Delete, 4 Deleted, 5 Pending Transfer, 6 Transferred Away, 7 Suspended, 8 Rejected, 9 Moved.
+- A document-TLD **transfer** answers Pending Transfer (5) until verified; other transfers complete immediately, as before.
 
 ### RDash scripted drop / fault injection
 
