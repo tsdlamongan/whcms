@@ -91,7 +91,7 @@ signatures, applied migrations, domain enums) are extended, never rewritten, and
 - transaction status: `pending|success|failed|expired|refunded`
 - service status: `pending|active|suspended|terminated|cancelled`
 - cancellation request status: `pending|accepted|rejected|auto_processed`
-- domain status: `pending|active|pending_transfer|expired|cancelled`
+- domain status: `pending|active|pending_transfer|expired|cancelled|suspended|rejected`; domain verification (registrar `verification_status`, §16): `""|waiting|verifying|document_validating|active`
 - snipe status: `pending_payment|active|won|expired|cancelled|failed`; snipe phase (informational, while active): `patient|burst`; snipe source: `client|admin`
 - ticket status: `open|answered|customer_reply|on_hold|closed`; priority: `low|medium|high`
 - ticket dept is a table; coupon type: `percentage|fixed`
@@ -101,7 +101,7 @@ State machines (domain package exposes `CanTransition(from,to)` per entity + typ
 - invoice: draft→unpaid; unpaid→paid|cancelled|overdue; overdue→paid|cancelled; paid→refunded
 - order: pending→active|fraud|cancelled
 - service: pending→active|cancelled; active→suspended|terminated; suspended→active|terminated
-- domain: pending→active|cancelled; active→expired; pending_transfer→active|cancelled; expired→active(renew)
+- domain: pending→active|cancelled|rejected; active→expired|suspended|rejected; pending_transfer→active|cancelled|rejected; expired→active(renew); suspended→active|rejected|cancelled (`cancelled`/`rejected` are terminal and free the name again — the unique-name index excludes both; see §16)
 - cancellation_request: pending→accepted|rejected|auto_processed (the last is system-resolved, not an admin decision — see §9 services-client; accepted/rejected/auto_processed are terminal)
 - snipe: pending_payment→active|cancelled|failed; active→won|expired|cancelled|failed (won/expired/cancelled/failed are terminal). Every terminal move is a compare-and-swap on the current status (`SnipeRepo.Finish`), so a hunt, an API cancel and the expiry sweep can never both win.
 
@@ -153,9 +153,13 @@ type RegistrarModule interface { // rdash adapter
     GetEPPCode(ctx, name string) (string, error)
     GetDNSRecords(ctx, name string) ([]DNSRecord, error)                       // {Type,Host,Value,TTL,Prio}
     UpdateDNSRecords(ctx, name string, recs []DNSRecord) error
-    SyncDomain(ctx, name string) (*DomainSyncInfo, error)                      // {Status, ExpiryDate, NS}
+    SyncDomain(ctx, name string) (*DomainSyncInfo, error)                      // {Status, ExpiryDate, NS} + embedded DomainVerificationInfo {DocumentRequired, Verification, StatusReason, Refundable}; the same info rides on every DomainResult (register/transfer/renew)
     AccountInfo(ctx) (*RegistrarAccountInfo, error)                            // {AccountID, Name, Currency, Balance int64} — registrar test-connection
+    DocumentUploadLink(ctx, name string) (string, error)                       // POST /domains/{id}/documents/link — registrar-HOSTED upload page (there is no upload API); a bearer secret: fetched on demand, never stored/logged
+    ResendVerification(ctx, name string) error                                 // POST /domains/{id}/verification/resend — registrant email verification
 }
+// DomainPaymentSource (implemented by domains.Repo): RegistrationPayment(ctx, domainID) (*DomainRegistrationPayment{InvoiceID, InvoiceNumber, Amount}, error)
+// — what the client paid for the domain's order item (its share of the invoice total), NOT_FOUND when nothing was collected; the refund basis (§16).
 ```
 Infra ports: `Mailer` (`Send(ctx, msg MailMessage) error` — drivers: smtp|http|log), `Storage` (`Put(ctx, key string, r io.Reader, size int64, contentType string) error; Get(ctx,key) (io.ReadCloser, error); Delete; PresignGet(ctx, key, ttl) (string, error)`), `Encryptor` (`Encrypt/Decrypt(string) (string, error)` AES-256-GCM base64), `PasswordHasher` (Argon2id `Hash/Verify`), `TokenStore` (Redis: `Create(ctx, kind, userID, ttl) (token string, err)`, `Consume(ctx, kind, token) (userID int64, err)` — kinds: `verify_email`, `reset_password`), `Enqueuer` (`Enqueue(ctx, taskType string, payload any, opts ...JobOption) error` wraps asynq), `Locker` (`WithLock(ctx, key string, ttl, fn) error` Redis SETNX), `RateLimiter`, `Cache` (`GetJSON/SetJSON/Delete`, used for product catalog & dashboard), `AuditLogger`, `IntegrationLogger`, `Clock` (`Now() time.Time` — inject everywhere time matters), `PDFGenerator` (`InvoicePDF(ctx, inv InvoicePDFData) ([]byte, error)`).
 
@@ -165,7 +169,7 @@ Cross-service ports (implemented by services, consumed by others — keeps modul
 ## 7. Queue jobs (internal/jobs — constants + payload structs, foundation writes)
 
 Task types: `provision:create`, `provision:suspend`, `provision:unsuspend`, `provision:terminate`, `provision:change_package`, `provision:change_password`, `domain:register`, `domain:transfer`, `domain:renew`, `domain:sync`, `mail:send` (payload {EmailLogID or full message}), `invoice:generate_pdf`, `payment:reconcile_one`.
-Periodic (worker scheduler, all under Redis lock, idempotent): `cron:invoices_generate` (renewals N days before due; default 14), `cron:invoice_reminders` (pre-due/due/overdue), `cron:late_fees`, `cron:auto_suspend` (overdue > N days; default 7), `cron:auto_terminate` (suspended > N days; default 21), `cron:payment_reconcile` (pending duitku tx), `cron:domain_sync`, `cron:housekeeping`.
+Periodic (worker scheduler, all under Redis lock, idempotent): `cron:invoices_generate` (renewals N days before due; default 14), `cron:invoice_reminders` (pre-due/due/overdue), `cron:late_fees`, `cron:auto_suspend` (overdue > N days; default 7), `cron:auto_terminate` (suspended > N days; default 21), `cron:payment_reconcile` (pending duitku tx), `cron:domain_sync`, `cron:domain_verification_sync` (every 30 min; polls only domains whose document/email verification is still open — §16), `cron:housekeeping`.
 Retry policy: max 5 retries exponential backoff; on final failure write integration/audit log + email admin. Job handlers live in worker but call the same services.
 
 **The domain sniper is deliberately NOT an asynq job.** A hunt polls the registrar every few hundred milliseconds for days; asynq's 30-minute default task timeout (no `Timeout` option on `ports.Enqueuer`), 5-second scheduled-task granularity, shared worker slots (a hunt would starve `mail:send`/provisioning) and retry-then-archive handling of a crashed task all fit that badly. Instead `cmd/worker` also runs one `snipe.Supervisor` goroutine (`composition.App.SnipeSupervisor`): it claims `active` `domain_snipes` rows with `SELECT … FOR UPDATE SKIP LOCKED` under a 30s SQL lease renewed every tick (2s — which is also how fast a hunt notices its snipe was cancelled), runs one hunt goroutine per claimed row, and a crashed/restarted/second worker simply resumes after the lease lapses (a resumed hunt first verifies against the registrar whether it already won; so does every refund-bearing ending — expiry or failure of a snipe the registrar already registered is recorded as a win, never refunded). State lives in Postgres; mail/alerts still go through the normal async paths.
@@ -188,7 +192,7 @@ Retry policy: max 5 retries exponential backoff; on final failure write integrat
 - invoices (client): `GET /invoices`, `GET /invoices/:id`, `GET /invoices/:id/pdf` (presigned or stream), `POST /invoices/:id/pay`.
 - payments: `GET /payments/methods?invoice_id=` (the Duitku adapter drops non-QRIS channels when the remaining amount is below Duitku's Rp10.000 per-transaction floor — only QRIS `SP/LQ/NQ` accepts micro-payments, so small invoices like prorated upgrade diffs never offer a channel that would be rejected upstream; gateway errors surface Duitku's own reason, e.g. `duitku error: Minimum Payment 10000 IDR`, never a bare "duitku error"), `POST /webhooks/duitku`, `GET /payments/return`; admin: `GET /admin/transactions?search&status&gateway&page&per_page`, `POST /admin/transactions/:id/confirm`; gateways: `GET/PUT /admin/gateways` (duitku), `PUT /admin/gateways/manual`.
 - services (client): `GET /services`, `GET /services/:id`, `POST /services/:id/change-password`, `GET /services/:id/sso`, `POST /services/:id/cancel` {mode: immediate|end_of_term}, `POST /services/:id/upgrade` {product_id, cycle, specs?: [{key,qty,unlimited}]} — prorated product/cycle change; `specs` is required knowledge for custom-spec (configurable) targets (unchosen knobs fall back to their default qty, validated/priced server-side exactly like checkout; same product+cycle with different specs = a resize). An upgrade (positive prorated diff) creates a diff invoice (`invoice_items.related_type=service_upgrade`) and stores the pending change (incl. resolved specs) in `services.pending_upgrade` until that invoice is paid — then billing's ProcessPaid → ApplyUpgrade rebinds product/cycle/recurring_amount, rewrites `panel_meta.chosen_specs`, and enqueues `provision:change_package` (which for configurable products rebuilds the dynamic panel package via EnsurePackage and deletes the old dynamic package once no sibling service references it). A downgrade/zero diff applies immediately and credits the excess. `cancel`'s two modes now diverge into a `service_cancellation_requests` row rather than mutating the service directly: `immediate` still cancels open renewal invoices + enqueues termination synchronously (no approval gate), but the request itself starts `pending` too — `ProvisionTerminate` resolves it to `auto_processed` only once the worker actually completes the termination (never at submission time, so a second immediate submission is blocked by the same guard below for as long as the job sits in the queue); `end_of_term` also creates a `pending` request — `panel_meta.cancel_at_period_end` (honoured by AutoTerminate/renewal generation) is set only once an admin accepts it. A service may have at most one `pending` request at a time (service-layer guard + partial unique index), covering both modes. Admin `Accept`/`Reject` only operate on `end_of_term` requests (an immediate request's `pending` row is system-resolved, never an admin decision — `Accept`/`Reject` reject it with `CONFLICT`). Admin: `GET /admin/services/cancellation-requests` {status?, page, per_page} (joined with service domain + client name), `POST /admin/services/cancellation-requests/:id/accept`, `POST /admin/services/cancellation-requests/:id/reject` — both `[perm: services]`, reject leaves the service completely untouched.
-- domains (client): `GET /domains`, `GET /domains/:id`, `PATCH /domains/:id/nameservers`, `GET|PUT /domains/:id/dns`, `GET /domains/:id/epp`, `POST /domains/:id/renew` (creates renewal invoice), `PATCH /domains/:id` (auto_renew, contact).
+- domains (client): `GET /domains`, `GET /domains/:id`, `PATCH /domains/:id/nameservers`, `GET|PUT /domains/:id/dns`, `GET /domains/:id/epp`, `POST /domains/:id/renew` (creates renewal invoice), `PATCH /domains/:id` (auto_renew, contact), and the document/verification lifecycle (§16): `POST /domains/:id/documents/link` → `{url}` (registrar-hosted upload page; `Cache-Control: no-store`, rate-limited 20/min/IP), `POST /domains/:id/verification/resend` (5/min/IP), `POST /domains/:id/refresh` (sync with the registrar now, returns the domain; 20/min/IP). The domain JSON carries `document_required`, `verification_status`, `status_reason`, `document_rejected_at`, `registrar_refundable`, `refund_amount`, `refunded_at` and the computed `verification_deadlines` (`{kind: documents|email, upload_by?, suspend_on, delete_on?}` or `null`). `POST /domains/check` results carry `document_required`.
 - tickets (client): `GET|POST /tickets`, `GET /tickets/:id`, `POST /tickets/:id/replies` (multipart attachments→S3), `POST /tickets/:id/close`. Departments: `GET /ticket-departments`.
 - account (client): `GET /account/credit` ledger, `POST /account/credit/deposit` (creates deposit invoice).
 - announcements (public): `GET /announcements` (published, paginated), `GET /announcements/:slug`. Admin (perm `announcements`): `GET|POST /admin/announcements`, `GET|PATCH|DELETE /admin/announcements/:id`.
@@ -279,3 +283,47 @@ Two phases, because `composition.Build` (and therefore any DB-backed module/serv
   every call, rejecting with `CONFLICT` once an admin already exists, so it can never be used to add a second admin
   after real install; `POST /api/v1/install/settings` is an optional passthrough to the existing
   `settings.Service.Update` for the whitelisted `company.*` keys (§10) and never gates `installed`.
+
+## 16. Domain documents, verification & refunds
+
+Source of truth: the registrar's documentation (docs.dewabiz.co.id: "Syarat Domain Indonesia", "Auto Activation") and swagger
+(`POST /domains/{id}/documents/link`, `POST /domains/{id}/verification/resend`, domain fields `is_required_document`,
+`verification_status`, `status_reason`, `is_refundable`). PRD FR-DOM-009. Rules live in `internal/domain/documents.go`
+(+ `frontend/src/lib/domainDocuments.ts` for the pre-purchase hints) — change them only together with that documentation.
+
+- **Who needs what.** `.co.id .or.id .ac.id .sch.id .ponpes.id` need identity/legal documents; `.id .my.id .biz.id .web.id` need only
+  the registrant confirming an email (suspended after 30 days); everything else needs nothing. `document_required` is taken from the
+  registrar response, falling back to the documented TLD list only when the registrar did not report it.
+- **Auto Activation timeline** (day 1 = activation day): active on payment with the registrant asked for documents; upload on days 1-3;
+  reminder + suspend warning day 4; suspended day 5; reminders days 14/21; **deleted day 30 — no refund when the documents were never
+  uploaded or were rejected**. With Auto Activation off the registrar holds the domain `pending` until verified: the domain stays
+  `pending` / `pending_transfer` locally (order id recorded in `registrar_meta`, so a retried job never re-registers) and the
+  verification poller activates it.
+- **Upload.** There is no upload API. `POST /domains/:id/documents/link` returns the registrar-hosted page URL (owner only; allowed
+  while `active|suspended|pending_transfer`, or `pending` once placed at the registrar; refused when no documents are required or they
+  are already verified). The URL is a bearer secret: fetched on demand, `no-store`, never persisted, audited without its value, its
+  response redacted from `integration_logs`, and only an absolute http(s) URL is ever handed on. The frontend BFF action
+  (`?/documentLink`) returns it to the page, which shows a `target=_blank rel=noopener` link.
+- **State mirror.** Every register/transfer/sync copies `document_required`, `verification_status`, `status_reason`,
+  `registrar_refundable` onto the domain (a registrar that omits `verification_status` never erases a known one). A document review that
+  bounces the upload shows up as `document_validating → waiting` while documents are required: `document_rejected_at` is set and the client
+  is emailed (`domain_documents_rejected`); a re-submission or verification clears it. Registrar `suspended` → `suspended`
+  (`domain_suspended` email); verified + active again → `active`. A document-requiring domain the registrar deletes/pending-deletes/rejects
+  without ever being verified maps to `rejected` (not `cancelled`).
+- **Polling.** `cron:domain_sync` (daily) now also covers `suspended`; `cron:domain_verification_sync` (every 30 min) polls only
+  `ListAwaitingVerification`: domains with `verification_status ∈ waiting|verifying|document_validating` that are `document_required` or
+  on an email-verified TLD, in `pending|active|pending_transfer|suspended`. The client's "Check status" (`POST /domains/:id/refresh`) forces
+  the same sync.
+- **Rejection & refund policy** (`Domain.RefundDecision`, applied atomically under the domain row lock in `domains.settleRejected`, so
+  concurrent syncs can never refund twice): when a domain becomes `rejected`, the client is credited back **iff** (1) it was never refunded,
+  (2) it is NOT a document failure (`document_required` and verification not `active` → the documented "no refund"), and (3) the registrar
+  reports it `is_refundable`. The credit is `client credit` (ledger entry `Domain registration refund: <name>`, related to the invoice)
+  for **what the client paid for that domain** = its order-item line scaled to the invoice total (`DomainPaymentSource`; a 128-bit
+  pro-rata, so discount and tax are carried and nothing overflows), only from a `paid` invoice. No paid order behind it (admin-added,
+  won by a hunt) → nothing to refund. Every rejection emails the client (`domain_rejected`: refunded / document-failure no-refund /
+  non-refundable) and, when no money moved, alerts the admins with the reason.
+- **Admin override.** `POST /admin/domains/:id/refund` `{amount?, reason?}` (perm `domains`): for a `rejected` or `cancelled` domain not
+  yet refunded, credits up to what the client paid (default all of it); audited (`domain.refund`); once only.
+- **Data.** Migration 000027 (`domains.document_required, verification_status, status_reason, document_rejected_at, registrar_refundable,
+  refund_amount, refunded_at`; status CHECK + unique-name index extended) and 000028 (templates `domain_documents_required`,
+  `domain_documents_rejected`, `domain_suspended`, `domain_rejected`, id + en).

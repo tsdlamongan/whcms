@@ -64,7 +64,7 @@ clients:   DeductCredit(ctx context.Context, clientID int64, amount int64, reaso
 billing:   GenerateRenewalInvoices(ctx) (int, error); MarkOverdue(ctx) (int, error); SendReminders(ctx) (int, error); ApplyLateFees(ctx) (int, error); GenerateInvoicePDF(ctx, invoiceID int64) error
 payments:  ReconcilePending(ctx) (int, error); ReconcileOne(ctx, transactionID int64) error
 provisioning: AutoSuspend(ctx) (int, error); AutoTerminate(ctx) (int, error); ProvisionCreate(ctx, serviceID int64) error; ProvisionSuspend(ctx, serviceID int64, reason string) error; ProvisionUnsuspend(ctx, serviceID int64) error; ProvisionTerminate(ctx, serviceID int64) error; ProvisionChangePackage(ctx, serviceID int64) error
-domains:   RegisterDomainJob(ctx, domainID int64) error; TransferDomainJob(ctx, domainID int64) error; RenewDomainJob(ctx, domainID int64) error; SyncDomainJob(ctx, domainID int64) error; SyncAllDomains(ctx) (int, error)
+domains:   RegisterDomainJob(ctx, domainID int64) error; TransferDomainJob(ctx, domainID int64) error; RenewDomainJob(ctx, domainID int64) error; SyncDomainJob(ctx, domainID int64) error; SyncAllDomains(ctx) (int, error); SyncAwaitingVerification(ctx) (int, error)   // verification poller (CONTRACTS §16)
 notifications: DeliverEmail(ctx, emailLogID int64) error
 adminops:  Housekeep(ctx) (int, error)
 ```
