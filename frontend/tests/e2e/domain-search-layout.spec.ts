@@ -1,5 +1,5 @@
-import { expect, test, type Locator, type Page } from './fixtures';
-import { uniqueDomainLabel } from './helpers';
+import { expect, test, type APIRequestContext, type Locator, type Page } from './fixtures';
+import { API_BASE, adminToken, authHeaders, newApi, uniqueDomainLabel } from './helpers';
 
 /**
  * Layout of the /order/domain result list. Each result is one grid row:
@@ -54,7 +54,12 @@ async function expectRowsInsideCard(page: Page, rows: Locator) {
 	const n = await rows.count();
 	for (let i = 0; i < n; i++) {
 		const row = rows.nth(i);
-		for (const part of ['.ca-dom-name', '.ca-dom-price', '.ca-dom-action .ca-btn', '.ca-dom-opts']) {
+		for (const part of [
+			'.ca-dom-name',
+			'.ca-dom-price',
+			'.ca-dom-action .ca-btn',
+			'.ca-dom-opts'
+		]) {
 			const el = row.locator(part);
 			if ((await el.count()) === 0) continue;
 			const b = await box(el.first());
@@ -67,6 +72,48 @@ async function expectRowsInsideCard(page: Page, rows: Locator) {
 }
 
 test.describe('domain search result layout', () => {
+	// A search lists the exact name plus one row per active TLD, so a fresh
+	// database (one TLD) would show a single row and the cross-row assertions
+	// would have nothing to compare. Provision three TLDs of our own.
+	let api: APIRequestContext;
+	let admin: string;
+	const tldIds: number[] = [];
+
+	test.beforeAll(async () => {
+		api = await newApi();
+		admin = await adminToken(api);
+		const regs = await api.get(`${API_BASE}/api/v1/admin/registrars`, {
+			headers: authHeaders(admin)
+		});
+		const registrarId = ((await regs.json()).data as { id: number }[])[0].id;
+		for (let i = 0; i < 3; i++) {
+			const res = await api.post(`${API_BASE}/api/v1/admin/tld-pricing`, {
+				headers: authHeaders(admin),
+				data: {
+					tld: uniqueDomainLabel(),
+					registrar_id: registrarId,
+					active: true,
+					min_years: 1,
+					max_years: 2,
+					register_prices: { '1': 100000, '2': 180000 },
+					renew_prices: { '1': 110000 },
+					transfer_price: 90000
+				}
+			});
+			expect(res.ok(), `create tld pricing: ${await res.text()}`).toBeTruthy();
+			tldIds.push(((await res.json()).data as { id: number }).id);
+		}
+	});
+
+	test.afterAll(async () => {
+		for (const id of tldIds) {
+			await api.delete(`${API_BASE}/api/v1/admin/tld-pricing/${id}`, {
+				headers: authHeaders(admin)
+			});
+		}
+		await api?.dispose();
+	});
+
 	test.describe('desktop', () => {
 		test.use({ viewport: { width: 1280, height: 900 } });
 
@@ -85,9 +132,10 @@ test.describe('domain search result layout', () => {
 				const action = await box(row.locator('.ca-dom-action .ca-btn'));
 
 				// one line: the button is vertically centred on the name
-				expect(Math.abs(midY(action) - midY(name)), `row ${i} button off the name line`).toBeLessThan(
-					6
-				);
+				expect(
+					Math.abs(midY(action) - midY(name)),
+					`row ${i} button off the name line`
+				).toBeLessThan(6);
 				expect(Math.abs(midY(price) - midY(name)), `row ${i} price off the name line`).toBeLessThan(
 					6
 				);
@@ -171,9 +219,10 @@ test.describe('domain search result layout', () => {
 					// stacked: name above the price/button line
 					expect(price.y).toBeGreaterThanOrEqual(bottom(name) - 1);
 					// price and button share a line, price on the left
-					expect(Math.abs(midY(price) - midY(action)), `row ${i} price/button misaligned`).toBeLessThan(
-						6
-					);
+					expect(
+						Math.abs(midY(price) - midY(action)),
+						`row ${i} price/button misaligned`
+					).toBeLessThan(6);
 					expect(right(price)).toBeLessThanOrEqual(action.x + 1);
 					// options below
 					const years = await box(row.locator('[data-testid^="domain-years-"]'));
