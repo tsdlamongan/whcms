@@ -53,6 +53,7 @@ const messages: Partial<Record<Locale, Record<string, unknown>>> = {
 				checking: 'Memeriksa ketersediaan…',
 				available: '{domain} tersedia untuk didaftarkan!',
 				unavailable: '{domain} tidak tersedia.',
+				notOffered: 'Ekstensi .{ext} tidak kami jual.',
 				premium: 'Premium',
 				checkFailed: 'Gagal memeriksa ketersediaan domain. Silakan coba lagi.',
 				summary: 'Ringkasan Harga',
@@ -84,6 +85,8 @@ const messages: Partial<Record<Locale, Record<string, unknown>>> = {
 				available: 'Tersedia',
 				taken: 'Tidak Tersedia',
 				premium: 'Premium',
+				notOffered: 'Tidak dijual',
+				notOfferedHint: 'Ekstensi .{ext} tidak kami jual. Pilih ekstensi lain.',
 				docsRequired: 'Perlu dokumen',
 				docsRequiredHint:
 					'Ekstensi ini memerlukan dokumen persyaratan setelah pendaftaran. Domain aktif dulu; dokumen diunggah sesudahnya.',
@@ -122,6 +125,8 @@ const messages: Partial<Record<Locale, Record<string, unknown>>> = {
 				removed: 'Item dihapus dari keranjang.',
 				setupFee: 'Biaya setup',
 				domainRegisterItem: 'Registrasi Domain',
+				notOffered:
+					'Ekstensi .{ext} tidak dijual (lagi). Hapus domain ini dari keranjang untuk melanjutkan.',
 				docsNote:
 					'Ekstensi ini memerlukan dokumen persyaratan (KTP/identitas dan dokumen legalitas). Domain aktif dulu setelah pembayaran; unggah dokumennya dari halaman domain.',
 				domainTransferItem: 'Transfer Domain',
@@ -229,6 +234,7 @@ const messages: Partial<Record<Locale, Record<string, unknown>>> = {
 				checking: 'Checking availability…',
 				available: '{domain} is available!',
 				unavailable: '{domain} is not available.',
+				notOffered: 'We do not sell the .{ext} extension.',
 				premium: 'Premium',
 				checkFailed: 'Failed to check domain availability. Please try again.',
 				summary: 'Price Summary',
@@ -260,6 +266,8 @@ const messages: Partial<Record<Locale, Record<string, unknown>>> = {
 				available: 'Available',
 				taken: 'Taken',
 				premium: 'Premium',
+				notOffered: 'Not offered',
+				notOfferedHint: 'We do not sell the .{ext} extension. Pick another extension.',
 				docsRequired: 'Documents needed',
 				docsRequiredHint:
 					'This extension requires supporting documents after registration. The domain is active first; the documents are uploaded afterwards.',
@@ -297,6 +305,8 @@ const messages: Partial<Record<Locale, Record<string, unknown>>> = {
 				removed: 'Item removed from the cart.',
 				setupFee: 'Setup fee',
 				domainRegisterItem: 'Domain Registration',
+				notOffered:
+					'The .{ext} extension is not offered (any more). Remove this domain from the cart to continue.',
 				docsNote:
 					'This extension requires supporting documents (ID and legal documents). The domain is active right after payment; upload the documents from the domain page.',
 				domainTransferItem: 'Domain Transfer',

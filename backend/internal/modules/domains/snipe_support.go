@@ -17,11 +17,11 @@ const maxQuoteYears = 10
 var _ ports.SnipeDomainService = (*Service)(nil)
 
 // QuoteRegistration prices years of registration for name from admin-
-// configured pricing only, in the same precedence orders.planDomain uses (exact
-// premium-domain override, then premium length tier, then the active TLD
-// matrix). Unlike checkout it never falls back to the registrar's live cost: a
-// TLD nobody priced cannot be sold, so it is a VALIDATION error rather than a
-// silent zero or a guess. A real lookup failure is returned, never swallowed -
+// configured pricing only, with the same rules as orders.planDomain: the
+// extension must have an ACTIVE Domain Pricing row (else it cannot be sold -
+// a VALIDATION error rather than a silent zero or a guess; the registrar's
+// live cost is never a selling price), then the precedence exact premium-domain
+// override, premium length tier, TLD matrix. A real lookup failure is returned, never swallowed -
 // this number becomes an invoice.
 func (s *Service) QuoteRegistration(ctx context.Context, name string, years int) (*ports.DomainQuote, error) {
 	name = NormalizeDomainName(name)
@@ -35,6 +35,18 @@ func (s *Service) QuoteRegistration(ctx context.Context, name string, years int)
 		return nil, apperr.Validation(fmt.Sprintf("years must be between 1 and %d", maxQuoteYears))
 	}
 
+	// The extension must be on sale (an ACTIVE Domain Pricing row) - the same
+	// rule checkout enforces; premium overrides and length tiers only re-price
+	// a domain inside a sellable extension.
+	ext := domainExtension(name)
+	tld, err := s.d.TLDPricing.GetByTLD(ctx, ext)
+	if err != nil && apperr.From(err).Code != apperr.CodeNotFound {
+		return nil, err
+	}
+	if err != nil || tld == nil || !tld.Active {
+		return nil, apperr.Validation("no pricing is configured for ." + ext)
+	}
+
 	premium, err := s.d.PremiumPricing.GetByName(ctx, name)
 	if err != nil && apperr.From(err).Code != apperr.CodeNotFound {
 		return nil, err
@@ -43,7 +55,6 @@ func (s *Service) QuoteRegistration(ctx context.Context, name string, years int)
 		return &ports.DomainQuote{Total: premium.RegisterPrice * int64(years), RenewPerYear: premium.RenewPrice}, nil
 	}
 
-	ext := domainExtension(name)
 	tier, err := s.d.PremiumLengthPricing.GetByTLDAndLength(ctx, ext, domainLabelLength(name, ext))
 	if err != nil && apperr.From(err).Code != apperr.CodeNotFound {
 		return nil, err
@@ -52,13 +63,6 @@ func (s *Service) QuoteRegistration(ctx context.Context, name string, years int)
 		return &ports.DomainQuote{Total: tier.Price * int64(years), RenewPerYear: tier.Price}, nil
 	}
 
-	tld, err := s.d.TLDPricing.GetByTLD(ctx, ext)
-	if err != nil && apperr.From(err).Code != apperr.CodeNotFound {
-		return nil, err
-	}
-	if err != nil || tld == nil || !tld.Active {
-		return nil, apperr.Validation("no pricing is configured for ." + ext)
-	}
 	if years < tld.MinYears || years > tld.MaxYears {
 		return nil, apperr.Validation(fmt.Sprintf("years must be between %d and %d for .%s", tld.MinYears, tld.MaxYears, ext))
 	}

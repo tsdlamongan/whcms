@@ -16,6 +16,8 @@ interface DomainAvailability {
 	 *  from an active TLDPricing row (not a flat annual rate; a multi-year
 	 *  estimate must look this up instead of assuming price * years). */
 	register_prices?: Record<string, number>;
+	/** The extension has an ACTIVE Domain Pricing row (is for sale). */
+	sellable?: boolean;
 }
 
 /** GET /api/v1/domains/tlds response row (domain.TLDPricing JSON tags). */

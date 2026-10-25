@@ -109,7 +109,7 @@ FR-ORD-001..007. POST /orders (auth + verified email required): input {items:[{p
 cycle, options{}, domain_years?}], coupon_code?, notes?}. Validate: product visible+stock, cycle priced, domain
 syntax + availability via ports.RegistrarModule.CheckAvailability for registers (skip check for transfers, require
 epp later at job), configurable options valid, coupon valid → compute pricing (unit prices from product_pricing,
-option deltas, setup fees; domain price from registrar check result or product pricing type domain), fraud checks,
+option deltas, setup fees; a domain is sold ONLY when its extension has an ACTIVE Domain Pricing (tld_pricing) row — else VALIDATION "the .x extension is not offered for sale", for registers AND transfers — and is priced premium-override > length-tier > the TLD matrix; the registrar quote is never a selling price), fraud checks,
 then tx: create order(pending)+order_items, decrement stock, CreateInvoice (due = now + billing.invoice_due_days,
 items linked related_type=order_item) — respond order+invoice. ActivateOrder(ctx, orderID): idempotent (skip already-activated items via order_items.service_id/domain_id backrefs);
 per item: product hosting/reseller/other+module → create service row (username from domain via domain helper,

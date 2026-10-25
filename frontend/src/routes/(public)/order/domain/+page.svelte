@@ -70,6 +70,11 @@
 	let transferEpp = $state('');
 	let transferError = $state<string | null>(null);
 
+	/** Everything after the first label: "toko.co.id" -> "co.id". */
+	function extensionOf(name: string): string {
+		return name.slice(name.indexOf('.') + 1);
+	}
+
 	function addRegister(result: DomainCheckResult) {
 		cart.add({
 			item_type: 'domain_register',
@@ -107,6 +112,11 @@
 		const name = transferDomain.trim().toLowerCase();
 		if (!isValidDomain(name)) {
 			transferError = t('orderfe.domain.transferOwnInvalid');
+			return;
+		}
+		const ext = name.slice(name.indexOf('.') + 1);
+		if (data.sellableTlds && !data.sellableTlds.includes(ext)) {
+			transferError = t('orderfe.domain.notOfferedHint', { ext });
 			return;
 		}
 		addTransfer(name, 0, transferEpp.trim());
@@ -189,7 +199,14 @@
 			<div class="ca-dom-row" data-testid={`domain-result-${result.name}`}>
 				<div class="ca-dom-name">
 					<span class="ca-dom-domain">{result.name}</span>
-					{#if result.available}
+					{#if result.sellable === false}
+						<span
+							class="ca-badge ca-badge--gray"
+							title={t('orderfe.domain.notOfferedHint', { ext: extensionOf(result.name) })}
+							data-testid={`domain-not-offered-${result.name}`}
+							>{t('orderfe.domain.notOffered')}</span
+						>
+					{:else if result.available}
 						<span class="ca-badge ca-badge--success">{t('orderfe.domain.available')}</span>
 						{#if result.premium}
 							<span class="ca-badge ca-badge--warning">{t('orderfe.domain.premium')}</span>
@@ -208,13 +225,21 @@
 				</div>
 
 				<div class="ca-dom-price">
-					<MoneyText amount={estimatedTotal(result)} class="font-bold" /><span class="ca-muted"
-						>{t('orderfe.domain.perYear')}</span
-					>
+					{#if result.sellable === false}
+						<span class="ca-muted">—</span>
+					{:else}
+						<MoneyText amount={estimatedTotal(result)} class="font-bold" /><span class="ca-muted"
+							>{t('orderfe.domain.perYear')}</span
+						>
+					{/if}
 				</div>
 
 				<div class="ca-dom-action">
-					{#if cart.hasDomain(result.name)}
+					{#if result.sellable === false}
+						<span class="ca-muted" style="font-size:0.85rem;"
+							>{t('orderfe.domain.notOfferedHint', { ext: extensionOf(result.name) })}</span
+						>
+					{:else if cart.hasDomain(result.name)}
 						<a
 							href="/order/cart"
 							class="ca-btn ca-btn-outline-success"
@@ -251,7 +276,7 @@
 					{/if}
 				</div>
 
-				{#if !cart.hasDomain(result.name)}
+				{#if result.sellable !== false && !cart.hasDomain(result.name)}
 					<div class="ca-dom-opts">
 						<label class="ca-dom-opt">
 							<span class="ca-dom-cap">{t('orderfe.domain.years')}</span>

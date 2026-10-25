@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strconv"
 	"testing"
 	"time"
 
@@ -131,6 +132,19 @@ func newFixture() *testEnv {
 	}
 	e.users.GetByIDFn = func(_ context.Context, id int64) (*domain.User, error) {
 		return &domain.User{ID: id, Email: "budi@example.com", EmailVerifiedAt: verifiedAt(testNow)}, nil
+	}
+	// Every extension is on sale at 150.000/year by default (the number the
+	// registrar mock quotes); a domain is only sellable with an active TLD
+	// pricing row, so tests of the "not offered" paths override this.
+	e.tldPricing.GetByTLDFn = func(_ context.Context, tld string) (*domain.TLDPricing, error) {
+		register := map[string]int64{}
+		for y := 1; y <= 10; y++ {
+			register[strconv.Itoa(y)] = 150000 * int64(y)
+		}
+		return &domain.TLDPricing{
+			TLD: tld, Active: true, MinYears: 1, MaxYears: 10,
+			RegisterPrices: register, RenewPrices: map[string]int64{"1": 150000}, TransferPrice: 150000,
+		}, nil
 	}
 	e.products.GetByIDFn = func(_ context.Context, id int64) (*domain.Product, error) {
 		if id != 10 {
@@ -451,12 +465,14 @@ func TestCreateOrderDomainSyntax(t *testing.T) {
 	}
 }
 
-func TestCreateOrderDomainTransferSkipsAvailability(t *testing.T) {
+func TestCreateOrderDomainTransferUsesTLDPriceWithoutAvailability(t *testing.T) {
 	e := newFixture()
-	checked := false
 	e.registrar.CheckAvailabilityFn = func(_ context.Context, names []string) ([]ports.DomainAvailability, error) {
-		checked = true
-		return []ports.DomainAvailability{{Name: names[0], Available: false, Price: 120000}}, nil
+		t.Fatal("a transfer moves an already-registered name: availability must not be consulted")
+		return nil, nil
+	}
+	e.tldPricing.GetByTLDFn = func(_ context.Context, tld string) (*domain.TLDPricing, error) {
+		return &domain.TLDPricing{TLD: tld, Active: true, MinYears: 1, MaxYears: 10, TransferPrice: 120000}, nil
 	}
 	svc := orders.New(e.deps)
 
@@ -466,9 +482,8 @@ func TestCreateOrderDomainTransferSkipsAvailability(t *testing.T) {
 		}},
 	})
 	require.NoError(t, err)
-	assert.True(t, checked, "availability consulted only for price")
 	assert.Equal(t, domain.ItemDomainTransfer, res.Items[0].ItemType)
-	assert.Equal(t, int64(120000), res.Items[0].UnitPrice)
+	assert.Equal(t, int64(120000), res.Items[0].UnitPrice, "priced from the TLD's transfer price")
 
 	var opts struct {
 		EPPCodeEnc string `json:"epp_code_enc"`
@@ -477,14 +492,14 @@ func TestCreateOrderDomainTransferSkipsAvailability(t *testing.T) {
 	assert.Equal(t, "enc:secret-epp", opts.EPPCodeEnc, "EPP stored encrypted")
 }
 
-func TestCreateOrderDomainWithProductPricing(t *testing.T) {
+func TestCreateOrderDomainProductRefOnlyLabelsTheLine(t *testing.T) {
 	e := newFixture()
 	e.products.GetByIDFn = func(_ context.Context, id int64) (*domain.Product, error) {
 		return &domain.Product{ID: id, Type: domain.ProductDomain, Name: ".com"}, nil
 	}
 	e.products.GetPricingFn = func(_ context.Context, productID int64, cycle domain.BillingCycle) (*domain.ProductPricing, error) {
-		require.Equal(t, domain.CycleAnnually, cycle)
-		return &domain.ProductPricing{ProductID: productID, Cycle: cycle, Price: 99000}, nil
+		t.Fatal("domain prices come from Domain Pricing, never from a product price")
+		return nil, nil
 	}
 	svc := orders.New(e.deps)
 
@@ -494,7 +509,9 @@ func TestCreateOrderDomainWithProductPricing(t *testing.T) {
 		}},
 	})
 	require.NoError(t, err)
-	assert.Equal(t, int64(99000), res.Items[0].UnitPrice, "product pricing preferred over registrar quote")
+	assert.Equal(t, int64(150000), res.Items[0].UnitPrice, "the TLD row prices it")
+	require.NotNil(t, res.Items[0].ProductID)
+	assert.EqualValues(t, 33, *res.Items[0].ProductID)
 }
 
 func TestCreateOrderRegistrarDown(t *testing.T) {

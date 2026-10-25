@@ -86,7 +86,11 @@ Minimum fixtures E2E flows need (use `ON CONFLICT DO NOTHING`/upsert so the seed
 - Two products: one `shared_hosting` bound to the cpanel server group, `auto_setup=on_payment`, with pricing for
   at least `monthly` (a small IDR amount, e.g. 50000) and a `setup_fee` of 0; one `domain` type product (or rely
   on the domain order flow's own product-less domain-register path — check how `orders` module models a
-  standalone domain purchase per its DTO on disk and seed whatever it needs).
+  standalone domain purchase per its DTO on disk and seed whatever it needs). **A domain can only be ordered when its
+  extension has an ACTIVE `tld_pricing` row**, so the seeder prices the extensions the specs order under
+  (`com`, `e2e.test`, `co.id` at 150.000/year, 1-10 years); a spec that needs another extension - or one another spec
+  deletes, like `my.id` in `admin-domain-pricing` - provisions its own row with `ensureSellableTld` (helpers.ts) and
+  removes it afterwards. `domain-sellable-extensions.spec.ts` covers the refusal path.
 - The `rdash` registrar row already exists from the core seed migration — update its `config` JSONB if the
   domains/orders module expects anything beyond what's there (check `domains.RegistrarRepo`/`orders` service on
   disk).

@@ -5,6 +5,7 @@ import {
 	adminToken,
 	authHeaders,
 	createOrder,
+	ensureSellableTld,
 	newApi,
 	payInvoiceViaMock,
 	pollListStatus,
@@ -62,6 +63,29 @@ async function creditBalance(api: APIRequestContext, token: string): Promise<num
 }
 
 test.describe('admin: domain documents, verification and refund', () => {
+	// co.id is priced by the seed, but never assume it survived other specs: a
+	// domain can only be ordered under an extension on sale.
+	let createdTld: number | null = null;
+	test.beforeAll(async () => {
+		const api = await newApi();
+		try {
+			createdTld = await ensureSellableTld(api, await adminToken(api), 'co.id');
+		} finally {
+			await api.dispose();
+		}
+	});
+	test.afterAll(async () => {
+		if (createdTld === null) return;
+		const api = await newApi();
+		try {
+			await api.delete(`${API_BASE}/api/v1/admin/tld-pricing/${createdTld}`, {
+				headers: authHeaders(await adminToken(api))
+			});
+		} finally {
+			await api.dispose();
+		}
+	});
+
 	test('document domain: review bounce, suspension, rejection without auto-refund, manual refund', async ({
 		page,
 		context

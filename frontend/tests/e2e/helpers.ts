@@ -1,4 +1,11 @@
-import { expect, request, type APIRequestContext, type APIResponse, type BrowserContext, type Page } from '@playwright/test';
+import {
+	expect,
+	request,
+	type APIRequestContext,
+	type APIResponse,
+	type BrowserContext,
+	type Page
+} from '@playwright/test';
 
 /**
  * Shared E2E helpers. Every spec runs against the already-live stack
@@ -121,7 +128,11 @@ export async function waitForMail(api: APIRequestContext, to: string): Promise<s
  * first capture group (decoded). Matching a specific link (e.g. the reset link,
  * not any `token=`) avoids grabbing the wrong email when several are queued.
  */
-export async function waitForMailMatch(api: APIRequestContext, to: string, pattern: RegExp): Promise<string> {
+export async function waitForMailMatch(
+	api: APIRequestContext,
+	to: string,
+	pattern: RegExp
+): Promise<string> {
 	let captured = '';
 	await expect
 		.poll(
@@ -149,8 +160,16 @@ export const VERIFY_LINK = /verify-email\?token=([^"'&\s<]+)/;
 export const RESET_LINK = /reset-password\?token=([^"'&\s<]+)/;
 
 /** Log in via the API and return the access token. */
-export async function loginApi(api: APIRequestContext, email: string, password: string): Promise<{ accessToken: string; refreshToken: string }> {
-	const res = await withAuthRateLimitRetry(() => api.post(`${API_BASE}/api/v1/auth/login`, { data: { email, password, captcha_token: CAPTCHA_TOKEN } }));
+export async function loginApi(
+	api: APIRequestContext,
+	email: string,
+	password: string
+): Promise<{ accessToken: string; refreshToken: string }> {
+	const res = await withAuthRateLimitRetry(() =>
+		api.post(`${API_BASE}/api/v1/auth/login`, {
+			data: { email, password, captcha_token: CAPTCHA_TOKEN }
+		})
+	);
 	expect(res.ok(), `login ${email}: ${await res.text()}`).toBeTruthy();
 	const d = (await res.json()).data as { access_token: string; refresh_token: string };
 	return { accessToken: d.access_token, refreshToken: d.refresh_token };
@@ -168,7 +187,10 @@ export interface Client {
 }
 
 /** Register a fresh client via API, verify via the mail sink, and log in. */
-export async function registerVerifyLogin(api: APIRequestContext, prefix = 'client'): Promise<Client> {
+export async function registerVerifyLogin(
+	api: APIRequestContext,
+	prefix = 'client'
+): Promise<Client> {
 	const email = `${unique(prefix)}@e2e.test`;
 	const password = 'Cl1entPass!2026';
 	const reg = await withAuthRateLimitRetry(() =>
@@ -191,7 +213,9 @@ export async function registerVerifyLogin(api: APIRequestContext, prefix = 'clie
 	expect(reg.ok(), `register: ${await reg.text()}`).toBeTruthy();
 
 	const token = await waitForMailMatch(api, email, VERIFY_LINK);
-	const verify = await withAuthRateLimitRetry(() => api.post(`${API_BASE}/api/v1/auth/verify-email`, { data: { token } }));
+	const verify = await withAuthRateLimitRetry(() =>
+		api.post(`${API_BASE}/api/v1/auth/verify-email`, { data: { token } })
+	);
 	expect(verify.ok(), `verify-email: ${await verify.text()}`).toBeTruthy();
 
 	const { accessToken, refreshToken } = await loginApi(api, email, password);
@@ -200,7 +224,10 @@ export async function registerVerifyLogin(api: APIRequestContext, prefix = 'clie
 
 /** Register a fresh client via API and log in WITHOUT verifying the email -
  *  for exercising email-verification-gated behavior (e.g. checkout). */
-export async function registerLogin(api: APIRequestContext, prefix = 'unverified'): Promise<Client> {
+export async function registerLogin(
+	api: APIRequestContext,
+	prefix = 'unverified'
+): Promise<Client> {
 	const email = `${unique(prefix)}@e2e.test`;
 	const password = 'Cl1entPass!2026';
 	const reg = await withAuthRateLimitRetry(() =>
@@ -227,10 +254,25 @@ export async function registerLogin(api: APIRequestContext, prefix = 'unverified
 }
 
 /** Authenticate a browser context the way the BFF does (httpOnly cookies). */
-export async function setSessionCookies(context: BrowserContext, accessToken: string, refreshToken = '', locale = 'en'): Promise<void> {
+export async function setSessionCookies(
+	context: BrowserContext,
+	accessToken: string,
+	refreshToken = '',
+	locale = 'en'
+): Promise<void> {
 	await context.addCookies([
 		{ name: 'access_token', value: accessToken, url: APP_BASE, httpOnly: true, sameSite: 'Lax' },
-		...(refreshToken ? [{ name: 'refresh_token', value: refreshToken, url: APP_BASE, httpOnly: true, sameSite: 'Lax' as const }] : []),
+		...(refreshToken
+			? [
+					{
+						name: 'refresh_token',
+						value: refreshToken,
+						url: APP_BASE,
+						httpOnly: true,
+						sameSite: 'Lax' as const
+					}
+				]
+			: []),
 		{ name: 'locale', value: locale, url: APP_BASE }
 	]);
 }
@@ -247,16 +289,32 @@ export async function clickBtn(page: Page, testid: string): Promise<void> {
 export async function seededHostingProductId(api: APIRequestContext): Promise<number> {
 	const res = await api.get(`${API_BASE}/api/v1/products`);
 	expect(res.ok()).toBeTruthy();
-	const groups = ((await res.json()).data ?? []) as Array<{ products?: Array<{ id: number; slug: string; hidden?: boolean; pricing?: Array<{ cycle: string }> }> }>;
+	const groups = ((await res.json()).data ?? []) as Array<{
+		products?: Array<{
+			id: number;
+			slug: string;
+			hidden?: boolean;
+			pricing?: Array<{ cycle: string }>;
+		}>;
+	}>;
 	const products = groups.flatMap((g) => g.products ?? []);
-	const hosting = products.find((p) => p.slug === 'e2e-shared-hosting') ?? products.find((p) => !p.hidden && p.pricing?.some((pr) => pr.cycle === 'monthly'));
+	const hosting =
+		products.find((p) => p.slug === 'e2e-shared-hosting') ??
+		products.find((p) => !p.hidden && p.pricing?.some((pr) => pr.cycle === 'monthly'));
 	expect(hosting, 'seeded hosting product should exist').toBeTruthy();
 	return hosting!.id;
 }
 
 /** Find a client's numeric id via the admin clients search (by email). */
-export async function adminFindClientId(api: APIRequestContext, token: string, email: string): Promise<number> {
-	const res = await api.get(`${API_BASE}/api/v1/admin/clients`, { headers: authHeaders(token), params: { search: email } });
+export async function adminFindClientId(
+	api: APIRequestContext,
+	token: string,
+	email: string
+): Promise<number> {
+	const res = await api.get(`${API_BASE}/api/v1/admin/clients`, {
+		headers: authHeaders(token),
+		params: { search: email }
+	});
 	expect(res.ok(), `admin search clients: ${await res.text()}`).toBeTruthy();
 	const list = ((await res.json()).data ?? []) as Array<{ id: number; email?: string }>;
 	const found = list.find((c) => c.email === email) ?? list[0];
@@ -265,16 +323,31 @@ export async function adminFindClientId(api: APIRequestContext, token: string, e
 }
 
 /** Create an order for the given items and return the invoice id. */
-export async function createOrder(api: APIRequestContext, token: string, items: unknown[]): Promise<number> {
-	const res = await api.post(`${API_BASE}/api/v1/orders`, { headers: authHeaders(token), data: { items, captcha_token: CAPTCHA_TOKEN } });
+export async function createOrder(
+	api: APIRequestContext,
+	token: string,
+	items: unknown[]
+): Promise<number> {
+	const res = await api.post(`${API_BASE}/api/v1/orders`, {
+		headers: authHeaders(token),
+		data: { items, captcha_token: CAPTCHA_TOKEN }
+	});
 	expect(res.ok(), `create order: ${await res.text()}`).toBeTruthy();
 	const body = (await res.json()).data as { invoice: { id: number } };
 	return body.invoice.id;
 }
 
 /** Pay an invoice end-to-end via the mock Duitku gateway; polls until paid. */
-export async function payInvoiceViaMock(api: APIRequestContext, token: string, invoiceId: number, method = 'BC'): Promise<void> {
-	const payRes = await api.post(`${API_BASE}/api/v1/invoices/${invoiceId}/pay`, { headers: authHeaders(token), data: { method } });
+export async function payInvoiceViaMock(
+	api: APIRequestContext,
+	token: string,
+	invoiceId: number,
+	method = 'BC'
+): Promise<void> {
+	const payRes = await api.post(`${API_BASE}/api/v1/invoices/${invoiceId}/pay`, {
+		headers: authHeaders(token),
+		data: { method }
+	});
 	expect(payRes.ok(), `pay invoice ${invoiceId}: ${await payRes.text()}`).toBeTruthy();
 	const payBody = (await payRes.json()).data as { reference?: string; status?: string };
 	if (payBody.status !== 'paid') {
@@ -284,7 +357,9 @@ export async function payInvoiceViaMock(api: APIRequestContext, token: string, i
 	await expect
 		.poll(
 			async () => {
-				const res = await api.get(`${API_BASE}/api/v1/invoices/${invoiceId}`, { headers: authHeaders(token) });
+				const res = await api.get(`${API_BASE}/api/v1/invoices/${invoiceId}`, {
+					headers: authHeaders(token)
+				});
 				const body = (await res.json()).data as { invoice?: { status?: string }; status?: string };
 				return body.invoice?.status ?? body.status ?? null;
 			},
@@ -319,17 +394,87 @@ export async function pollListStatus(
 }
 
 /** Full setup: fresh verified client with one active hosting service. */
-export async function clientWithActiveService(api: APIRequestContext, prefix = 'svc'): Promise<{ client: Client; serviceId: number; domain: string }> {
+export async function clientWithActiveService(
+	api: APIRequestContext,
+	prefix = 'svc'
+): Promise<{ client: Client; serviceId: number; domain: string }> {
 	const client = await registerVerifyLogin(api, prefix);
 	const productId = await seededHostingProductId(api);
 	const domain = `${uniqueDomainLabel()}.hosting.e2e.test`;
-	const invoiceId = await createOrder(api, client.accessToken, [{ item_type: 'product', product_id: productId, cycle: 'monthly', domain }]);
+	const invoiceId = await createOrder(api, client.accessToken, [
+		{ item_type: 'product', product_id: productId, cycle: 'monthly', domain }
+	]);
 	await payInvoiceViaMock(api, client.accessToken, invoiceId);
-	const svc = await pollListStatus(api, client.accessToken, '/api/v1/services', (r) => r.domain === domain, 'active');
+	const svc = await pollListStatus(
+		api,
+		client.accessToken,
+		'/api/v1/services',
+		(r) => r.domain === domain,
+		'active'
+	);
 	return { client, serviceId: svc.id as number, domain };
 }
 
 /** A disposable API request context (call .dispose() in afterAll). */
 export async function newApi(): Promise<APIRequestContext> {
 	return request.newContext();
+}
+
+/**
+ * Make sure `tld` (no leading dot, e.g. "my.id") is ON SALE: a domain can only
+ * be ordered when its extension has an ACTIVE Domain Pricing row. Creates a
+ * 150.000/year row (1-10 years) when none exists and returns its id so the
+ * caller can delete it afterwards; returns null when the extension was already
+ * priced (leave it alone) - an inactive row is switched on and also returns
+ * null. Specs that own a fixed extension (admin-domain-pricing deletes "my.id")
+ * must not rely on the seed for it.
+ */
+export async function ensureSellableTld(
+	api: APIRequestContext,
+	admin: string,
+	tld: string,
+	perYear = 150000
+): Promise<number | null> {
+	const list = await api.get(`${API_BASE}/api/v1/admin/tld-pricing`, {
+		headers: authHeaders(admin)
+	});
+	expect(list.ok(), `list tld pricing: ${await list.text()}`).toBeTruthy();
+	const rows = ((await list.json()).data ?? []) as Array<
+		{ id: number; tld: string; active: boolean } & Record<string, unknown>
+	>;
+	const existing = rows.find((r) => r.tld === tld);
+
+	const regs = await api.get(`${API_BASE}/api/v1/admin/registrars`, {
+		headers: authHeaders(admin)
+	});
+	const registrarId = ((await regs.json()).data as Array<{ id: number }>)[0].id;
+	const register: Record<string, number> = {};
+	for (let y = 1; y <= 10; y++) register[String(y)] = perYear * y;
+	const body = {
+		tld,
+		registrar_id: registrarId,
+		active: true,
+		min_years: 1,
+		max_years: 10,
+		register_prices: register,
+		renew_prices: { '1': perYear },
+		transfer_price: perYear
+	};
+
+	if (existing) {
+		if (!existing.active) {
+			const res = await api.put(`${API_BASE}/api/v1/admin/tld-pricing/${existing.id}`, {
+				headers: authHeaders(admin),
+				data: { ...existing, ...body }
+			});
+			expect(res.ok(), `activate tld pricing: ${await res.text()}`).toBeTruthy();
+		}
+		return null;
+	}
+	const res = await api.post(`${API_BASE}/api/v1/admin/tld-pricing`, {
+		headers: authHeaders(admin),
+		data: body
+	});
+	expect(res.ok(), `create tld pricing: ${await res.text()}`).toBeTruthy();
+	return ((await res.json()).data as { id: number }).id;
 }
