@@ -1098,6 +1098,128 @@
 	white-space: nowrap;
 }
 
+/* ================================================ domain search (order/domain) */
+/* One row per result. The layout keys off the card's own width (container
+   query), not the viewport: the store sidebar eats ~260px between 768-991px,
+   so a viewport breakpoint would still squeeze three columns into ~450px.
+   narrow : name / price + button / options, stacked
+   wide   : name | price | button on one line, options underneath */
+.ca-domain-search {
+	display: flex;
+	gap: 8px;
+	margin-bottom: 20px;
+}
+.ca-domain-search .ca-input {
+	flex: 1 1 auto;
+	min-width: 0;
+}
+.ca-domain-search .ca-btn {
+	flex: none;
+}
+.ca-dom-list {
+	container-type: inline-size;
+	overflow: hidden;
+}
+.ca-dom-row {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	grid-template-areas:
+		'name name'
+		'price action'
+		'opts opts';
+	align-items: center;
+	column-gap: 16px;
+	row-gap: 10px;
+	padding: 14px 16px;
+}
+.ca-dom-row + .ca-dom-row {
+	border-top: 1px solid #eee;
+}
+.ca-dom-name {
+	grid-area: name;
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 6px 10px;
+	min-width: 0;
+}
+.ca-dom-domain {
+	font-size: 16px;
+	font-weight: 600;
+	color: #333;
+	overflow-wrap: anywhere;
+}
+.ca-dom-price {
+	grid-area: price;
+	color: #333;
+	white-space: nowrap;
+}
+.ca-dom-action {
+	grid-area: action;
+	min-width: 9rem;
+}
+.ca-dom-action .ca-btn {
+	width: 100%;
+}
+.ca-dom-opts {
+	grid-area: opts;
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 10px;
+	font-size: 13px;
+	color: #555;
+}
+.ca-dom-opt,
+.ca-dom-addons {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 6px 14px;
+	margin: 0;
+}
+.ca-dom-opt {
+	flex-wrap: nowrap;
+	gap: 10px;
+}
+.ca-dom-cap {
+	white-space: nowrap;
+}
+.ca-dom-opt .ca-select {
+	width: auto;
+	min-width: 7.5rem;
+	padding: 4px 30px 4px 10px;
+}
+.ca-dom-addon {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	margin: 0;
+	cursor: pointer;
+}
+.ca-dom-addon input {
+	flex: none;
+	accent-color: var(--ca-primary);
+}
+@container (min-width: 540px) {
+	.ca-dom-row {
+		grid-template-columns: minmax(0, 1fr) auto 9rem;
+		grid-template-areas:
+			'name price action'
+			'opts opts opts';
+		column-gap: 20px;
+	}
+	.ca-dom-price {
+		text-align: right;
+	}
+	.ca-dom-opts {
+		flex-direction: row;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 8px 28px;
+	}
+}
+
 /* =========================================================== product cards */
 .ca-product-card {
 	background: #fff;

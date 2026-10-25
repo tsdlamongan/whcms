@@ -126,7 +126,6 @@
 <form
 	method="GET"
 	class="ca-domain-search"
-	style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:20px;"
 	data-sveltekit-keepfocus
 	data-testid="domain-search-form"
 	aria-busy={searching}
@@ -139,7 +138,6 @@
 		type="text"
 		name="q"
 		class="ca-input"
-		style="flex:1 1 220px;max-width:640px;"
 		placeholder={t('orderfe.domain.searchPlaceholder')}
 		bind:value={query}
 		autocomplete="off"
@@ -181,20 +179,16 @@
 	</section>
 {:else}
 	<section
-		class="ca-card"
+		class="ca-card ca-dom-list"
 		class:ca-loading={searching}
 		aria-busy={searching}
 		data-testid="domain-results"
 	>
 		<div class="ca-card-header">{t('orderfe.domain.resultsFor', { q: data.q })}</div>
-		{#each data.results as result, i (result.name)}
-			<div
-				style="padding:12px 16px;{i > 0 ? 'border-top:1px solid #eee;' : ''}"
-				data-testid={`domain-result-${result.name}`}
-			>
-				<div style="display:flex;flex-wrap:wrap;align-items:center;gap:12px;">
-					<span style="min-width:12rem;flex:1;font-weight:600;color:#333;">{result.name}</span>
-
+		{#each data.results as result (result.name)}
+			<div class="ca-dom-row" data-testid={`domain-result-${result.name}`}>
+				<div class="ca-dom-name">
+					<span class="ca-dom-domain">{result.name}</span>
 					{#if result.available}
 						<span class="ca-badge ca-badge--success">{t('orderfe.domain.available')}</span>
 						{#if result.premium}
@@ -203,13 +197,15 @@
 					{:else}
 						<span class="ca-badge ca-badge--danger">{t('orderfe.domain.taken')}</span>
 					{/if}
+				</div>
 
-					<span style="font-size:0.9rem;color:#333;">
-						<MoneyText amount={estimatedTotal(result)} class="font-bold" /><span class="ca-muted"
-							>{t('orderfe.domain.perYear')}</span
-						>
-					</span>
+				<div class="ca-dom-price">
+					<MoneyText amount={estimatedTotal(result)} class="font-bold" /><span class="ca-muted"
+						>{t('orderfe.domain.perYear')}</span
+					>
+				</div>
 
+				<div class="ca-dom-action">
 					{#if cart.hasDomain(result.name)}
 						<a
 							href="/order/cart"
@@ -248,14 +244,11 @@
 				</div>
 
 				{#if !cart.hasDomain(result.name)}
-					<div
-						style="display:flex;flex-wrap:wrap;align-items:center;gap:14px;margin-top:8px;padding-left:0.25rem;"
-					>
-						<label style="font-size:0.85rem;color:#555;display:flex;align-items:center;gap:6px;">
-							{t('orderfe.domain.years')}
+					<div class="ca-dom-opts">
+						<label class="ca-dom-opt">
+							<span class="ca-dom-cap">{t('orderfe.domain.years')}</span>
 							<select
 								class="ca-select"
-								style="padding:2px 6px;"
 								value={yearsFor(result)}
 								onchange={(e) =>
 									(years = {
@@ -271,20 +264,20 @@
 						</label>
 
 						{#if data.addons.length > 0}
-							<span style="font-size:0.85rem;color:#555;">{t('orderfe.domain.addonsLabel')}:</span>
-							{#each data.addons as addon (addon.key)}
-								<label
-									style="font-size:0.85rem;color:#555;display:flex;align-items:center;gap:4px;"
-								>
-									<input
-										type="checkbox"
-										checked={addonsFor(result.name).includes(addon.key)}
-										onchange={() => toggleAddon(result.name, addon.key)}
-										data-testid={`domain-addon-${result.name}-${addon.key}`}
-									/>
-									{addon.name} (<MoneyText amount={addon.price} />)
-								</label>
-							{/each}
+							<div class="ca-dom-addons">
+								<span class="ca-dom-cap">{t('orderfe.domain.addonsLabel')}:</span>
+								{#each data.addons as addon (addon.key)}
+									<label class="ca-dom-addon">
+										<input
+											type="checkbox"
+											checked={addonsFor(result.name).includes(addon.key)}
+											onchange={() => toggleAddon(result.name, addon.key)}
+											data-testid={`domain-addon-${result.name}-${addon.key}`}
+										/>
+										<span>{addon.name} (<MoneyText amount={addon.price} />)</span>
+									</label>
+								{/each}
+							</div>
 						{/if}
 					</div>
 				{/if}
