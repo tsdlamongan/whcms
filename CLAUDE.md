@@ -86,7 +86,7 @@ Manual migrations against your **dev** DB (check first — `make up` already mig
 /deploy                   Dockerfiles, docker-compose{,.prod}.yml, env-examples
 ```
 
-Modules: `auth, catalog, orders, billing, payments, provisioning, domains, tickets, clients, adminops, notifications, announcements, knowledgebase, networkstatus, contact, install`.
+Modules: `auth, catalog, orders, billing, payments, provisioning, domains, tickets, clients, adminops, notifications, announcements, knowledgebase, networkstatus, contact, snipe, install`.
 
 ---
 
