@@ -53,7 +53,8 @@ export const topMenus: HpNavMenu[] = [
 			{ label: 'Add New Client', href: '/admin/clients/new' },
 			{ label: 'Products/Services', href: '/admin/services' },
 			{ label: 'Cancellation Requests', href: '/admin/services/cancellation-requests' },
-			{ label: 'Domain Registrations', href: '/admin/domains' }
+			{ label: 'Domain Registrations', href: '/admin/domains' },
+			{ label: 'Domain Snipes', href: '/admin/snipes' }
 		]
 	},
 	{
@@ -107,6 +108,7 @@ export const topMenus: HpNavMenu[] = [
 		href: '/admin/servers',
 		links: [
 			{ label: 'Domains/TLDs', href: '/admin/domains' },
+			{ label: 'Domain Snipes', href: '/admin/snipes' },
 			{ label: 'Servers', href: '/admin/servers' },
 			{ label: 'Activity Log', href: '/admin/logs/audit' },
 			{ label: 'Email Log', href: '/admin/logs/email' },
@@ -118,7 +120,8 @@ export const topMenus: HpNavMenu[] = [
 		href: '/admin/registrars',
 		links: [
 			{ label: 'Domain Registrars', href: '/admin/registrars' },
-			{ label: 'Domain Addons', href: '/admin/domains/addons' }
+			{ label: 'Domain Addons', href: '/admin/domains/addons' },
+			{ label: 'Domain Snipe Plans', href: '/admin/snipes/plans' }
 		]
 	}
 ];
@@ -129,7 +132,8 @@ export function sidebarKind(pathname: string): SidebarKind {
 	if (
 		p.startsWith('/admin/clients') ||
 		p.startsWith('/admin/orders') ||
-		p.startsWith('/admin/services')
+		p.startsWith('/admin/services') ||
+		p.startsWith('/admin/snipes')
 	)
 		return 'clients';
 	if (p.startsWith('/admin/invoices') || p.startsWith('/admin/transactions')) return 'billing';
@@ -179,7 +183,10 @@ export function sidebarSections(kind: SidebarKind): HpSideSection[] {
 						{ label: '- Suspended', href: '/admin/services?status=suspended', sub: true },
 						{ label: 'Cancellation Requests', href: '/admin/services/cancellation-requests' },
 						{ label: 'Orders', href: '/admin/orders' },
-						{ label: 'Domain Registrations', href: '/admin/domains' }
+						{ label: 'Domain Registrations', href: '/admin/domains' },
+						{ label: 'Domain Snipes', href: '/admin/snipes' },
+						{ label: 'New Domain Snipe', href: '/admin/snipes/new' },
+						{ label: 'Snipe Plans', href: '/admin/snipes/plans' }
 					]
 				}
 			];
@@ -331,6 +338,9 @@ export function pageTitle(pathname: string): string {
 		['/admin/coupons', 'Promotions'],
 		['/admin/services/cancellation-requests', 'Cancellation Requests'],
 		['/admin/services', 'Products/Services'],
+		['/admin/snipes/new', 'New Domain Snipe'],
+		['/admin/snipes/plans', 'Domain Snipe Plans'],
+		['/admin/snipes', 'Domain Snipes'],
 		['/admin/domains/pricing', 'TLD Pricing'],
 		['/admin/domains/addons', 'Domain Addons'],
 		['/admin/domains', 'Domains/TLDs'],
