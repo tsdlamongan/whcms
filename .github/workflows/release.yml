@@ -1,0 +1,98 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build (e.g., v0.1.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build binaries
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        goarch: [amd64, arm64]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache: true
+          cache-dependency-path: backend/go.sum
+
+      - name: Get version
+        id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "version=${INPUT_VERSION}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          fi
+
+      # The updater/installer expect whcms-linux-<arch>.tar.gz containing the
+      # plain names whcms, whcms-api, whcms-worker.
+      - name: Build binaries
+        env:
+          GOOS: linux
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          mkdir -p stage
+          cd backend
+          go build -ldflags="-s -w -X 'github.com/tsdlamongan/whcms/backend/internal/cli.Version=${VERSION#v}' -X 'github.com/tsdlamongan/whcms/backend/internal/cli.BuildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)' -X 'github.com/tsdlamongan/whcms/backend/internal/cli.GitCommit=${GITHUB_SHA}'" -o ../stage/whcms ./cmd/cli
+          go build -ldflags="-s -w" -o ../stage/whcms-api ./cmd/api
+          go build -ldflags="-s -w" -o ../stage/whcms-worker ./cmd/worker
+          cd ..
+          tar -czf whcms-linux-${{ matrix.goarch }}.tar.gz -C stage whcms whcms-api whcms-worker
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: whcms-linux-${{ matrix.goarch }}
+          path: whcms-linux-${{ matrix.goarch }}.tar.gz
+          retention-days: 7
+
+  release:
+    name: Create release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Generate checksums
+        working-directory: artifacts
+        run: |
+          sha256sum whcms-linux-*.tar.gz > checksums.txt
+          cat checksums.txt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/whcms-linux-*.tar.gz
+            artifacts/checksums.txt
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
