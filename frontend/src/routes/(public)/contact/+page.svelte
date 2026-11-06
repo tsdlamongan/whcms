@@ -1,6 +1,8 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
 	import { enhance } from '$app/forms';
 	import { FormField } from '$lib/components';
+	import Turnstile from '$lib/components/ca/Turnstile.svelte';
 	import type { SelectOption } from '$lib/components/types';
 	import { t } from '$lib/i18n';
 	import { untrack } from 'svelte';
@@ -14,6 +16,12 @@
 	let message = $state(untrack(() => form?.values?.message ?? ''));
 	let departmentId = $state(untrack(() => form?.values?.department_id ?? ''));
 	let submitting = $state(false);
+	let captchaReset = $state(0);
+	let captchaReady = $state(false);
+	// Hold submit until the widget has a token (see login page).
+	const captchaPending = $derived(
+		!!(data.captcha?.enabled && data.captcha.siteKey) && !captchaReady
+	);
 
 	const deptOptions = $derived<SelectOption[]>([
 		{ value: '', label: t('portal.contact.departmentPlaceholder') },
@@ -24,7 +32,7 @@
 </script>
 
 <svelte:head>
-	<title>{t('portal.contact.title')} — WHCMS</title>
+	<title>{t('portal.contact.title')} — {appName}</title>
 </svelte:head>
 
 <h1 class="ca-h1">{t('portal.contact.title')}</h1>
@@ -47,8 +55,9 @@
 				data-testid="contact-form"
 				use:enhance={() => {
 					submitting = true;
-					return async ({ update }) => {
+					return async ({ result, update }) => {
 						submitting = false;
+						if (result.type === 'failure') captchaReset++;
 						await update();
 					};
 				}}
@@ -86,13 +95,26 @@
 					required
 				/>
 
+				{#if data.captcha?.enabled && data.captcha.siteKey}
+					<Turnstile
+						siteKey={data.captcha.siteKey}
+						resetSignal={captchaReset}
+						bind:ready={captchaReady}
+					/>
+				{/if}
+
 				<button
 					type="submit"
 					class="ca-btn ca-btn-primary"
-					disabled={submitting}
+					disabled={submitting || captchaPending}
+					aria-busy={submitting}
 					data-testid="contact-submit"
 				>
-					<i class="fas fa-paper-plane" aria-hidden="true"></i>
+					{#if submitting}
+						<span class="ca-spinner" aria-hidden="true"></span>
+					{:else}
+						<i class="fas fa-paper-plane" aria-hidden="true"></i>
+					{/if}
 					{t('portal.contact.submit')}
 				</button>
 			</form>

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
 	import { enhance } from '$app/forms';
 	import { toast } from '$lib/stores/toast.svelte';
 	import { untrack } from 'svelte';
@@ -57,6 +58,40 @@
 		service_renewed: ['{{.ServiceName}}', '{{.Domain}}', '{{.NextDueDate}}'],
 		domain_registered: ['{{.Domain}}', '{{.ExpiryDate}}'],
 		domain_renewed: ['{{.Domain}}', '{{.ExpiryDate}}'],
+		domain_documents_required: [
+			'{{.Name}}',
+			'{{.Domain}}',
+			'{{.DomainID}}',
+			'{{.UploadBy}}',
+			'{{.SuspendOn}}',
+			'{{.DeleteOn}}'
+		],
+		domain_documents_rejected: [
+			'{{.Name}}',
+			'{{.Domain}}',
+			'{{.DomainID}}',
+			'{{.Reason}}',
+			'{{.UploadBy}}',
+			'{{.SuspendOn}}',
+			'{{.DeleteOn}}'
+		],
+		domain_suspended: [
+			'{{.Name}}',
+			'{{.Domain}}',
+			'{{.DomainID}}',
+			'{{.Reason}}',
+			'{{.SuspendOn}}',
+			'{{.DeleteOn}}'
+		],
+		domain_rejected: [
+			'{{.Name}}',
+			'{{.Domain}}',
+			'{{.DomainID}}',
+			'{{.Reason}}',
+			'{{.Refunded}}',
+			'{{.RefundAmount}}',
+			'{{.DocumentFailure}}'
+		],
 		ticket_opened: ['{{.TicketNumber}}', '{{.Subject}}', '{{.TicketURL}}'],
 		ticket_replied: ['{{.TicketNumber}}', '{{.Subject}}', '{{.TicketURL}}'],
 		admin_alert: ['{{.Subject}}', '{{.Detail}}']
@@ -67,7 +102,7 @@
 </script>
 
 <svelte:head>
-	<title>Edit Template — HostPanel Admin</title>
+	<title>Edit Template — {appName} Admin</title>
 </svelte:head>
 
 <h1 class="hp-h1">Edit Email Template</h1>
@@ -191,8 +226,8 @@
 								<div class="hp-info" style="margin-top:8px;font-size:12px">
 									<i class="fas fa-info-circle" style="margin-right:6px"></i>This is the
 									<strong>global layout</strong>: it wraps the body of every other email.
-									<code>{'{{.Content}}'}</code> is the slot each template body is rendered into and
-									must stay present. Editing this restyles all outbound email at once.
+									<code>{'{{.Content}}'}</code> is the slot each template body is rendered into and must
+									stay present. Editing this restyles all outbound email at once.
 								</div>
 							{:else}
 								<div class="hp-help" style="margin-top:6px">

@@ -69,7 +69,10 @@ export const actions: Actions = {
 			body: { email: event.locals.user.email }
 		});
 		if (res.error) {
-			return fail(res.status >= 400 ? res.status : 400, { resendError: true, resendSuccess: false });
+			return fail(res.status >= 400 ? res.status : 400, {
+				resendError: true,
+				resendSuccess: false
+			});
 		}
 		return { resendSuccess: true, resendError: false };
 	}

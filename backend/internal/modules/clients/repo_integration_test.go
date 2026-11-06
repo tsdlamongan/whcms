@@ -234,6 +234,22 @@ func TestRepoSearchClients(t *testing.T) {
 	_, total, err = repo.SearchClients(ctx, clients.SearchInput{Search: tag, HasProduct: true})
 	require.NoError(t, err)
 	assert.Zero(t, total)
+
+	// ids narrows to exactly the requested clients (name resolution for list pages).
+	rows, total, err = repo.SearchClients(ctx, clients.SearchInput{IDs: []int64{c.ID}})
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), total)
+	require.Len(t, rows, 1)
+	assert.Equal(t, c.ID, rows[0].ID)
+
+	_, total, err = repo.SearchClients(ctx, clients.SearchInput{IDs: []int64{c.ID + 1_000_000}})
+	require.NoError(t, err)
+	assert.Zero(t, total, "an id that is not a client matches nothing")
+
+	// an empty/absent ids list means "no id filter", never "match nothing"
+	_, total, err = repo.SearchClients(ctx, clients.SearchInput{Search: tag, IDs: []int64{}})
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), total)
 }
 
 func TestRepoCountsRecentAndExport(t *testing.T) {

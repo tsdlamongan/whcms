@@ -100,6 +100,7 @@ type Deps struct {
 	Activator     ports.ServiceActivator // orders module
 	Renewer       ports.ServiceRenewer   // provisioning module
 	DomainRenewer ports.DomainRenewer    // domains module
+	Snipes        ports.SnipeActivator   // snipe module
 	Notifier      ports.NotificationSender
 	PDF           ports.PDFGenerator
 	Storage       ports.Storage
@@ -323,6 +324,13 @@ func (s *Service) ProcessPaid(ctx context.Context, invoiceID int64) error {
 				continue
 			}
 			if err := s.d.DomainRenewer.RenewDomainAfterPayment(ctx, relatedID); err != nil {
+				return err
+			}
+		case domain.RelatedDomainSnipe:
+			if relatedID == 0 {
+				continue
+			}
+			if err := s.d.Snipes.ActivateSnipeAfterPayment(ctx, relatedID); err != nil {
 				return err
 			}
 		case domain.RelatedDeposit:
@@ -1155,6 +1163,18 @@ func (s *Service) RefundInvoice(ctx context.Context, actorUserID, invoiceID int6
 		next, err := domain.TransitionInvoice(inv.Status, domain.InvoiceRefunded)
 		if err != nil {
 			return err
+		}
+		// A domain hunt's money has its own rules (the registration price goes
+		// back, the service fee does not, and only if the hunt did not win): a
+		// blanket invoice refund would hand back a domain that was registered.
+		items, err := s.d.Invoices.GetItems(txCtx, inv.ID)
+		if err != nil {
+			return err
+		}
+		for i := range items {
+			if items[i].RelatedType == domain.RelatedDomainSnipe {
+				return apperr.Conflict("this invoice pays for a domain hunt - cancel the hunt instead of refunding the invoice")
+			}
 		}
 		if err := s.d.Invoices.UpdateStatus(txCtx, inv.ID, next, nil); err != nil {
 			return err

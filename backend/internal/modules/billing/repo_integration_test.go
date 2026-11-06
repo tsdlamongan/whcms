@@ -346,3 +346,67 @@ func TestRepoAddItemAndForUpdate(t *testing.T) {
 	require.Len(t, items, 2)
 	assert.Equal(t, domain.RelatedLateFee, items[1].RelatedType)
 }
+
+func TestRepoAdminListInvoiceFilters(t *testing.T) {
+	d := testDB(t)
+	repo := billing.NewRepo(d)
+	ctx := context.Background()
+	tag := uuid.NewString()
+	clientA := newClientFixture(t, d, tag+"-a")
+	clientB := newClientFixture(t, d, tag+"-b")
+
+	due := time.Date(2030, 1, 5, 0, 0, 0, 0, time.UTC)
+	invA := newInvoiceFixture(t, repo, clientA, tag+"-a", domain.InvoiceUnpaid, due)
+	cleanupInvoice(t, d, invA.ID)
+	invB := newInvoiceFixture(t, repo, clientB, tag+"-b", domain.InvoiceUnpaid, due)
+	cleanupInvoice(t, d, invB.ID)
+
+	// client_id: the client-detail tab must not leak another client's invoices.
+	list, total, err := repo.List(ctx, ports.ListParams{Search: tag, ClientID: clientA})
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), total)
+	require.Len(t, list, 1)
+	assert.Equal(t, invA.ID, list[0].ID)
+
+	_, total, err = repo.List(ctx, ports.ListParams{Search: tag})
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), total, "no client filter sees both")
+
+	// ids: resolve exactly the invoices a list screen points at (e.g. transaction rows).
+	list, total, err = repo.List(ctx, ports.ListParams{IDs: []int64{invB.ID}})
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), total)
+	require.Len(t, list, 1)
+	assert.Equal(t, invB.ID, list[0].ID)
+
+	_, total, err = repo.List(ctx, ports.ListParams{Search: tag, IDs: []int64{}})
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), total, "an empty ids list means no restriction")
+
+	// Date range on the creation date (both inclusive whole UTC days).
+	today := time.Now().UTC()
+	yesterday := today.AddDate(0, 0, -1)
+	tomorrow := today.AddDate(0, 0, 1)
+
+	_, total, err = repo.List(ctx, ports.ListParams{Search: tag, From: today, To: today})
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), total, "an invoice created today is inside [today, today]")
+
+	_, total, err = repo.List(ctx, ports.ListParams{Search: tag, From: tomorrow})
+	require.NoError(t, err)
+	assert.Zero(t, total, "date_from in the future excludes everything")
+
+	_, total, err = repo.List(ctx, ports.ListParams{Search: tag, To: yesterday})
+	require.NoError(t, err)
+	assert.Zero(t, total, "date_to in the past excludes everything")
+
+	_, total, err = repo.List(ctx, ports.ListParams{Search: tag, From: yesterday, To: tomorrow})
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), total)
+
+	// The client-area listing ignores the admin-only filters' absence/presence
+	// of dates the same way (From/To work there too, ClientID is its own arg).
+	_, total, err = repo.ListByClient(ctx, clientB, ports.ListParams{From: tomorrow})
+	require.NoError(t, err)
+	assert.Zero(t, total)
+}

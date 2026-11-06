@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
 	import { enhance } from '$app/forms';
 	import FormField from '$lib/components/FormField.svelte';
 	import LoadingButton from '$lib/components/LoadingButton.svelte';
@@ -16,12 +17,18 @@
 	let showPassword = $state(false);
 	let submitting = $state(false);
 	let captchaReset = $state(0);
+	let captchaReady = $state(false);
+	// Submitting before Cloudflare has issued a token only earns a "captcha
+	// required" error, so hold the button until the widget has one.
+	const captchaPending = $derived(
+		!!(data.captcha?.enabled && data.captcha.siteKey) && !captchaReady
+	);
 
 	const errorText = $derived(form?.errorKey ? t(form.errorKey) : (form?.errorMessage ?? null));
 </script>
 
 <svelte:head>
-	<title>{t('auth.login')} — WHCMS</title>
+	<title>{t('auth.login')} — {appName}</title>
 </svelte:head>
 
 <h1 class="ca-h1">{t('auth.loginTitle')}</h1>
@@ -99,11 +106,20 @@
 	</div>
 
 	{#if data.captcha?.enabled && data.captcha.siteKey}
-		<Turnstile siteKey={data.captcha.siteKey} resetSignal={captchaReset} />
+		<Turnstile
+			siteKey={data.captcha.siteKey}
+			resetSignal={captchaReset}
+			bind:ready={captchaReady}
+		/>
 	{/if}
 
 	<div class="login-actions">
-		<LoadingButton type="submit" loading={submitting} class="ca-btn ca-btn-primary">
+		<LoadingButton
+			type="submit"
+			loading={submitting}
+			disabled={captchaPending}
+			class="ca-btn ca-btn-primary"
+		>
 			{t('auth.login')}
 		</LoadingButton>
 		<label class="ca-check login-remember">

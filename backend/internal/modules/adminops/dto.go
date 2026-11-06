@@ -102,16 +102,26 @@ func (d *RevenueReportData) CSV() []byte {
 	return buf.Bytes()
 }
 
-// OrdersReportData is the orders report payload (grouped per day).
+// OrderStatusCount is one row of the orders-by-status breakdown.
+type OrderStatusCount struct {
+	Status string `json:"status"`
+	Count  int64  `json:"count"`
+	Amount int64  `json:"amount"`
+}
+
+// OrdersReportData is the orders report payload (grouped per day, plus a
+// breakdown by order status over the same range).
 type OrdersReportData struct {
 	From        string               `json:"from"`
 	To          string               `json:"to"`
 	Points      []ports.RevenuePoint `json:"points"`
 	TotalAmount int64                `json:"total_amount"`
 	TotalCount  int64                `json:"total_count"`
+	ByStatus    []OrderStatusCount   `json:"by_status"`
 }
 
-// CSV renders the orders report as CSV (period,amount,count + totals row).
+// CSV renders the orders report as CSV (period,amount,count + totals row),
+// followed by the by-status breakdown (status,amount,count) after a blank line.
 func (d *OrdersReportData) CSV() []byte {
 	var buf bytes.Buffer
 	w := csv.NewWriter(&buf)
@@ -120,6 +130,13 @@ func (d *OrdersReportData) CSV() []byte {
 		_ = w.Write([]string{p.Period, strconv.FormatInt(p.Amount, 10), strconv.FormatInt(p.Count, 10)})
 	}
 	_ = w.Write([]string{"TOTAL", strconv.FormatInt(d.TotalAmount, 10), strconv.FormatInt(d.TotalCount, 10)})
+	if len(d.ByStatus) > 0 {
+		_ = w.Write(nil)
+		_ = w.Write([]string{"status", "amount", "count"})
+		for _, s := range d.ByStatus {
+			_ = w.Write([]string{s.Status, strconv.FormatInt(s.Amount, 10), strconv.FormatInt(s.Count, 10)})
+		}
+	}
 	w.Flush()
 	return buf.Bytes()
 }

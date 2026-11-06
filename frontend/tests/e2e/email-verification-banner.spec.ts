@@ -7,6 +7,7 @@ import {
 	uniqueDomainLabel,
 	VERIFY_LINK,
 	waitForMailMatch,
+	withAuthRateLimitRetry,
 	type Client
 } from './helpers';
 
@@ -82,7 +83,10 @@ test.describe('unverified client: dashboard banner + cart panel + resend', () =>
 		page
 	}) => {
 		const token = await waitForMailMatch(api, client.email, VERIFY_LINK);
-		const verify = await api.post(`${API_BASE}/api/v1/auth/verify-email`, { data: { token } });
+		// verify-email shares the auth endpoints' per-IP window with every other spec.
+		const verify = await withAuthRateLimitRetry(() =>
+			api.post(`${API_BASE}/api/v1/auth/verify-email`, { data: { token } })
+		);
 		expect(verify.ok(), `verify-email: ${await verify.text()}`).toBeTruthy();
 
 		await page.goto('/dashboard');

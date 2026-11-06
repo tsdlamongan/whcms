@@ -29,6 +29,7 @@
 		queued: 'yellow',
 		overdue: 'red',
 		suspended: 'red',
+		rejected: 'red',
 		terminated: 'red',
 		failed: 'red',
 		fraud: 'red',

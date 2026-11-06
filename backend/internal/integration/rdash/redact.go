@@ -2,6 +2,7 @@ package rdash
 
 import (
 	"net/url"
+	"strings"
 
 	"github.com/tsdlamongan/whcms/backend/internal/integration/redact"
 )
@@ -32,3 +33,13 @@ func redactForm(v url.Values) any { return redactor.Form(v) }
 // redactValue walks a decoded JSON value and masks sensitive map keys,
 // returning a redacted copy.
 func redactValue(v any) any { return redactor.Value(v) }
+
+// redactResponse redacts a response body for the integration log. The
+// document upload link endpoint returns the bearer URL itself as `data`
+// (under no sensitive key), so its body is never logged.
+func redactResponse(path string, raw []byte) any {
+	if strings.Contains(path, "/documents/link") {
+		return map[string]any{"data": redactedPlaceholder}
+	}
+	return redactJSON(raw)
+}

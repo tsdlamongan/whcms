@@ -148,6 +148,9 @@ here — by the time `worker.Deps` is assembled, every field is a real concrete 
 ### domains
 `domainsRepo := domains.NewRepo(db)`; `domainsRegistrarRepo := domains.NewRegistrarRepo(db)`. `domains.New(domains.Deps{Domains: domainsRepo, Registrars: domainsRegistrarRepo, Clients: clientsRepo, Users: authUsersRepo, Settings: settingsRepo, Registrar: rdashAdapter, Enqueuer: enqueuer, Invoices: invoiceCreatorFwd, Notifier: notificationFwd, Encryptor: encryptor, Audit, Clock, Log: log})`. This `*domains.Service` IS the domain-renewer forwarder target — bind after construction. Handler: `domains.NewHandler(svc, mw).RegisterRoutes(api)`. **`POST /domains/check` is registered by THIS module** — do not also look for it in catalog.
 
+### snipe
+`snipeDeps := snipe.Deps{Tx, Snipes: snipe.NewRepo(db), Plans: snipe.NewPlanRepo(db), Domains: domainsSvc (ports.SnipeDomainService), DomainRepo: domainsRepo, Clients: clientsRepo, Users: authUsersRepo, Registrar: sniperAdapter, Settings: settingsRepo, Notifier: notificationFwd, Audit, Clock, Log, Invoices: invoiceCreatorFwd, InvoiceCancel: invoiceCancellerFwd}`; billing gets `Snipes: snipeActivatorFwd` (bound to `app.Snipe` after construction — the billing↔snipe cycle goes through `snipeActivatorFwd`/`invoiceCancellerFwd`); `app.Snipe = snipe.New(snipeDeps)` (HTTP: `snipe.NewHandler(app.Snipe, mw).RegisterRoutes(api)`) and `app.SnipeSupervisor = snipe.NewSupervisor(snipeDeps)` (started ONLY by `cmd/worker`: `go app.SnipeSupervisor.Run(ctx)`, cancelled and awaited before the asynq server stops). `sniperAdapter` is a SECOND `rdash.New(...)` — own breaker (threshold 50 / cooldown 5s), `rdash.CacheCredentials(resolveRDashCredentials, 10s)`, `snipe.NewSampledLogger(integrationLogger, …)`, a dedicated `http.Transport` — never the shared `rdashAdapter`.
+
 ### tickets
 `ticketsRepo := tickets.NewRepo(db)` (satisfies `Deps.Tickets` AND `Deps.Search`). `tickets.New(tickets.Deps{Tx, Tickets: ticketsRepo, Search: ticketsRepo, Clients: clientsRepo, Users: authUsersRepo, Storage: s3, Settings: settingsRepo, Notifier: notificationFwd, Audit, Clock, FrontendURL: cfg.FrontendURL})`. Handler: `tickets.NewHandler(svc, mw).RegisterRoutes(api)`.
 
@@ -225,7 +228,7 @@ approximation — use `worker.Schedules()`, don't hand-merge.
 3. `go vet ./...` — clean.
 4. `go test -race ./...` — all packages green (existing per-module tests must still pass unmodified).
 5. Boot test: run `cmd/api` against the local services (DATABASE_URL, JWT_SECRET, APP_ENCRYPTION_KEY,
-   RUSTFS_* env vars — see backend/.env.example) in the background, `curl localhost:8080/healthz` (200) and
+   RUSTFS_* env vars — see .env.example) in the background, `curl localhost:8080/healthz` (200) and
    `/readyz` (all `ok`), then hit 2-3 real endpoints to prove wiring end-to-end, e.g.:
    - `GET /api/v1/products` → 200 with envelope (empty list is fine, catalog has no seed products yet)
    - `POST /api/v1/auth/register` with a throwaway email → 201

@@ -69,6 +69,16 @@ type rdashDomain struct {
 	ExpiredAt                                                            time.Time
 	AdminContactID, TechContactID, BillingContactID, RegistrantContactID int64
 	DNS                                                                  []rdashDnsRecord
+
+	// Document / verification lifecycle (rdash_documents.go).
+	RequiredDocument bool
+	Verification     int // 0 Waiting, 1 Verifying, 2 Document Validating, 3 Active
+	StatusReason     string
+	Refundable       bool
+	DocToken         string
+	LinkRequests     int
+	Uploads          int
+	ResendCount      int
 }
 
 func defaultNameservers() []string {
@@ -124,11 +134,30 @@ func (s *Server) domainPayload(d *rdashDomain) map[string]any {
 		"status_label": d.StatusLabel,
 		"expired_at":   d.ExpiredAt.UTC().Format(rdashDateFormat),
 		"customer":     map[string]any{"id": d.CustomerID},
+
+		"is_required_document":      boolToInt(d.RequiredDocument),
+		"verification_status":       d.Verification,
+		"verification_status_label": rdashVerificationLabels[d.Verification],
+		"is_refundable":             d.Refundable,
+		"token":                     d.DocToken,
+		"tld":                       "." + rdashTLD(d.Name),
+	}
+	if d.StatusReason != "" {
+		payload["status_reason"] = d.StatusReason
+	} else {
+		payload["status_reason"] = nil
 	}
 	if c, ok := s.rdashContacts[d.RegistrantContactID]; ok {
 		payload["registrant_contact"] = contactPayload(c)
 	}
 	return payload
+}
+
+func boolToInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 func contactPayload(c *rdashContact) map[string]any {
@@ -190,18 +219,25 @@ func (s *Server) handleRDashAvailability(w http.ResponseWriter, r *http.Request)
 	}
 	s.mu.Lock()
 	_, registered := s.rdashDomainsByName[name]
+	_, scripted := s.rdashScripts[name]
+	holding := s.rdashScriptHoldingLocked(name)
 	s.mu.Unlock()
 	available := 0
 	message := "domain already registered"
-	if !strings.Contains(name, "taken") && !registered {
+	// A drop script owns the name's availability: unavailable until its
+	// scripted failures are served, then available (even if the name contains
+	// "taken"). Unscripted names keep the `taken` substring rule.
+	if !registered && !holding && (scripted || !strings.Contains(name, "taken")) {
 		available = 1
 		message = "available"
 	}
-	writeRDash(w, http.StatusOK, "Success", []map[string]any{{
+	// Single-resource endpoint (one domain per call) - the real Dewabiz API
+	// returns `data` as a plain object here, not wrapped in an array.
+	writeRDash(w, http.StatusOK, "Success", map[string]any{
 		"name":      name,
 		"available": available,
 		"message":   message,
-	}})
+	})
 }
 
 // GET /v1/domains/details?domain_name=X
@@ -321,6 +357,12 @@ func (s *Server) handleRDashContactCreate(w http.ResponseWriter, r *http.Request
 }
 
 // POST /v1/domains - Register.
+//
+// Besides the plain flow this honors the sniper hooks: every request that
+// names a domain is counted (rdashAttempts), a drop script can force the first
+// N attempts to fail, and a successful registration debits the reseller
+// balance (rdashMockPricePerYear * period; 422 "Insufficient balance" when it
+// does not cover it).
 func (s *Server) handleRDashRegisterDomain(w http.ResponseWriter, r *http.Request) {
 	if _, ok := rdashAuth(w, r); !ok {
 		return
@@ -331,6 +373,7 @@ func (s *Server) handleRDashRegisterDomain(w http.ResponseWriter, r *http.Reques
 		writeRDashValidation(w, "The name field is required.", map[string][]string{"name": {"The name field is required."}})
 		return
 	}
+	attempt := s.recordRDashAttempt(name)
 	customerID, err := strconv.ParseInt(form.Get("customer_id"), 10, 64)
 	if err != nil {
 		writeRDashValidation(w, "The customer id is not exist.", map[string][]string{"customer_id": {"The customer id is not exist."}})
@@ -343,13 +386,6 @@ func (s *Server) handleRDashRegisterDomain(w http.ResponseWriter, r *http.Reques
 		writeRDashValidation(w, "The customer id is not exist.", map[string][]string{"customer_id": {"The customer id is not exist."}})
 		return
 	}
-	s.mu.Lock()
-	_, taken := s.rdashDomainsByName[name]
-	s.mu.Unlock()
-	if strings.Contains(name, "taken") || taken {
-		writeRDash(w, http.StatusConflict, "domain not available", nil)
-		return
-	}
 	period, err := strconv.Atoi(form.Get("period"))
 	if err != nil || period < 1 {
 		period = 1
@@ -359,7 +395,15 @@ func (s *Server) handleRDashRegisterDomain(w http.ResponseWriter, r *http.Reques
 		ns = defaultNameservers()
 	}
 
+	// One critical section for the availability check, the balance debit and
+	// the insert, so concurrent snipers cannot double-register or overdraw.
 	s.mu.Lock()
+	if status, message := s.rdashRegisterRejectLocked(name, attempt, period); status != 0 {
+		s.mu.Unlock()
+		writeRDash(w, status, message, nil)
+		return
+	}
+	s.rdashBalance -= rdashMockPricePerYear * int64(period)
 	registrantContactID := s.ensureDefaultContactLocked(customerID, form.Get("registrant_contact_id"))
 	s.rdashDomainSeq++
 	d := &rdashDomain{
@@ -371,6 +415,7 @@ func (s *Server) handleRDashRegisterDomain(w http.ResponseWriter, r *http.Reques
 	}
 	s.rdashDomains[d.ID] = d
 	s.rdashDomainsByName[name] = d.ID
+	s.initVerificationLocked(d, false)
 	payload := s.domainPayload(d)
 	s.mu.Unlock()
 
@@ -430,6 +475,7 @@ func (s *Server) handleRDashTransferDomain(w http.ResponseWriter, r *http.Reques
 	}
 	s.rdashDomains[d.ID] = d
 	s.rdashDomainsByName[name] = d.ID
+	s.initVerificationLocked(d, true)
 	payload := s.domainPayload(d)
 	s.mu.Unlock()
 
@@ -599,7 +645,10 @@ func (s *Server) handleRDashBalance(w http.ResponseWriter, r *http.Request) {
 	if _, ok := rdashAuth(w, r); !ok {
 		return
 	}
-	writeRDash(w, http.StatusOK, "Success", map[string]any{"currency": "IDR", "balance": "10000000.00"})
+	s.mu.Lock()
+	balance := s.rdashBalance
+	s.mu.Unlock()
+	writeRDash(w, http.StatusOK, "Success", map[string]any{"currency": "IDR", "balance": fmt.Sprintf("%d.00", balance)})
 }
 
 // GET /v1/account/prices?domainExtension[extension]=X - synthesizes a price

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import {
@@ -59,7 +60,7 @@
 </script>
 
 <svelte:head>
-	<title>{t('clientBilling.title')} — WHCMS</title>
+	<title>{t('clientBilling.title')} — {appName}</title>
 </svelte:head>
 
 <Breadcrumb

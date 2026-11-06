@@ -118,6 +118,20 @@ func skipInvalidID(t *asynq.Task, field string, id int64) error {
 	return fmt.Errorf("worker: %s: invalid %s %d: %w", t.Type(), field, id, asynq.SkipRetry)
 }
 
+// skipIfValidation treats a VALIDATION error (e.g. a client profile that is
+// permanently missing required address details) as a final failure: retrying
+// a fixed set of bad/missing data won't ever succeed, so asynq's exponential
+// backoff would only delay the admin alert for no benefit.
+func skipIfValidation(t *asynq.Task, err error) error {
+	if err == nil {
+		return nil
+	}
+	if apperr.From(err).Code == apperr.CodeValidation {
+		return fmt.Errorf("worker: %s: %v: %w", t.Type(), err, asynq.SkipRetry)
+	}
+	return err
+}
+
 // --- one-off task handlers ---------------------------------------------------
 
 func (h *handlers) orderActivate(ctx context.Context, t *asynq.Task) error {
@@ -211,7 +225,7 @@ func (h *handlers) domainRegister(ctx context.Context, t *asynq.Task) error {
 	if p.DomainID <= 0 {
 		return skipInvalidID(t, "domain_id", p.DomainID)
 	}
-	return h.d.Domains.RegisterDomainJob(ctx, p.DomainID)
+	return skipIfValidation(t, h.d.Domains.RegisterDomainJob(ctx, p.DomainID))
 }
 
 func (h *handlers) domainTransfer(ctx context.Context, t *asynq.Task) error {
@@ -222,7 +236,7 @@ func (h *handlers) domainTransfer(ctx context.Context, t *asynq.Task) error {
 	if p.DomainID <= 0 {
 		return skipInvalidID(t, "domain_id", p.DomainID)
 	}
-	return h.d.Domains.TransferDomainJob(ctx, p.DomainID)
+	return skipIfValidation(t, h.d.Domains.TransferDomainJob(ctx, p.DomainID))
 }
 
 func (h *handlers) domainRenew(ctx context.Context, t *asynq.Task) error {

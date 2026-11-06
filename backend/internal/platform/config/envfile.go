@@ -126,7 +126,7 @@ func parseEnvLine(line string) (key, value string, ok bool) {
 	raw := line[idx+1:]
 	// A quoted value keeps any '#' inside it literally (e.g. a password);
 	// only an unquoted value gets its trailing "  # comment" stripped, same
-	// as backend/.env.example's own style of documenting a blank default
+	// as .env.example's own style of documenting a blank default
 	// inline (e.g. "DUITKU_BASE_URL=            # empty -> derived from...").
 	// Checked on the pre-trim value so a stripped-to-nothing comment (the
 	// common case: value is blank, comment follows after whitespace)

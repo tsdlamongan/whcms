@@ -39,6 +39,7 @@ type deps struct {
 	enqueuer             *mocks.MockEnqueuer
 	invoices             *mocks.MockInvoiceCreator
 	renewalCheck         *mocks.MockRenewalInvoiceChecker
+	payments             *mocks.MockDomainPaymentSource
 	notifier             *mocks.MockNotificationSender
 	encryptor            *mocks.MockEncryptor
 	audit                *mocks.MockAuditLogger
@@ -61,6 +62,7 @@ func newFixture() *deps {
 		enqueuer:             &mocks.MockEnqueuer{},
 		invoices:             &mocks.MockInvoiceCreator{},
 		renewalCheck:         &mocks.MockRenewalInvoiceChecker{},
+		payments:             &mocks.MockDomainPaymentSource{},
 		notifier:             &mocks.MockNotificationSender{},
 		encryptor:            &mocks.MockEncryptor{},
 		audit:                &mocks.MockAuditLogger{},
@@ -84,6 +86,7 @@ func (d *deps) svc() *domains.Service {
 		Enqueuer:             d.enqueuer,
 		Invoices:             d.invoices,
 		RenewalCheck:         d.renewalCheck,
+		Payments:             d.payments,
 		Notifier:             d.notifier,
 		Encryptor:            d.encryptor,
 		Audit:                d.audit,
@@ -798,6 +801,35 @@ func TestRegisterDomainJob(t *testing.T) {
 		}
 		assert.NoError(t, d.svc().RegisterDomainJob(context.Background(), 10))
 	})
+
+	t.Run("incomplete client profile fails validation and notifies the client", func(t *testing.T) {
+		d := newFixture()
+		stubGet(d, testDomain(func(x *domain.Domain) { x.Status = domain.DomainPending }))
+		d.clients.GetByIDFn = func(ctx context.Context, id int64) (*domain.Client, error) {
+			return &domain.Client{ID: id, UserID: 77, FirstName: "Budi", Address1: "Jl. Melati 1", City: "Lamongan"}, nil
+		}
+		d.users.GetByIDFn = func(ctx context.Context, id int64) (*domain.User, error) {
+			return &domain.User{ID: id, Email: "budi@example.com"}, nil
+		}
+		registered := false
+		d.registrar.RegisterFn = func(ctx context.Context, r ports.RegisterDomainRequest) (*ports.DomainResult, error) {
+			registered = true
+			return nil, nil
+		}
+		var notifiedUser int64
+		var notifiedTpl string
+		d.notifier.SendTemplateFn = func(ctx context.Context, userID int64, key string, data map[string]any) error {
+			notifiedUser, notifiedTpl = userID, key
+			assert.Equal(t, "example.com", data["Domain"])
+			return nil
+		}
+
+		err := d.svc().RegisterDomainJob(context.Background(), 10)
+		assertCode(t, err, apperr.CodeValidation)
+		assert.False(t, registered, "registrar must not be called with an incomplete contact")
+		assert.EqualValues(t, 77, notifiedUser)
+		assert.Equal(t, "domain_profile_incomplete", notifiedTpl)
+	})
 }
 
 // TransferDomainJob
@@ -860,6 +892,29 @@ func TestTransferDomainJob(t *testing.T) {
 		}
 		err := d.svc().TransferDomainJob(context.Background(), 10)
 		assertCode(t, err, apperr.CodeExternal)
+	})
+
+	t.Run("incomplete client profile fails validation", func(t *testing.T) {
+		d := newFixture()
+		stubGet(d, testDomain(func(x *domain.Domain) {
+			x.Status = domain.DomainPendingTransfer
+			x.EPPCodeEnc = "enc:epp-secret"
+		}))
+		d.clients.GetByIDFn = func(ctx context.Context, id int64) (*domain.Client, error) {
+			return &domain.Client{ID: id, UserID: 77, FirstName: "Budi"}, nil
+		}
+		d.users.GetByIDFn = func(ctx context.Context, id int64) (*domain.User, error) {
+			return &domain.User{ID: id, Email: "budi@example.com"}, nil
+		}
+		transferred := false
+		d.registrar.TransferFn = func(ctx context.Context, r ports.TransferDomainRequest) (*ports.DomainResult, error) {
+			transferred = true
+			return nil, nil
+		}
+
+		err := d.svc().TransferDomainJob(context.Background(), 10)
+		assertCode(t, err, apperr.CodeValidation)
+		assert.False(t, transferred, "registrar must not be called with an incomplete contact")
 	})
 }
 
@@ -1376,11 +1431,11 @@ func TestRegistrarAdmin(t *testing.T) {
 			stored = &cp
 			return nil
 		}
-		resellerID := "584"
+		resellerID := "test-reseller-1"
 		reg, err := d.svc().UpdateRegistrar(context.Background(), 1, 1, domains.UpdateRegistrarRequest{ResellerID: &resellerID})
 		require.NoError(t, err)
-		assert.Equal(t, "584", reg.ResellerID)
-		assert.Equal(t, "584", stored.ResellerID)
+		assert.Equal(t, "test-reseller-1", reg.ResellerID)
+		assert.Equal(t, "test-reseller-1", stored.ResellerID)
 	})
 
 	t.Run("api key encrypted on save, never touched when nil, cleared by explicit empty string", func(t *testing.T) {
@@ -1405,7 +1460,7 @@ func TestRegistrarAdmin(t *testing.T) {
 		assert.Equal(t, "existing-ciphertext", stored.APIKeyEnc)
 
 		// Non-empty APIKey: encrypted and stored.
-		newKey := "UBJZusY7HHxaEdaUyTFhykGUEGEHwaXN"
+		newKey := "fake-test-api-key-0000000000000"
 		_, err = d.svc().UpdateRegistrar(context.Background(), 1, 1, domains.UpdateRegistrarRequest{APIKey: &newKey})
 		require.NoError(t, err)
 		assert.Equal(t, "enc:"+newKey, stored.APIKeyEnc)

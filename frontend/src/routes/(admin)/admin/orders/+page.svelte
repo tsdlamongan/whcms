@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
 	import DateText from '$lib/components/DateText.svelte';
 	import HpPager from '$lib/components/hp/HpPager.svelte';
 	import MoneyText from '$lib/components/MoneyText.svelte';
@@ -25,7 +26,7 @@
 </script>
 
 <svelte:head>
-	<title>Orders — HostPanel Admin</title>
+	<title>Orders — {appName} Admin</title>
 </svelte:head>
 
 <h1 class="hp-h1">Orders</h1>

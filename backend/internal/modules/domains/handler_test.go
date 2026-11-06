@@ -120,6 +120,11 @@ type fakeService struct {
 
 	UpdateDomainAddonsFn func(ctx context.Context, clientID, domainID int64, keys []string) (*domain.Domain, error)
 
+	DocumentUploadLinkFn func(ctx context.Context, clientID, domainID int64) (string, error)
+	ResendVerificationFn func(ctx context.Context, clientID, domainID int64) error
+	RefreshForClientFn   func(ctx context.Context, clientID, domainID int64) (*domain.Domain, error)
+	AdminRefundFn        func(ctx context.Context, actorUserID, id int64, in domains.AdminRefundRequest) (*domain.Domain, error)
+
 	ListActiveTLDsFn         func(ctx context.Context) ([]domain.TLDPricing, error)
 	ListActiveDomainAddonsFn func(ctx context.Context) ([]domain.DomainAddon, error)
 
@@ -431,6 +436,34 @@ func (f *fakeService) UpdateDomainAddon(ctx context.Context, actorUserID, id int
 	return nil, nil
 }
 
+func (f *fakeService) DocumentUploadLink(ctx context.Context, clientID, domainID int64) (string, error) {
+	if f.DocumentUploadLinkFn != nil {
+		return f.DocumentUploadLinkFn(ctx, clientID, domainID)
+	}
+	return "", nil
+}
+
+func (f *fakeService) ResendVerification(ctx context.Context, clientID, domainID int64) error {
+	if f.ResendVerificationFn != nil {
+		return f.ResendVerificationFn(ctx, clientID, domainID)
+	}
+	return nil
+}
+
+func (f *fakeService) RefreshForClient(ctx context.Context, clientID, domainID int64) (*domain.Domain, error) {
+	if f.RefreshForClientFn != nil {
+		return f.RefreshForClientFn(ctx, clientID, domainID)
+	}
+	return &domain.Domain{}, nil
+}
+
+func (f *fakeService) AdminRefund(ctx context.Context, actorUserID, id int64, in domains.AdminRefundRequest) (*domain.Domain, error) {
+	if f.AdminRefundFn != nil {
+		return f.AdminRefundFn(ctx, actorUserID, id, in)
+	}
+	return &domain.Domain{}, nil
+}
+
 var _ domains.DomainService = (*fakeService)(nil)
 
 // Harness
@@ -690,6 +723,29 @@ func TestHandlerAdminGuards(t *testing.T) {
 	assert.Equal(t, 403, status)
 }
 
+func TestHandlerAdminDomainsClientFilter(t *testing.T) {
+	var got ports.ListParams
+	called := false
+	svc := &fakeService{
+		AdminListFn: func(ctx context.Context, p ports.ListParams) ([]domain.Domain, int64, error) {
+			called, got = true, p
+			return nil, 0, nil
+		},
+	}
+	app := newApp(svc, &fakeMW{identity: adminIdentity()})
+
+	status, _ := doJSON(t, app, "GET", "/api/v1/admin/domains/?client_id=12&status=active&search=ex", "")
+	assert.Equal(t, 200, status)
+	assert.Equal(t, int64(12), got.ClientID)
+	assert.Equal(t, "active", got.Status)
+	assert.Equal(t, "ex", got.Search)
+
+	called = false
+	status, _ = doJSON(t, app, "GET", "/api/v1/admin/domains/?client_id=nope", "")
+	assert.Equal(t, 422, status)
+	assert.False(t, called, "a malformed client_id must never widen the list")
+}
+
 func TestHandlerAdminDomains(t *testing.T) {
 	svc := &fakeService{
 		AdminListFn: func(ctx context.Context, p ports.ListParams) ([]domain.Domain, int64, error) {
@@ -801,7 +857,7 @@ func TestHandlerAdminUpdate(t *testing.T) {
 func TestHandlerRegistrars(t *testing.T) {
 	svc := &fakeService{
 		ListRegistrarsFn: func(ctx context.Context) ([]domain.Registrar, error) {
-			return []domain.Registrar{{ID: 1, Name: "rdash", Active: true, ResellerID: "584", BaseURL: "http://localhost:9090/v1"}}, nil
+			return []domain.Registrar{{ID: 1, Name: "rdash", Active: true, ResellerID: "test-reseller-1", BaseURL: "http://localhost:9090/v1"}}, nil
 		},
 		UpdateRegistrarFn: func(ctx context.Context, actorUserID, id int64, in domains.UpdateRegistrarRequest) (*domain.Registrar, error) {
 			assert.EqualValues(t, 1, actorUserID)
@@ -821,7 +877,7 @@ func TestHandlerRegistrars(t *testing.T) {
 	list := env["data"].([]any)
 	assert.Len(t, list, 1)
 	assert.Equal(t, true, list[0].(map[string]any)["api_key_present"])
-	assert.Equal(t, "584", list[0].(map[string]any)["reseller_id"])
+	assert.Equal(t, "test-reseller-1", list[0].(map[string]any)["reseller_id"])
 	assert.Equal(t, "http://localhost:9090/v1", list[0].(map[string]any)["base_url"])
 
 	status, env = doJSON(t, app, "GET", "/api/v1/admin/registrars/1", "")

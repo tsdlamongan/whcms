@@ -22,7 +22,7 @@ backend/internal/modules/<mod>/          package <mod>
 - Cross-module calls go through **interfaces declared in ports.go** (already curated) or narrow consumer-side
   interfaces declared in YOUR package with the EXACT signatures pinned in §2 below (they are satisfied implicitly at wiring time).
 - Do NOT edit casually: ports/, domain/, migrations/, platform/, pkg/, other modules' dirs, cmd/, transport/http (except reading middleware helpers). If something you need is missing there, extend it in a focused, contract-conscious change (new ports method + mock, forward-only migration) rather than working around it inside the module.
-- Fast inner loop: `go build ./internal/modules/<mod>/... && go vet ./internal/modules/<mod>/... && go test ./internal/modules/<mod>/...`; the real gate before "done" is the full `make test-backend` from the repo root.
+- Fast inner loop: `go build ./internal/modules/<mod>/... && go vet ./internal/modules/<mod>/... && go test ./internal/modules/<mod>/...`; the real gate before "done" is the full `make cover` from the repo root.
 - RegisterRoutes signature convention (copy from settings reference but adapt): handlers receive service interface, middleware bundle struct `Middlewares{RequireAuth, RequireRole, RequirePermission, RequireClient, RateLimit fiber.Handler-ish}` — mirror whatever `internal/transport/http/middleware.go` exposes.
 
 ## 1. Scope decisions (final — implement exactly, do not re-litigate)
@@ -64,7 +64,7 @@ clients:   DeductCredit(ctx context.Context, clientID int64, amount int64, reaso
 billing:   GenerateRenewalInvoices(ctx) (int, error); MarkOverdue(ctx) (int, error); SendReminders(ctx) (int, error); ApplyLateFees(ctx) (int, error); GenerateInvoicePDF(ctx, invoiceID int64) error
 payments:  ReconcilePending(ctx) (int, error); ReconcileOne(ctx, transactionID int64) error
 provisioning: AutoSuspend(ctx) (int, error); AutoTerminate(ctx) (int, error); ProvisionCreate(ctx, serviceID int64) error; ProvisionSuspend(ctx, serviceID int64, reason string) error; ProvisionUnsuspend(ctx, serviceID int64) error; ProvisionTerminate(ctx, serviceID int64) error; ProvisionChangePackage(ctx, serviceID int64) error
-domains:   RegisterDomainJob(ctx, domainID int64) error; TransferDomainJob(ctx, domainID int64) error; RenewDomainJob(ctx, domainID int64) error; SyncDomainJob(ctx, domainID int64) error; SyncAllDomains(ctx) (int, error)
+domains:   RegisterDomainJob(ctx, domainID int64) error; TransferDomainJob(ctx, domainID int64) error; RenewDomainJob(ctx, domainID int64) error; SyncDomainJob(ctx, domainID int64) error; SyncAllDomains(ctx) (int, error); SyncAwaitingVerification(ctx) (int, error)   // verification poller (CONTRACTS §16)
 notifications: DeliverEmail(ctx, emailLogID int64) error
 adminops:  Housekeep(ctx) (int, error)
 ```
@@ -109,7 +109,7 @@ FR-ORD-001..007. POST /orders (auth + verified email required): input {items:[{p
 cycle, options{}, domain_years?}], coupon_code?, notes?}. Validate: product visible+stock, cycle priced, domain
 syntax + availability via ports.RegistrarModule.CheckAvailability for registers (skip check for transfers, require
 epp later at job), configurable options valid, coupon valid → compute pricing (unit prices from product_pricing,
-option deltas, setup fees; domain price from registrar check result or product pricing type domain), fraud checks,
+option deltas, setup fees; a domain is sold ONLY when its extension has an ACTIVE Domain Pricing (tld_pricing) row — else VALIDATION "the .x extension is not offered for sale", for registers AND transfers — and is priced premium-override > length-tier > the TLD matrix; the registrar quote is never a selling price), fraud checks,
 then tx: create order(pending)+order_items, decrement stock, CreateInvoice (due = now + billing.invoice_due_days,
 items linked related_type=order_item) — respond order+invoice. ActivateOrder(ctx, orderID): idempotent (skip already-activated items via order_items.service_id/domain_id backrefs);
 per item: product hosting/reseller/other+module → create service row (username from domain via domain helper,
@@ -289,6 +289,72 @@ clears) so a manually-recorded domain stays billable/correctable without a regis
 Auto-renew=false + expired → status expired (sync). Renewal invoice generation handled by M-BILLING using
 domains.next_due_date (billing reads DomainRepo).
 
+### M-SNIPE `internal/modules/snipe`
+Domain sniper: a hunt keeps trying to register a dropping domain at the registrar until it wins, the window
+closes or it is cancelled. Owns `domain_snipes` + `domain_snipe_events` + `snipe_plans`. Service (HTTP side):
+AdminCreate (free hunt on behalf of a client; fails fast on an unpriced TLD via `domains.QuoteRegistration`, an
+incomplete registrant profile via `domains.RegistrantContactFor`, a name already in `domains`, bad window/
+deadline; refused while the sniper is full, like a client purchase), AdminGet/AdminList, AdminCancel (also
+voids an unpaid snipe's invoice), Status. Cancelling a RUNNING hunt (admin or client) first asks the registrar
+whether the domain is already ours: owned → 409 "just secured, refresh" (the hunt records the win), unknown →
+502 "try again in a moment", so no refund is ever paid for a domain we hold. A client's duplicate-name conflict
+is vague ("cannot be hunted right now") so nobody learns who else hunts a name. A win whose `domains` row
+already exists for the same client (added by hand meanwhile) is adopted; a persistent failure to record a win
+keeps the hunt alive and alerts once an hour, never refunds. Client side:
+Quote/Create (validates verified email, `snipe.enabled`, active plan, priced TLD, full profile, per-client cap,
+global capacity (active + unpaid snipes must stay below `snipe.max_active_global`, so a paid hunt is never parked
+in the queue), a drop window that has both ends and spans at most 6h (`maxClientBurstWindow`: inside it the hunt
+fires a request every few hundred ms; admins may hunt without a window), name not registered here and not
+registrable now, sniper not paused (hunts standing still would burn the client's window); ONE transaction
+inserts the `pending_payment` snipe + its
+invoice via `ports.InvoiceCreator` and freezes the refundable split), ListForClient/GetForClient (owner view:
+no `last_error`, lease or raw events), CancelForClient (closes the snipe FIRST, then voids an unpaid invoice
+best-effort: a payment landing in between hits `ActivateSnipeAfterPayment`, finds the snipe ended and credits the
+whole payment back via `RecordRefund`, which only applies once; `lifecycle.voidInvoice` also leaves the invoice
+alone while a gateway transaction on it is pending or unreadable, so a payment already in flight is credited back
+instead of stranded on a cancelled invoice), plans CRUD (admin). `billing.RefundInvoice` refuses an invoice with a
+`domain_snipe` item (cancel the hunt instead: its own rules decide what goes back). `ActivateSnipeAfterPayment`
+(`ports.SnipeActivator`) runs inside the payment transaction: no registrar or gateway call, only DB writes plus a queued email (the same pattern as the payment receipt), idempotent, a replay is a no-op. The
+Supervisor also sweeps `pending_payment` snipes whose invoice is cancelled or a full day overdue (once a minute;
+close the snipe, then void the invoice) and only runs the reseller-account preflight when there is something to
+hunt, so an idle system never calls the registrar. `lifecycle.finish` is the one place a snipe ends: guarded
+status CAS + credit-back (`ClientRepo.AdjustCredit`) + trail entry in ONE transaction, then audit + email (fixed
+wording: the registrar's reason stays in `last_error` and the trail, never in a client email). A refund owed to a
+client deleted since paying (`AdjustCredit` NotFound) still closes the snipe, marks it refunded and alerts an
+operator to settle it by hand.
+Refund rules (only for a paid, i.e. active, snipe; `refundable_*` split `invoice.total` pro-rata): won → none;
+expired / client cancel → domain price; admin cancel → domain price (+ fee with `refund_fee`); failed → all.
+Supervisor (worker side, see CONTRACTS §7): Tick every 2s = refresh settings → heartbeat leases + flush
+attempts → expire idle hunts past their deadline → (paused? probe the reseller account) → preflight the reseller
+account (cached) → claim up to `snipe.max_active_global` rows. Every refund-bearing ending (expiry, failure, the idle expiry sweep) first asks `SyncDomain` whether the domain is
+in fact ours: owned → record the win instead, unknown → postpone, not ours → refund; a register call cut off by
+shutdown/lease loss gets the same detached check (`afterAbort`). While the sniper is paused or disabled, the idle
+expiry sweep ends a snipe as `failed` (full refund): that downtime is not the client's loss. A claim never starts a
+second goroutine for an id this process already runs. The expiry sweep itself runs in a background goroutine
+(one pass at a time) so its registrar lookups can never delay the lease heartbeats; the heartbeat runs every
+tick (2s), which is also how fast a hunt notices its snipe was cancelled through the API. Each hunt:
+resolve the registrar customer once (`EnsureCustomer`, cached on the row; a definitive refusal of the client's
+details, 6 times in a row, ends the hunt as `failed` with a full refund — timeouts and rate limits never count),
+verify ownership (`SyncDomain`), then loop by mode — wait (before
+`hunt_from − burst_lead`, silent), patient (`IsAvailable` every `patient_interval`; a free name starts a burst),
+burst (`RegisterForCustomer` every `burst_interval`+jitter, inside the drop window or after availability flips;
+50 straight 409s after an availability-triggered burst return to patient). `classify` maps registrar errors: 409
+taken → keep going; 429 → back off (Retry-After); timeout/5xx/unreadable reply → AMBIGUOUS, verify via
+`SyncDomain` before any retry (a booked-but-lost registration must never be re-attempted or missed; for the next
+30s every "taken" reply is double-checked at most once per 2s, because a registration that was still settling turns
+into a 409 once we hold the name); 401/403 or a
+balance message → global pause (`snipe.pause_reason`, one admin alert, hunts stay active, auto-resume; a credentials
+verdict pauses only if `AccountInfo` confirms the account is unusable - one domain's 403 must not stop every hunt;
+the domain's own name is scrubbed from registrar text before matching "balance"/"taken" wording; a "not available"
+4xx counts as taken; Retry-After is capped at 30s);
+`customer_id` rejection → failed + full refund; other rejections counted, 200 in a row → failed. A win commits
+the `domains` row (`domains.RecordSnipedDomain`) and the won status together, detached from shutdown, and is
+not lease-fenced (the registration is already paid for); a cancel that races an in-flight winning call is
+handed over as a "late win" with an admin alert. Registrar access goes through `ports.DomainSniper`, satisfied by
+a DEDICATED `rdash.Client` (own circuit breaker so hunts can never open the one guarding checkout
+registrations, credentials cached 10s, `snipe.NewSampledLogger` so `integration_logs` is not flooded, own
+transport). Admin routes: CONTRACTS §9.
+
 ### M-TICKETS `internal/modules/tickets`
 FR-TIC-001..006. Departments CRUD (admin) + public list. Client: create (subject, dept, priority, message,
 attachments multipart → validate ext/size per settings → Storage.Put `tickets/<ticket>/<uuid>-<filename>`), reply,
@@ -361,7 +427,7 @@ shape/reconciliation are inherently Duitku-specific.
 ## 4. Definition of done per module
 
 1. Own packages: build + vet + tests pass (`go test ./internal/modules/<mod>/... -race`), then the full
-   `make test-backend` gate from the repo root.
+   `make cover` gate from the repo root.
 2. Service logic coverage ≥90% for the module's packages (`go test -cover`); handlers+repo covered with
    fakes/integration tests.
 3. RegisterRoutes exported + a package doc comment listing the route table.

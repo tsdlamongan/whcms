@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
 	import { Alert } from '$lib/components';
 	import CaDomainHero from '$lib/components/ca/CaDomainHero.svelte';
 	import CaProductCard from '$lib/components/ca/CaProductCard.svelte';
@@ -45,7 +46,7 @@
 </script>
 
 <svelte:head>
-	<title>WHCMS</title>
+	<title>{appName}</title>
 </svelte:head>
 
 <div data-testid="portal-home">

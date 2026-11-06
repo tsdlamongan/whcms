@@ -7,9 +7,7 @@ export const load: PageServerLoad = async (event) => {
 	const page = Math.max(1, Number(params.get('page')) || 1);
 	const perPage = Math.min(1000, Math.max(1, Number(params.get('per_page')) || 10));
 	const statusParam = params.get('status') ?? '';
-	const status = (EMAIL_LOG_STATUSES as readonly string[]).includes(statusParam)
-		? statusParam
-		: '';
+	const status = (EMAIL_LOG_STATUSES as readonly string[]).includes(statusParam) ? statusParam : '';
 
 	const res = await apiFetch<EmailLogEntry[]>(event, '/api/v1/account/email-log', {
 		query: { page, per_page: perPage, status: status || undefined }

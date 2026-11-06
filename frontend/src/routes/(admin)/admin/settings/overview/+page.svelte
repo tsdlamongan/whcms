@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
 	import { browser } from '$app/environment';
 	import type { PageProps } from './$types';
 
@@ -22,56 +23,58 @@
 		icon: string;
 		desc: string;
 		category: Exclude<CategoryId, 'all'>;
-		/** Real signal only - see `settingsGroupKey` below. No fabricated "NEW" badges. */
-		settingsGroupKey?: (typeof data.configuredKeys)[number];
+		/** Links the card to a setup task; the "DONE" badge shows once that task is complete. */
+		taskKey?: (typeof data.tasks)[number]['key'];
 	}
 
-	// Each card links to an already-built, real admin route. The 5 "General
-	// Settings" tabs (company/billing/automation/mail/tickets) all currently
-	// live on the single classic `/admin/settings` tabbed page (no `?tab=`
-	// deep-linking there yet - see the note near the bottom of this file), so
-	// those 5 cards share one href; every other card links straight to its own
-	// distinct, existing page.
+	// Each card links to an already-built, real admin route. The "General
+	// Settings" tabs (company/billing/automation/mail/tickets/security) live on
+	// the single tabbed `/admin/settings` page, which opens the tab named by
+	// `?tab=`; every other card links straight to its own page.
 	const cards: SettingCard[] = [
 		{
 			title: 'General Settings',
-			href: '/admin/settings',
+			href: '/admin/settings?tab=general',
 			icon: 'fas fa-sliders-h',
 			desc: 'Company name, contact email and other core system-wide details.',
 			category: 'system',
-			settingsGroupKey: 'company'
+			taskKey: 'company'
 		},
 		{
 			title: 'Billing & Tax',
-			href: '/admin/settings',
+			href: '/admin/settings?tab=billing',
 			icon: 'fas fa-file-invoice-dollar',
 			desc: 'Tax rate, invoice due days, late fees and payment reminders.',
-			category: 'system',
-			settingsGroupKey: 'billing'
+			category: 'system'
 		},
 		{
 			title: 'Automation',
-			href: '/admin/settings',
+			href: '/admin/settings?tab=automation',
 			icon: 'fas fa-robot',
 			desc: 'Days overdue before a service is automatically suspended or terminated.',
-			category: 'system',
-			settingsGroupKey: 'automation'
+			category: 'system'
 		},
 		{
 			title: 'Mail Settings',
-			href: '/admin/settings',
+			href: '/admin/settings?tab=mail',
 			icon: 'far fa-envelope',
-			desc: 'Default from-name and from-address used for outbound system email.',
+			desc: 'Default from-name and from-address used for outbound system email, plus a test send.',
 			category: 'system',
-			settingsGroupKey: 'mail'
+			taskKey: 'mail'
 		},
 		{
 			title: 'Ticket Settings',
-			href: '/admin/settings',
+			href: '/admin/settings?tab=tickets',
 			icon: 'fas fa-life-ring',
 			desc: 'Allowed attachment extensions and max attachment size for tickets.',
-			category: 'system',
-			settingsGroupKey: 'tickets'
+			category: 'system'
+		},
+		{
+			title: 'Security & CAPTCHA',
+			href: '/admin/settings?tab=security',
+			icon: 'fas fa-shield-halved',
+			desc: 'Cloudflare Turnstile CAPTCHA and the email-verification requirement at checkout.',
+			category: 'security'
 		},
 		{
 			title: 'Email Templates',
@@ -91,8 +94,9 @@
 			title: 'Payment Gateways',
 			href: '/admin/gateways',
 			icon: 'fas fa-credit-card',
-			desc: 'Configure the Duitku payment gateway mode and activation.',
-			category: 'apps'
+			desc: 'Duitku credentials and mode, plus the manual bank-transfer gateway.',
+			category: 'apps',
+			taskKey: 'gateway'
 		},
 		{
 			title: 'Integration Log',
@@ -105,7 +109,7 @@
 			title: 'Administrator Users',
 			href: '/admin/staff',
 			icon: 'fas fa-user-shield',
-			desc: 'Manage admin and staff accounts that can sign in to HostPanel.',
+			desc: `Manage admin and staff accounts that can sign in to ${appName}.`,
 			category: 'users'
 		},
 		{
@@ -113,7 +117,8 @@
 			href: '/admin/products',
 			icon: 'fas fa-box',
 			desc: 'Configure the products and services offered on the order page.',
-			category: 'products'
+			category: 'products',
+			taskKey: 'products'
 		},
 		{
 			title: 'Product Groups',
@@ -126,8 +131,9 @@
 			title: 'Servers',
 			href: '/admin/servers',
 			icon: 'fas fa-server',
-			desc: 'Servers HostPanel provisions on for automatic setup.',
-			category: 'products'
+			desc: `Servers ${appName} provisions on for automatic setup.`,
+			category: 'products',
+			taskKey: 'servers'
 		},
 		{
 			title: 'Domain Registrars',
@@ -199,8 +205,8 @@
 		return out;
 	});
 
-	function isUpdated(card: SettingCard): boolean {
-		return !!card.settingsGroupKey && data.configuredKeys.includes(card.settingsGroupKey);
+	function isDone(card: SettingCard): boolean {
+		return !!card.taskKey && data.tasks.find((t) => t.key === card.taskKey)?.done === true;
 	}
 
 	function slug(title: string): string {
@@ -244,25 +250,25 @@
 </script>
 
 <svelte:head>
-	<title>System Settings — HostPanel Admin</title>
+	<title>System Settings — {appName} Admin</title>
 </svelte:head>
 
 <div class="ov-header">
 	<div class="ov-header-main">
 		<h1 class="ov-title">System Settings</h1>
-		<p class="ov-subtitle">Set up and configure your WHCMS installation.</p>
+		<p class="ov-subtitle">Set up and configure your {appName} installation.</p>
 	</div>
 
 	<div class="ov-header-setup" data-testid="setup-progress">
-		<a class="ov-setup-link" href="#all-settings">Click here to view the setup tasks</a>
+		<a class="ov-setup-link" href="#setup-tasks">Click here to view the setup tasks</a>
 		<div class="ov-progress-row">
 			<div class="ov-progress-track">
 				<div class="ov-progress-fill" style={`width:${data.setupPercent}%`}></div>
 			</div>
 			<span class="ov-progress-pct">{data.setupPercent}%</span>
 		</div>
-		<span class="ov-progress-sub"
-			>{data.configuredGroups} of {data.totalGroups} settings areas configured</span
+		<span class="ov-progress-sub" data-testid="setup-progress-sub"
+			>{data.doneCount} of {data.knownCount} setup tasks done</span
 		>
 	</div>
 </div>
@@ -312,7 +318,26 @@
 		</div>
 	</aside>
 
-	<section class="ov-main" id="all-settings">
+	<section class="ov-main">
+		<div class="ov-tasks" id="setup-tasks" data-testid="setup-tasks">
+			<h2 class="ov-main-title" style="margin-bottom:12px">Setup Tasks</h2>
+			<ul>
+				{#each data.tasks as task (task.key)}
+					<li data-testid={`setup-task-${task.key}`} data-done={String(task.done)}>
+						{#if task.done === true}
+							<i class="fas fa-check-circle ov-task-ok" aria-label="Done"></i>
+						{:else if task.done === false}
+							<i class="far fa-circle ov-task-todo" aria-label="To do"></i>
+						{:else}
+							<i class="fas fa-question-circle ov-task-unknown" aria-label="Unknown"></i>
+						{/if}
+						<a href={task.href}>{task.label}</a>
+					</li>
+				{/each}
+			</ul>
+		</div>
+
+		<div id="all-settings"></div>
 		<div class="ov-main-hd">
 			<h2 class="ov-main-title">All Settings</h2>
 			<select class="ov-sort" bind:value={sortBy} data-testid="setup-sort">
@@ -335,8 +360,10 @@
 					<div class="ov-card-body">
 						<div class="ov-card-title-row">
 							<span class="ov-card-title">{card.title}</span>
-							{#if isUpdated(card)}
-								<span class="ov-badge ov-badge-updated">UPDATED</span>
+							{#if isDone(card)}
+								<span class="ov-badge ov-badge-updated" data-testid={`setup-done-${card.taskKey}`}
+									>DONE</span
+								>
 							{/if}
 						</div>
 						<p class="ov-card-desc">{card.desc}</p>
@@ -621,6 +648,38 @@
 		background: var(--hp-primary, #337ab7);
 	}
 
+	.ov-tasks {
+		margin-bottom: 28px;
+		padding-bottom: 20px;
+		border-bottom: 1px solid #e7e7e7;
+	}
+	.ov-tasks ul {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+	}
+	.ov-tasks li {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		padding: 6px 0;
+		font-size: 14px;
+	}
+	.ov-tasks a {
+		color: var(--hp-link);
+	}
+	.ov-tasks a:hover {
+		text-decoration: underline;
+	}
+	.ov-task-ok {
+		color: #5cb85c;
+	}
+	.ov-task-todo {
+		color: #bbb;
+	}
+	.ov-task-unknown {
+		color: #ccc;
+	}
 	.ov-empty {
 		grid-column: 1 / -1;
 		text-align: center;

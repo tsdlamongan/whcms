@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/tsdlamongan/whcms/backend/internal/domain"
+	"github.com/tsdlamongan/whcms/backend/internal/ports"
 )
 
 // Admin CRUD inputs
@@ -102,9 +103,10 @@ type DepositInput struct {
 
 // SearchInput filters the admin client search.
 type SearchInput struct {
-	Search     string // ILIKE across name/company (search_name) + users.email
-	Status     string // exact client status; empty = all
-	HasProduct bool   // only clients with at least one service
+	Search     string  // ILIKE across name/company (search_name) + users.email
+	Status     string  // exact client status; empty = all
+	HasProduct bool    // only clients with at least one service
+	IDs        []int64 // restrict to these client ids (empty = all); lets list pages resolve names in one call
 	Page       int
 	PerPage    int
 }
@@ -114,8 +116,8 @@ func (f SearchInput) limit() int {
 	if f.PerPage < 1 {
 		return 25
 	}
-	if f.PerPage > 100 {
-		return 100
+	if f.PerPage > ports.MaxPerPage {
+		return ports.MaxPerPage
 	}
 	return f.PerPage
 }

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
 	import { enhance } from '$app/forms';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import FormField from '$lib/components/FormField.svelte';
@@ -79,7 +80,7 @@
 </script>
 
 <svelte:head>
-	<title>Knowledgebase Categories — HostPanel Admin</title>
+	<title>Knowledgebase Categories — {appName} Admin</title>
 </svelte:head>
 
 <h1 class="hp-h1">Knowledgebase Categories</h1>

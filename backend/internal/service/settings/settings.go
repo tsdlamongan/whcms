@@ -56,8 +56,25 @@ var Spec = map[string]Kind{
 	"security.captcha_provider":           KindString,
 	"security.captcha_site_key":           KindString,
 	"security.require_email_verification": KindBool,
+	"snipe.enabled":                       KindBool,
+	"snipe.max_active_global":             KindInt,
+	"snipe.max_in_flight":                 KindInt,
+	"snipe.burst_interval_ms":             KindInt,
+	"snipe.burst_jitter_ms":               KindInt,
+	"snipe.patient_interval_seconds":      KindInt,
+	"snipe.burst_lead_seconds":            KindInt,
+	"snipe.rate_limit_backoff_ms":         KindInt,
+	"snipe.request_timeout_ms":            KindInt,
+	"snipe.max_active_per_client":         KindInt,
+	"snipe.invoice_due_hours":             KindInt,
+	"snipe.min_reseller_balance":          KindInt,
+	"snipe.pause_probe_seconds":           KindInt,
 }
 
+// snipe.pause_reason / snipe.paused_at are intentionally NOT in Spec either:
+// only the sniper supervisor writes them (a pause is cleared by the supervisor
+// itself once the registrar account is healthy), never an admin edit.
+//
 // gateway.duitku.merchant_code and gateway.duitku.mode are intentionally
 // NOT in Spec: they are already editable (masked) via the dedicated
 // GET/PUT /admin/gateways endpoint (internal/modules/adminops). Whitelisting

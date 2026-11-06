@@ -1,3 +1,4 @@
+import { withInvoiceInfo } from '$lib/server/adminNames';
 import { apiFetch, type PageMeta } from '$lib/server/api';
 import { fail } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
@@ -43,7 +44,7 @@ export const load: PageServerLoad = async (event) => {
 	if (res.error) {
 		errorMessage = res.error.message;
 	} else {
-		transactions = res.data ?? [];
+		transactions = await withInvoiceInfo(event, res.data ?? []);
 		meta = res.meta;
 	}
 

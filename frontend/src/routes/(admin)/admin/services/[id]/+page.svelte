@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
 	import { enhance } from '$app/forms';
 	import HpModal from '$lib/components/hp/HpModal.svelte';
 	import { formatIDR } from '$lib/money';
@@ -133,7 +134,7 @@
 </script>
 
 <svelte:head>
-	<title>{service.product_name ?? `Service #${service.id}`} — HostPanel Admin</title>
+	<title>{service.product_name ?? `Service #${service.id}`} — {appName} Admin</title>
 </svelte:head>
 
 <div
@@ -155,7 +156,8 @@
 		data-testid="service-client-link"
 		style="color:#337ab7;font-weight:600;font-size:13px"
 	>
-		View Client <i class="fas fa-arrow-right"></i>
+		{service.client_name ? `Client: ${service.client_name}` : 'View Client'}
+		<i class="fas fa-arrow-right"></i>
 	</a>
 </div>
 
@@ -636,9 +638,9 @@
 <!-- Upgrade (billed) modal -->
 <HpModal open={upgradeOpen} title="Upgrade Package (Billed)" onClose={() => (upgradeOpen = false)}>
 	<p style="color:#666;font-size:13px;margin:0 0 12px">
-		Unlike Change Package, this bills the client: the prorated difference for the remainder
-		of the current cycle is invoiced (upgrade) or credited to their account (downgrade) —
-		the same flow the client's own "Upgrade" button uses.
+		Unlike Change Package, this bills the client: the prorated difference for the remainder of the
+		current cycle is invoiced (upgrade) or credited to their account (downgrade) — the same flow the
+		client's own "Upgrade" button uses.
 	</p>
 	<form
 		class="hp-modalform"
@@ -663,7 +665,8 @@
 					{/each}
 				</select>
 				<div class="hp-help" style="margin-top:3px">
-					Custom-spec products aren't listed here — clients configure those via the client-area upgrade flow.
+					Custom-spec products aren't listed here — clients configure those via the client-area
+					upgrade flow.
 				</div>
 			</div>
 		</div>

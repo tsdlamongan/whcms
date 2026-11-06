@@ -27,10 +27,13 @@ All feature areas are implemented: public portal + store, client area
 
 ## Environment
 
-Copy `.env.example` to `.env`:
+The frontend reads no env file of its own: `make up` (repo root) loads the root `.env` and
+passes the frontend only these two variables — never the backend's secrets:
 
 - `API_URL` (server-side, default `http://localhost:8080`)
 - `PUBLIC_APP_NAME` (default `WHCMS`)
+
+(`.env.example` at the repo root lists them; `.env.testing` sets them for the e2e stack.)
 
 ## Commands
 

@@ -152,6 +152,15 @@ func TestRepoOrderLifecycle(t *testing.T) {
 	require.Len(t, all, 1)
 	assert.Equal(t, order.ID, all[0].ID)
 
+	// Admin List narrows by ListParams.ClientID.
+	byClient, total, err := repo.List(ctx, ports.ListParams{ClientID: fx.clientID, Search: order.OrderNumber})
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), total)
+	require.Len(t, byClient, 1)
+	_, total, err = repo.List(ctx, ports.ListParams{ClientID: fx.clientID + 1_000_000, Search: order.OrderNumber})
+	require.NoError(t, err)
+	assert.Zero(t, total, "another client's id matches nothing")
+
 	mine, total, err := repo.ListByClient(ctx, fx.clientID, ports.ListParams{Status: "active"})
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), total)

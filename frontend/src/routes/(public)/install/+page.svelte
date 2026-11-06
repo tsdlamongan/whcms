@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
 	import { enhance } from '$app/forms';
 	import { invalidateAll } from '$app/navigation';
 	import FormField from '$lib/components/FormField.svelte';
@@ -78,7 +79,7 @@
 </script>
 
 <svelte:head>
-	<title>{t('install.title')} — WHCMS</title>
+	<title>{t('install.title', { name: appName })}</title>
 </svelte:head>
 
 <div data-testid="install-wizard">
@@ -353,7 +354,7 @@
 	{:else if phase === 'admin'}
 		<div data-testid="install-admin-step">
 			<h1 class="ca-h1">{t('install.admin.heading')}</h1>
-			<p class="ca-muted">{t('install.admin.intro')}</p>
+			<p class="ca-muted">{t('install.admin.intro', { name: appName })}</p>
 
 			{#if resultFor('createAdmin') && !resultFor('createAdmin')?.ok}
 				<div class="ca-alert-danger" role="alert">{resultFor('createAdmin')?.message}</div>

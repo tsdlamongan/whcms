@@ -88,3 +88,22 @@ func TestClientFullName(t *testing.T) {
 	assert.Equal(t, "Santoso", domain.Client{LastName: "Santoso"}.FullName())
 	assert.Equal(t, "", domain.Client{}.FullName())
 }
+
+func TestClientHasRegistrantAddress(t *testing.T) {
+	complete := domain.Client{
+		Address1: "Jl. Melati 1", City: "Lamongan", State: "Jawa Timur", Postcode: "62211", Phone: "081234567890",
+	}
+	assert.True(t, complete.HasRegistrantAddress())
+
+	cases := []domain.Client{
+		{City: "Lamongan", State: "Jawa Timur", Postcode: "62211", Phone: "081234567890"},
+		{Address1: "Jl. Melati 1", State: "Jawa Timur", Postcode: "62211", Phone: "081234567890"},
+		{Address1: "Jl. Melati 1", City: "Lamongan", Postcode: "62211", Phone: "081234567890"},
+		{Address1: "Jl. Melati 1", City: "Lamongan", State: "Jawa Timur", Phone: "081234567890"},
+		{Address1: "Jl. Melati 1", City: "Lamongan", State: "Jawa Timur", Postcode: "62211"},
+		{},
+	}
+	for _, c := range cases {
+		assert.False(t, c.HasRegistrantAddress(), "%+v", c)
+	}
+}

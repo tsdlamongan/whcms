@@ -45,6 +45,15 @@ type Client struct {
 	UpdatedAt     time.Time    `json:"updated_at"`
 }
 
+// HasRegistrantAddress reports whether the profile carries the
+// address/city/state/postcode/phone a domain registrar requires for the
+// registrant contact on a domain register/transfer (CONTRACTS.md domain
+// registration). Phone is included because RDash rejects a registrant
+// contact with a blank "voice" field.
+func (c Client) HasRegistrantAddress() bool {
+	return c.Address1 != "" && c.City != "" && c.State != "" && c.Postcode != "" && c.Phone != ""
+}
+
 // FullName returns "First Last" trimmed.
 func (c Client) FullName() string {
 	if c.FirstName == "" {
@@ -421,6 +430,18 @@ type Domain struct {
 	RegistrarMeta          json.RawMessage `json:"registrar_meta"`
 	CreatedAt              time.Time       `json:"created_at"`
 	UpdatedAt              time.Time       `json:"updated_at"`
+
+	// Registrar-reported verification state (docs.dewabiz.co.id "Auto
+	// Activation"); see documents.go for the lifecycle these drive.
+	DocumentRequired    bool               `json:"document_required"`
+	Verification        DomainVerification `json:"verification_status"`
+	StatusReason        string             `json:"status_reason"`
+	DocumentRejectedAt  *time.Time         `json:"document_rejected_at"`
+	RegistrarRefundable bool               `json:"registrar_refundable"`
+	// RefundAmount/RefundedAt record the credit-back issued when the
+	// registrar rejected the registration (whole IDR; zero/nil = none).
+	RefundAmount int64      `json:"refund_amount"`
+	RefundedAt   *time.Time `json:"refunded_at"`
 }
 
 // TLDPricing is the admin-configured selling price for one TLD/extension -
@@ -676,4 +697,74 @@ type NetworkIssue struct {
 	DeletedAt *time.Time           `json:"deleted_at"`
 	CreatedAt time.Time            `json:"created_at"`
 	UpdatedAt time.Time            `json:"updated_at"`
+}
+
+// SnipePlan is an admin-priced domain-snipe package: how long a hunt may run
+// (WindowDays) and what it costs. Fee is the non-refundable service fee;
+// SuccessFee is prepaid with it but credited back when the hunt ends without
+// a win (zero disables it). Both are whole rupiah; fee 0 makes the plan free.
+type SnipePlan struct {
+	ID         int64     `json:"id"`
+	Name       string    `json:"name"`
+	WindowDays int       `json:"window_days"`
+	Fee        int64     `json:"fee"`
+	SuccessFee int64     `json:"success_fee"`
+	Active     bool      `json:"active"`
+	Sort       int       `json:"sort"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
+}
+
+// DomainSnipe is one background hunt for a dropping domain. A client snipe is
+// billed up front on InvoiceID (FeeAmount + DomainAmount, split pro-rata into
+// RefundableFee/RefundableDomain for the credit-back on a loss); an admin
+// snipe has no invoice and no refund. While Active, the worker supervisor
+// owns the row through LeaseOwner/LeaseUntil and writes Attempts/Phase/
+// LastError as it goes. The lease and registrar-customer cache are internal
+// and never serialized.
+type DomainSnipe struct {
+	ID          int64       `json:"id"`
+	ClientID    int64       `json:"client_id"`
+	PlanID      *int64      `json:"plan_id"`
+	Source      SnipeSource `json:"source"`
+	DomainName  string      `json:"domain_name"`
+	Years       int         `json:"years"`
+	Status      SnipeStatus `json:"status"`
+	Phase       SnipePhase  `json:"phase"`
+	HuntFrom    *time.Time  `json:"hunt_from"`
+	HuntUntil   *time.Time  `json:"hunt_until"`
+	Nameservers []string    `json:"nameservers"`
+	InvoiceID   *int64      `json:"invoice_id"`
+
+	FeeAmount        int64      `json:"fee_amount"`
+	DomainAmount     int64      `json:"domain_amount"`
+	RenewPerYear     int64      `json:"renew_per_year"`
+	RefundableDomain int64      `json:"refundable_domain"`
+	RefundableFee    int64      `json:"refundable_fee"`
+	RefundAmount     int64      `json:"refund_amount"`
+	RefundedAt       *time.Time `json:"refunded_at"`
+
+	RegistrarCustomerID *int64     `json:"-"`
+	Attempts            int64      `json:"attempts"`
+	LastAttemptAt       *time.Time `json:"last_attempt_at"`
+	LastError           string     `json:"last_error"`
+	LeaseOwner          string     `json:"-"`
+	LeaseUntil          *time.Time `json:"-"`
+
+	PaidAt      *time.Time `json:"paid_at"`
+	DeadlineAt  *time.Time `json:"deadline_at"`
+	WonAt       *time.Time `json:"won_at"`
+	WonDomainID *int64     `json:"won_domain_id"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
+}
+
+// SnipeEvent is one entry of a snipe's small activity trail (phase change,
+// notable error, win, refund) - deliberately not one row per attempt.
+type SnipeEvent struct {
+	ID        int64     `json:"id"`
+	SnipeID   int64     `json:"snipe_id"`
+	Kind      string    `json:"kind"`
+	Message   string    `json:"message"`
+	CreatedAt time.Time `json:"created_at"`
 }

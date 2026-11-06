@@ -415,9 +415,9 @@
 				data-testid="server-field-ip_address"
 			/>
 			<div class="hp-help" style="margin-top:3px">
-				Required for DirectAdmin: a valid IP from the reseller's own pool, used when creating hosting
-				accounts (DirectAdmin has no auto-assign-shared-IP behavior like WHM). Not needed for cPanel/WHM
-				servers.
+				Required for DirectAdmin: a valid IP from the reseller's own pool, used when creating
+				hosting accounts (DirectAdmin has no auto-assign-shared-IP behavior like WHM). Not needed
+				for cPanel/WHM servers.
 			</div>
 		</div>
 	</div>

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
 	import HpPager from '$lib/components/hp/HpPager.svelte';
 	import { fmtDate } from '$lib/date';
 	import { formatIDR } from '$lib/money';
@@ -6,7 +7,15 @@
 
 	let { data }: PageProps = $props();
 
-	const statuses = ['pending', 'active', 'pending_transfer', 'expired', 'cancelled'] as const;
+	const statuses = [
+		'pending',
+		'active',
+		'pending_transfer',
+		'expired',
+		'suspended',
+		'rejected',
+		'cancelled'
+	] as const;
 
 	function hasActiveFilters(): boolean {
 		return !!(data.search || data.status);
@@ -23,20 +32,22 @@
 	function statusClass(s: string): string {
 		if (s === 'active') return 'active';
 		if (s === 'pending' || s === 'pending_transfer') return 'pending';
-		if (s === 'expired') return 'terminated';
+		if (s === 'expired' || s === 'suspended' || s === 'rejected') return 'terminated';
 		return 'cancelled';
 	}
 </script>
 
 <svelte:head>
-	<title>Domains — HostPanel Admin</title>
+	<title>Domains — {appName} Admin</title>
 </svelte:head>
 
 <h1 class="hp-h1">Domains/TLDs</h1>
 
 <div class="hp-info">
 	<i class="fas fa-info-circle" style="margin-right:8px"></i>Registered domains across all clients.
-	Configure TLD pricing and registrars from
+	Configure TLD pricing under
+	<a href="/admin/domains/pricing" style="color:#337AB7;font-weight:600">Domain Pricing</a>
+	and registrar credentials under
 	<a href="/admin/registrars" style="color:#337AB7;font-weight:600">Domain Registrars</a>.
 </div>
 

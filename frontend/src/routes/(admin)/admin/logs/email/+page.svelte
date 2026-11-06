@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
 	import { enhance } from '$app/forms';
 	import { invalidateAll } from '$app/navigation';
 	import DateText from '$lib/components/DateText.svelte';
@@ -24,7 +25,7 @@
 </script>
 
 <svelte:head>
-	<title>Email Log — HostPanel Admin</title>
+	<title>Email Log — {appName} Admin</title>
 </svelte:head>
 
 <h1 class="hp-h1">Email Log</h1>

@@ -29,7 +29,8 @@ export interface CaNavItem extends CaNavLink {
 export const storeMenu: CaNavLink[] = [
 	{ id: 'browse-all', labelKey: 'portal.nav.browseAll', href: '/order' },
 	{ id: 'register-domain', labelKey: 'portal.nav.registerDomain', href: '/order/domain' },
-	{ id: 'transfer-domain', labelKey: 'portal.nav.transferDomain', href: '/order/domain' }
+	{ id: 'transfer-domain', labelKey: 'portal.nav.transferDomain', href: '/order/domain' },
+	{ id: 'domain-snipe', labelKey: 'portal.nav.domainSnipe', href: '/snipes/new' }
 ];
 
 /**
@@ -71,6 +72,12 @@ export function accountMenu(loggedIn: boolean): CaNavLink[] {
 				icon: 'fas fa-cubes'
 			},
 			{ id: 'domains', labelKey: 'portal.nav.myDomains', href: '/domains', icon: 'fas fa-globe' },
+			{
+				id: 'snipes',
+				labelKey: 'portal.nav.mySnipes',
+				href: '/snipes',
+				icon: 'fas fa-crosshairs'
+			},
 			{
 				id: 'billing',
 				labelKey: 'portal.nav.myInvoices',

@@ -1,5 +1,17 @@
-import { expect, test, type APIRequestContext } from './fixtures';
+import { expect, test, type APIRequestContext, type Locator, type Page } from './fixtures';
 import { API_BASE, adminToken, authHeaders, clickBtn, newApi, setSessionCookies, uniqueDomainLabel } from './helpers';
+
+/**
+ * Click an addon row's Save and wait for the form-action response. Reloading
+ * (or ending the test) right after the click cancels an in-flight save on a
+ * loaded runner, so the change silently never lands.
+ */
+async function saveAddonRow(page: Page, row: Locator): Promise<void> {
+	await Promise.all([
+		page.waitForResponse((r) => r.request().method() === 'POST' && r.url().includes('/admin/domains/addons')),
+		row.locator('[data-testid^="domain-addon-save-"]').click()
+	]);
+}
 
 /**
  * Admin TLD Pricing, Premium Domain Pricing, and Domain Addons CRUD -
@@ -238,7 +250,7 @@ test.describe('admin domain pricing and addons', () => {
 
 		await priceInput.fill('25000');
 		if (!wasActive) await activeCheckbox.check();
-		await row.locator('[data-testid^="domain-addon-save-"]').click();
+		await saveAddonRow(page, row);
 
 		await page.reload();
 		const rowAfter = page.locator('[data-testid^="row-domain-addon-"]', { hasText: 'DNS Management' });
@@ -249,7 +261,7 @@ test.describe('admin domain pricing and addons', () => {
 		// global 3-row catalog aren't affected.
 		await rowAfter.locator('[data-testid^="domain-addon-price-"]').fill(originalPrice || '0');
 		if (!wasActive) await rowAfter.locator('[data-testid^="domain-addon-active-"]').uncheck();
-		await rowAfter.locator('[data-testid^="domain-addon-save-"]').click();
+		await saveAddonRow(page, rowAfter);
 	});
 
 	test('settings overview lists Domain Pricing (not the Domain Registrations operational page)', async ({ page }) => {

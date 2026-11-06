@@ -200,6 +200,19 @@ func (r *Repo) List(ctx context.Context, p ports.ListParams) ([]domain.Transacti
 		where = append(where, fmt.Sprintf(
 			"(merchant_order_id ILIKE $%d OR gateway_reference ILIKE $%d)", n, n))
 	}
+	if p.InvoiceID > 0 {
+		args = append(args, p.InvoiceID)
+		where = append(where, fmt.Sprintf("invoice_id = $%d", len(args)))
+	}
+	from, toExclusive := p.CreatedBounds()
+	if from != nil {
+		args = append(args, *from)
+		where = append(where, fmt.Sprintf("created_at >= $%d", len(args)))
+	}
+	if toExclusive != nil {
+		args = append(args, *toExclusive)
+		where = append(where, fmt.Sprintf("created_at < $%d", len(args)))
+	}
 	cond := strings.Join(where, " AND ")
 
 	var total int64

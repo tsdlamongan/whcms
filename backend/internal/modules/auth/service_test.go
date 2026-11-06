@@ -106,6 +106,7 @@ type env struct {
 	enc       *mocks.MockEncryptor
 	totpGuard *mocks.MockTOTPReplayGuard
 	presence  *mocks.MockPresenceTracker
+	cache     ports.Cache       // password-confirm window; set to nil to exercise the "not configured" path
 	captcha   auth.CaptchaGuard // nil by default -> CAPTCHA check skipped
 
 	sent []sentTemplate
@@ -126,6 +127,7 @@ func newFixture() *env {
 		enc:       &mocks.MockEncryptor{},
 		totpGuard: &mocks.MockTOTPReplayGuard{},
 		presence:  &mocks.MockPresenceTracker{},
+		cache:     &mocks.MockCache{},
 		now:       time.Date(2026, 7, 3, 10, 0, 0, 0, time.UTC),
 	}
 	e.clock = &mocks.MockClock{FixedTime: e.now}
@@ -154,6 +156,7 @@ func (e *env) service() *auth.Service {
 		Encryptor:   e.enc,
 		TOTPGuard:   e.totpGuard,
 		Presence:    e.presence,
+		Cache:       e.cache,
 		Captcha:     e.captcha,
 		FrontendURL: "http://fe",
 		TOTPIssuer:  "TestPanel",
@@ -234,6 +237,10 @@ func validRegister() auth.RegisterRequest {
 		FirstName: "Budi",
 		LastName:  "Santoso",
 		Phone:     "081234567890",
+		Address1:  "Jl. Merdeka No. 1",
+		City:      "Jakarta",
+		State:     "DKI Jakarta",
+		Postcode:  "10110",
 	}
 }
 
@@ -295,6 +302,11 @@ func TestRegisterValidation(t *testing.T) {
 		"bad locale":     func(r *auth.RegisterRequest) { r.Locale = "fr" },
 		"no first name":  func(r *auth.RegisterRequest) { r.FirstName = "" },
 		"bad country":    func(r *auth.RegisterRequest) { r.Country = "IDN" },
+		"no address1":    func(r *auth.RegisterRequest) { r.Address1 = "" },
+		"no city":        func(r *auth.RegisterRequest) { r.City = "" },
+		"no state":       func(r *auth.RegisterRequest) { r.State = "" },
+		"no postcode":    func(r *auth.RegisterRequest) { r.Postcode = "" },
+		"no phone":       func(r *auth.RegisterRequest) { r.Phone = "" },
 	}
 	for name, mutate := range cases {
 		t.Run(name, func(t *testing.T) {

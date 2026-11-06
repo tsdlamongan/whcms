@@ -565,6 +565,9 @@ func TestCheckAvailabilityOverlay(t *testing.T) {
 		d.registrar.CheckAvailabilityFn = func(ctx context.Context, names []string) ([]ports.DomainAvailability, error) {
 			return []ports.DomainAvailability{{Name: "shop.id", Available: true, Price: 200000}}, nil
 		}
+		d.tldPricing.GetByTLDFn = func(ctx context.Context, tld string) (*domain.TLDPricing, error) {
+			return &domain.TLDPricing{TLD: "id", Active: true, RegisterPrices: map[string]int64{"1": 150000}}, nil
+		}
 		d.premiumPricing.GetByNameFn = func(ctx context.Context, name string) (*domain.PremiumDomainPricing, error) {
 			assert.Equal(t, "shop.id", name)
 			return &domain.PremiumDomainPricing{DomainName: name, RegisterPrice: 9000000}, nil
@@ -573,6 +576,7 @@ func TestCheckAvailabilityOverlay(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, res, 1)
 		assert.True(t, res[0].Premium)
+		assert.True(t, res[0].Sellable)
 		assert.EqualValues(t, 9000000, res[0].Price)
 	})
 
@@ -642,6 +646,9 @@ func TestCheckAvailabilityOverlay(t *testing.T) {
 		d.registrar.CheckAvailabilityFn = func(ctx context.Context, names []string) ([]ports.DomainAvailability, error) {
 			return []ports.DomainAvailability{{Name: "shop.id", Available: true, Price: 200000}}, nil
 		}
+		d.tldPricing.GetByTLDFn = func(ctx context.Context, tld string) (*domain.TLDPricing, error) {
+			return &domain.TLDPricing{TLD: "id", Active: true, RegisterPrices: map[string]int64{"1": 150000}}, nil
+		}
 		d.premiumPricing.GetByNameFn = func(ctx context.Context, name string) (*domain.PremiumDomainPricing, error) {
 			return &domain.PremiumDomainPricing{DomainName: name, RegisterPrice: 9000000}, nil
 		}
@@ -665,29 +672,55 @@ func TestCheckAvailabilityOverlay(t *testing.T) {
 		assert.EqualValues(t, 0, res[0].Price)
 	})
 
-	t.Run("inactive TLD pricing leaves the registrar quote untouched", func(t *testing.T) {
-		d := newFixture()
-		d.registrar.CheckAvailabilityFn = func(ctx context.Context, names []string) ([]ports.DomainAvailability, error) {
-			return []ports.DomainAvailability{{Name: "example.net", Available: true, Price: 200000}}, nil
+	t.Run("an extension without an ACTIVE pricing row is not sellable and shows no price", func(t *testing.T) {
+		// The registrar's quote is the shop's cost: for an extension the shop
+		// does not carry it must neither be shown as a price nor be bought.
+		cases := map[string]func(context.Context, string) (*domain.TLDPricing, error){
+			"inactive row": func(_ context.Context, _ string) (*domain.TLDPricing, error) {
+				return &domain.TLDPricing{TLD: "net", Active: false, RegisterPrices: map[string]int64{"1": 150000}}, nil
+			},
+			"no row": func(_ context.Context, _ string) (*domain.TLDPricing, error) {
+				return nil, apperr.NotFound("tld pricing")
+			},
+			"nil row": func(_ context.Context, _ string) (*domain.TLDPricing, error) { return nil, nil },
+			"lookup error": func(_ context.Context, _ string) (*domain.TLDPricing, error) {
+				return nil, errBoom
+			},
 		}
-		d.tldPricing.GetByTLDFn = func(ctx context.Context, tld string) (*domain.TLDPricing, error) {
-			return &domain.TLDPricing{TLD: "net", Active: false, RegisterPrices: map[string]int64{"1": 150000}}, nil
+		for name, lookup := range cases {
+			d := newFixture()
+			d.registrar.CheckAvailabilityFn = func(ctx context.Context, names []string) ([]ports.DomainAvailability, error) {
+				return []ports.DomainAvailability{{Name: "example.net", Available: true, Price: 200000, Premium: true}}, nil
+			}
+			d.tldPricing.GetByTLDFn = lookup
+			// premium rows must not make an unlisted extension sellable
+			d.premiumPricing.GetByNameFn = func(ctx context.Context, name string) (*domain.PremiumDomainPricing, error) {
+				return &domain.PremiumDomainPricing{DomainName: name, RegisterPrice: 9000000}, nil
+			}
+			res, err := d.svc().CheckAvailability(context.Background(), []string{"example.net"})
+			require.NoError(t, err, name)
+			require.Len(t, res, 1, name)
+			assert.False(t, res[0].Sellable, name)
+			assert.True(t, res[0].Available, "%s: availability is the registrar's truth", name)
+			assert.Zero(t, res[0].Price, "%s: the registrar cost must not be exposed", name)
+			assert.False(t, res[0].Premium, name)
+			assert.Nil(t, res[0].RegisterPrices, name)
 		}
-		res, err := d.svc().CheckAvailability(context.Background(), []string{"example.net"})
-		require.NoError(t, err)
-		require.Len(t, res, 1)
-		assert.EqualValues(t, 200000, res[0].Price)
 	})
 
-	t.Run("no admin pricing at all leaves the registrar quote untouched", func(t *testing.T) {
+	t.Run("an active pricing row makes the extension sellable", func(t *testing.T) {
 		d := newFixture()
 		d.registrar.CheckAvailabilityFn = func(ctx context.Context, names []string) ([]ports.DomainAvailability, error) {
-			return []ports.DomainAvailability{{Name: "example.org", Available: true, Price: 175000}}, nil
+			return []ports.DomainAvailability{{Name: "example.my.id", Available: true, Price: 1}}, nil
 		}
-		res, err := d.svc().CheckAvailability(context.Background(), []string{"example.org"})
+		d.tldPricing.GetByTLDFn = func(ctx context.Context, tld string) (*domain.TLDPricing, error) {
+			assert.Equal(t, "my.id", tld)
+			return &domain.TLDPricing{TLD: tld, Active: true, RegisterPrices: map[string]int64{"1": 25000}}, nil
+		}
+		res, err := d.svc().CheckAvailability(context.Background(), []string{"example.my.id"})
 		require.NoError(t, err)
-		require.Len(t, res, 1)
-		assert.EqualValues(t, 175000, res[0].Price)
+		assert.True(t, res[0].Sellable)
+		assert.EqualValues(t, 25000, res[0].Price)
 	})
 }
 

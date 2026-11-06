@@ -10,7 +10,12 @@ const messages: Partial<Record<Locale, Record<string, unknown>>> = {
 	id: {
 		portal: {
 			captcha: {
-				jsRequired: 'JavaScript diperlukan untuk menyelesaikan verifikasi CAPTCHA.'
+				jsRequired: 'JavaScript diperlukan untuk menyelesaikan verifikasi CAPTCHA.',
+				loading: 'Memuat verifikasi keamanan…',
+				failed:
+					'Verifikasi keamanan gagal dimuat. Periksa koneksi internet atau ad-blocker Anda, lalu coba lagi.',
+				slow: 'Verifikasi keamanan belum selesai. Tunggu sebentar atau muat ulang verifikasi.',
+				retry: 'Muat ulang verifikasi'
 			},
 			nav: {
 				home: 'Beranda',
@@ -185,7 +190,12 @@ const messages: Partial<Record<Locale, Record<string, unknown>>> = {
 	en: {
 		portal: {
 			captcha: {
-				jsRequired: 'JavaScript is required to complete the CAPTCHA.'
+				jsRequired: 'JavaScript is required to complete the CAPTCHA.',
+				loading: 'Loading security check…',
+				failed:
+					'The security check failed to load. Check your internet connection or ad-blocker and try again.',
+				slow: 'The security check has not finished yet. Please wait a moment or reload it.',
+				retry: 'Reload security check'
 			},
 			nav: {
 				home: 'Home',

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
 	import { enhance } from '$app/forms';
 	import FormField from '$lib/components/FormField.svelte';
 	import LoadingButton from '$lib/components/LoadingButton.svelte';
@@ -45,12 +46,18 @@
 	let company = $state(untrack(() => form?.values?.company ?? ''));
 	let address1 = $state(untrack(() => form?.values?.address1 ?? ''));
 	let city = $state(untrack(() => form?.values?.city ?? ''));
+	let stateField = $state(untrack(() => form?.values?.state ?? ''));
 	let postcode = $state(untrack(() => form?.values?.postcode ?? ''));
 	let country = $state(untrack(() => form?.values?.country ?? 'ID'));
 	let phone = $state(untrack(() => form?.values?.phone ?? ''));
 	let submitting = $state(false);
 	let resending = $state(false);
 	let captchaReset = $state(0);
+	let captchaReady = $state(false);
+	// Hold submit until the widget has a token (see login page).
+	const captchaPending = $derived(
+		!!(data.captcha?.enabled && data.captcha.siteKey) && !captchaReady
+	);
 
 	const countryOptions = $derived.by(() => {
 		const names = new Intl.DisplayNames([i18n.locale], { type: 'region' });
@@ -69,7 +76,7 @@
 </script>
 
 <svelte:head>
-	<title>{t('auth.register')} — WHCMS</title>
+	<title>{t('auth.register')} — {appName}</title>
 </svelte:head>
 
 {#if success}
@@ -243,6 +250,19 @@
 					required
 				/>
 			</div>
+			<div data-testid="register-state">
+				<FormField
+					label={t('feauth.register.state')}
+					name="state"
+					bind:value={stateField}
+					error={fieldError('state')}
+					autocomplete="address-level1"
+					required
+				/>
+			</div>
+		</div>
+
+		<div class="ca-grid-2">
 			<div data-testid="register-postcode">
 				<FormField
 					label={t('feauth.register.postcode')}
@@ -253,9 +273,6 @@
 					required
 				/>
 			</div>
-		</div>
-
-		<div class="ca-grid-2">
 			<div data-testid="register-country">
 				<FormField
 					label={t('feauth.register.country')}
@@ -267,25 +284,35 @@
 					required
 				/>
 			</div>
-			<div data-testid="register-phone">
-				<FormField
-					label={t('feauth.register.phone')}
-					name="phone"
-					bind:value={phone}
-					error={fieldError('phone')}
-					placeholder="+62 812 3456 7890"
-					autocomplete="tel"
-					required
-				/>
-			</div>
+		</div>
+
+		<div data-testid="register-phone">
+			<FormField
+				label={t('feauth.register.phone')}
+				name="phone"
+				bind:value={phone}
+				error={fieldError('phone')}
+				placeholder="+62 812 3456 7890"
+				autocomplete="tel"
+				required
+			/>
 		</div>
 
 		{#if data.captcha?.enabled && data.captcha.siteKey}
-			<Turnstile siteKey={data.captcha.siteKey} resetSignal={captchaReset} />
+			<Turnstile
+				siteKey={data.captcha.siteKey}
+				resetSignal={captchaReset}
+				bind:ready={captchaReady}
+			/>
 		{/if}
 
 		<div data-testid="register-submit">
-			<LoadingButton type="submit" loading={submitting} class="ca-btn ca-btn-primary ca-btn-block">
+			<LoadingButton
+				type="submit"
+				loading={submitting}
+				disabled={captchaPending}
+				class="ca-btn ca-btn-primary ca-btn-block"
+			>
 				{t('auth.register')}
 			</LoadingButton>
 		</div>

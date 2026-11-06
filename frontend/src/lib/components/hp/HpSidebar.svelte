@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
+
 	import { sidebarSections, topMenus, type SidebarKind } from './nav';
 
 	/** ports.PresenceEntry - one admin/staff user active within the presence window. */
@@ -106,7 +108,7 @@
 					<i class="fas fa-info-circle" aria-hidden="true"></i>System Information
 				</div>
 				<div class="hp-side-body">
-					Registered To: WHCMS<br />
+					Registered To: {appName}<br />
 					License Type: Open Source<br />
 					Expires: Never<br />
 					Version: 1.0.0

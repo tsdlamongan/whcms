@@ -7,8 +7,9 @@ import "github.com/tsdlamongan/whcms/backend/pkg/apperr"
 //	invoice: draft->unpaid; unpaid->paid|cancelled|overdue; overdue->paid|cancelled; paid->refunded
 //	order:   pending->active|fraud|cancelled
 //	service: pending->active|cancelled; active->suspended|terminated; suspended->active|terminated
-//	domain:  pending->active|cancelled; active->expired; pending_transfer->active|cancelled; expired->active(renew)
+//	domain:  pending->active|cancelled|rejected; active->expired|suspended|rejected; pending_transfer->active|cancelled|rejected; expired->active(renew); suspended->active|rejected|cancelled
 //	cancellation_request: pending->accepted|rejected|auto_processed
+//	snipe:   pending_payment->active|cancelled|failed; active->won|expired|cancelled|failed
 
 var invoiceTransitions = map[InvoiceStatus][]InvoiceStatus{
 	InvoiceDraft:   {InvoiceUnpaid},
@@ -27,11 +28,17 @@ var serviceTransitions = map[ServiceStatus][]ServiceStatus{
 	ServiceSuspended: {ServiceActive, ServiceTerminated},
 }
 
+// domainTransitions: suspended/rejected come from the registrar's own
+// lifecycle (RDash auto-activation: documents overdue -> suspended on day 5,
+// deleted on day 30 -> rejected). A suspended domain returns to active when
+// the documents verify or the registrar unsuspends it. cancelled and
+// rejected are terminal.
 var domainTransitions = map[DomainStatus][]DomainStatus{
-	DomainPending:         {DomainActive, DomainCancelled},
-	DomainActive:          {DomainExpired},
-	DomainPendingTransfer: {DomainActive, DomainCancelled},
+	DomainPending:         {DomainActive, DomainCancelled, DomainRejected},
+	DomainActive:          {DomainExpired, DomainSuspended, DomainRejected},
+	DomainPendingTransfer: {DomainActive, DomainCancelled, DomainRejected},
 	DomainExpired:         {DomainActive}, // renew
+	DomainSuspended:       {DomainActive, DomainRejected, DomainCancelled},
 }
 
 // cancellationRequestTransitions: accepted/rejected/auto_processed are
@@ -42,6 +49,14 @@ var domainTransitions = map[DomainStatus][]DomainStatus{
 // time) so the "one pending request per service" guard also covers them.
 var cancellationRequestTransitions = map[CancellationRequestStatus][]CancellationRequestStatus{
 	CancellationPending: {CancellationAccepted, CancellationRejected, CancellationAutoProcessed},
+}
+
+// snipeTransitions: won/expired/cancelled/failed are terminal. A hunt only
+// ends 'won' from active - a payment that never arrives can only cancel or
+// fail the pending row.
+var snipeTransitions = map[SnipeStatus][]SnipeStatus{
+	SnipePendingPayment: {SnipeActive, SnipeCancelled, SnipeFailed},
+	SnipeActive:         {SnipeWon, SnipeExpired, SnipeCancelled, SnipeFailed},
 }
 
 func canTransition[S comparable](table map[S][]S, from, to S) bool {
@@ -79,6 +94,20 @@ func CancellationRequestCanTransition(from, to CancellationRequestStatus) bool {
 	return canTransition(cancellationRequestTransitions, from, to)
 }
 
+// SnipeCanTransition reports whether a snipe may move from -> to.
+func SnipeCanTransition(from, to SnipeStatus) bool {
+	return canTransition(snipeTransitions, from, to)
+}
+
+// SnipeTerminal reports whether s is a final snipe status.
+func SnipeTerminal(s SnipeStatus) bool {
+	switch s {
+	case SnipeWon, SnipeExpired, SnipeCancelled, SnipeFailed:
+		return true
+	}
+	return false
+}
+
 // Typed transition funcs: validate the move and return the new status, or a
 // CONFLICT apperr describing the illegal transition.
 
@@ -110,6 +139,14 @@ func TransitionService(from, to ServiceStatus) (ServiceStatus, error) {
 func TransitionDomain(from, to DomainStatus) (DomainStatus, error) {
 	if !DomainCanTransition(from, to) {
 		return from, apperr.Newf(apperr.CodeConflict, "domain cannot transition from %s to %s", from, to)
+	}
+	return to, nil
+}
+
+// TransitionSnipe validates and applies a snipe status transition.
+func TransitionSnipe(from, to SnipeStatus) (SnipeStatus, error) {
+	if !SnipeCanTransition(from, to) {
+		return from, apperr.Newf(apperr.CodeConflict, "snipe cannot transition from %s to %s", from, to)
 	}
 	return to, nil
 }

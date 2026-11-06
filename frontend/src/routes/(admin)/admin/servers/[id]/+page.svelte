@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
 	import { enhance } from '$app/forms';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import { toast } from '$lib/stores/toast.svelte';
@@ -43,7 +44,7 @@
 </script>
 
 <svelte:head>
-	<title>{server.name} — HostPanel Admin</title>
+	<title>{server.name} — {appName} Admin</title>
 </svelte:head>
 
 <h1 class="hp-h1">

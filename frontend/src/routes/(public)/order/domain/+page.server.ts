@@ -10,6 +10,11 @@ export interface DomainCheckResult {
 	 *  from an active TLDPricing row (not a flat annual rate; a multi-year
 	 *  estimate must look this up instead of assuming price * years). */
 	register_prices?: Record<string, number>;
+	/** The extension needs identity/legal documents after registration. */
+	document_required?: boolean;
+	/** The extension has an ACTIVE Domain Pricing row: only then is it for sale
+	 *  (no price is shown and checkout refuses it otherwise). */
+	sellable?: boolean;
 	min_years: number;
 	max_years: number;
 }
@@ -64,10 +69,20 @@ export const load: PageServerLoad = async (event) => {
 	const tlds = tldsRes.data ?? [];
 	const addons = addonsRes.data ?? [];
 	const tldByExt = new Map(tlds.map((t) => [t.tld, t]));
+	// The extensions on sale; null when the catalog could not be loaded (then
+	// nothing is blocked client-side - the server still refuses at checkout).
+	const sellableTlds: string[] | null = tldsRes.data ? tlds.map((t) => t.tld) : null;
 
 	const q = event.url.searchParams.get('q')?.trim() ?? '';
 	if (!q) {
-		return { q: '', results: null, invalidQuery: false, searchError: null, addons };
+		return {
+			q: '',
+			results: null,
+			invalidQuery: false,
+			searchError: null,
+			addons,
+			sellableTlds
+		};
 	}
 
 	const names = candidates(
@@ -75,7 +90,7 @@ export const load: PageServerLoad = async (event) => {
 		tlds.map((t) => t.tld)
 	);
 	if (!names) {
-		return { q, results: null, invalidQuery: true, searchError: null, addons };
+		return { q, results: null, invalidQuery: true, searchError: null, addons, sellableTlds };
 	}
 
 	const res = await apiFetch<Omit<DomainCheckResult, 'min_years' | 'max_years'>[]>(
@@ -85,7 +100,14 @@ export const load: PageServerLoad = async (event) => {
 	);
 
 	if (res.error) {
-		return { q, results: null, invalidQuery: false, searchError: res.error.message, addons };
+		return {
+			q,
+			results: null,
+			invalidQuery: false,
+			searchError: res.error.message,
+			addons,
+			sellableTlds
+		};
 	}
 
 	// Preserve the candidate order (exact query first, then TLD alternates).
@@ -98,5 +120,5 @@ export const load: PageServerLoad = async (event) => {
 			return { ...r, min_years: t?.min_years ?? 1, max_years: t?.max_years ?? 10 };
 		});
 
-	return { q, results, invalidQuery: false, searchError: null, addons };
+	return { q, results, invalidQuery: false, searchError: null, addons, sellableTlds };
 };

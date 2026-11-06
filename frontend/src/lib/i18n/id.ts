@@ -1,7 +1,9 @@
+import { appName } from '../appName';
+
 /** Bahasa Indonesia - default locale. This dictionary defines the canonical key shape. */
 const id = {
 	common: {
-		appName: 'WHCMS',
+		appName,
 		loading: 'Memuat…',
 		search: 'Cari',
 		searchPlaceholder: 'Cari client, invoice, domain…',

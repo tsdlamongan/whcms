@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
 	import { Alert, EmptyState, MoneyText } from '$lib/components';
 	import CaPrice from '$lib/components/ca/CaPrice.svelte';
 	import { t } from '$lib/i18n';
@@ -40,7 +41,7 @@
 </script>
 
 <svelte:head>
-	<title>{activeGroup?.name ?? t('orderfe.catalog.title')} — WHCMS</title>
+	<title>{activeGroup?.name ?? t('orderfe.catalog.title')} — {appName}</title>
 </svelte:head>
 
 <h1 class="ca-h1">{activeGroup?.name ?? t('orderfe.catalog.title')}</h1>

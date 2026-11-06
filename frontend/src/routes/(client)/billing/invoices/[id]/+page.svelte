@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
 	import { enhance } from '$app/forms';
 	import { invalidateAll } from '$app/navigation';
 	import {
@@ -135,7 +136,7 @@
 
 <svelte:head>
 	<title>
-		{invoice ? invoice.invoice_number : t('billing.invoice')} — WHCMS
+		{invoice ? invoice.invoice_number : t('billing.invoice')} — {appName}
 	</title>
 </svelte:head>
 

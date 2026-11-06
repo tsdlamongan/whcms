@@ -426,6 +426,25 @@ func TestHandlerListProductsMeta(t *testing.T) {
 	assert.Equal(t, int64(1), env.Meta.Total)
 }
 
+func TestHandlerListProductsGroupAndTypeFilters(t *testing.T) {
+	h := newApp(nil)
+	var got ports.ListParams
+	called := false
+	h.fx.products.ListFn = func(ctx context.Context, p ports.ListParams) ([]domain.Product, int64, error) {
+		called, got = true, p
+		return nil, 0, nil
+	}
+	resp, _ := h.do(t, "GET", "/api/v1/admin/products?group_id=4&type=shared_hosting", nil)
+	assert.Equal(t, 200, resp.StatusCode)
+	assert.Equal(t, int64(4), got.GroupID)
+	assert.Equal(t, "shared_hosting", got.Type)
+
+	called = false
+	resp, _ = h.do(t, "GET", "/api/v1/admin/products?group_id=oops", nil)
+	assert.Equal(t, 422, resp.StatusCode)
+	assert.False(t, called)
+}
+
 func TestHandlerAdminGroupsListing(t *testing.T) {
 	h := newApp(nil)
 	var gotInclude bool

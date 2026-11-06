@@ -14,6 +14,7 @@ interface RegisterValues {
 	company: string;
 	address1: string;
 	city: string;
+	state: string;
 	postcode: string;
 	country: string;
 	phone: string;
@@ -38,6 +39,7 @@ export const actions: Actions = {
 			company: str('company'),
 			address1: str('address1'),
 			city: str('city'),
+			state: str('state'),
 			postcode: str('postcode'),
 			country: str('country') || 'ID',
 			phone: str('phone')
@@ -53,6 +55,7 @@ export const actions: Actions = {
 			'last_name',
 			'address1',
 			'city',
+			'state',
 			'postcode',
 			'country',
 			'phone'

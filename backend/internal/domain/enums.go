@@ -130,6 +130,7 @@ const (
 	RelatedLateFee        InvoiceItemRelatedType = "late_fee"
 	RelatedDeposit        InvoiceItemRelatedType = "deposit"
 	RelatedManual         InvoiceItemRelatedType = "manual"
+	RelatedDomainSnipe    InvoiceItemRelatedType = "domain_snipe"
 )
 
 // TransactionStatus is the status of a payment transaction.
@@ -182,6 +183,68 @@ const (
 	DomainPendingTransfer DomainStatus = "pending_transfer"
 	DomainExpired         DomainStatus = "expired"
 	DomainCancelled       DomainStatus = "cancelled"
+	// DomainSuspended: the registrar switched the domain off - documents or
+	// the registrant's email verification are overdue (day 5 / day 30 of the
+	// RDash auto-activation lifecycle), or an operator suspended it there.
+	DomainSuspended DomainStatus = "suspended"
+	// DomainRejected: the registrar refused or deleted the registration. The
+	// refund rules (DomainRefundDecision) apply when a domain enters it.
+	DomainRejected DomainStatus = "rejected"
+)
+
+// DomainVerification mirrors the registrar's `verification_status` of a
+// domain: 0 Waiting, 1 Verifying, 2 Document Validating, 3 Active. The empty
+// value means the registrar never reported one.
+type DomainVerification string
+
+const (
+	VerificationNone               DomainVerification = ""
+	VerificationWaiting            DomainVerification = "waiting"
+	VerificationVerifying          DomainVerification = "verifying"
+	VerificationDocumentValidating DomainVerification = "document_validating"
+	VerificationActive             DomainVerification = "active"
+)
+
+// Valid reports whether v is one of the five known values.
+func (v DomainVerification) Valid() bool {
+	switch v {
+	case VerificationNone, VerificationWaiting, VerificationVerifying,
+		VerificationDocumentValidating, VerificationActive:
+		return true
+	}
+	return false
+}
+
+// SnipeStatus is the status of a domain snipe (a background hunt that keeps
+// trying to register a dropping domain). won/expired/cancelled/failed are
+// terminal.
+type SnipeStatus string
+
+const (
+	SnipePendingPayment SnipeStatus = "pending_payment"
+	SnipeActive         SnipeStatus = "active"
+	SnipeWon            SnipeStatus = "won"
+	SnipeExpired        SnipeStatus = "expired"
+	SnipeCancelled      SnipeStatus = "cancelled"
+	SnipeFailed         SnipeStatus = "failed"
+)
+
+// SnipePhase is what an active hunt is doing right now: probing availability
+// cheaply (patient) or hammering the register call (burst).
+type SnipePhase string
+
+const (
+	SnipePhasePatient SnipePhase = "patient"
+	SnipePhaseBurst   SnipePhase = "burst"
+)
+
+// SnipeSource tells who created a snipe: a client (billed) or an admin
+// (free, no invoice).
+type SnipeSource string
+
+const (
+	SnipeSourceClient SnipeSource = "client"
+	SnipeSourceAdmin  SnipeSource = "admin"
 )
 
 // TicketStatus is the status of a support ticket.

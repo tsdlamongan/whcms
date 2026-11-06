@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
+
 	import { addNewLinks, topMenus } from './nav';
 
 	interface Props {
@@ -32,7 +34,7 @@
 	</button>
 
 	<a class="hp-brand" href="/admin">
-		<i class="fas fa-cloud" aria-hidden="true"></i><span>WHCMS</span>
+		<i class="fas fa-cloud" aria-hidden="true"></i><span data-testid="app-name">{appName}</span>
 	</a>
 
 	<!-- Add New (+) -->

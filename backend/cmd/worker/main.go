@@ -111,12 +111,26 @@ func run() error {
 		srv.Shutdown()
 		return err
 	}
+
+	// --- domain sniper supervisor ------------------------------------------
+	// Not an asynq task: a hunt polls every few hundred milliseconds for days,
+	// which asynq's 30-minute default timeout, 5s scheduling granularity and
+	// shared worker slots cannot serve. State lives in Postgres under an SQL
+	// lease, so a restart (or a second worker) just resumes.
+	sniperCtx, stopSniper := context.WithCancel(ctx)
+	sniperDone := make(chan struct{})
+	go func() {
+		defer close(sniperDone)
+		app.SnipeSupervisor.Run(sniperCtx)
+	}()
 	log.Info("worker running", "concurrency", cfg.WorkerConcurrency, "crons", len(schedules))
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 	<-stop
 	log.Info("worker shutting down")
+	stopSniper()
+	<-sniperDone
 	scheduler.Shutdown()
 	srv.Stop()
 	srv.Shutdown()

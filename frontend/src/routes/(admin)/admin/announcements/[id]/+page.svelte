@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
 	import { enhance } from '$app/forms';
 	import HpModal from '$lib/components/hp/HpModal.svelte';
 	import { t } from '$lib/i18n';
@@ -27,7 +28,7 @@
 </script>
 
 <svelte:head>
-	<title>{title} — HostPanel Admin</title>
+	<title>{title} — {appName} Admin</title>
 </svelte:head>
 
 {#if data.loadError || !data.announcement}

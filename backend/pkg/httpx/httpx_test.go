@@ -5,7 +5,9 @@ import (
 	"errors"
 	"io"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/tsdlamongan/whcms/backend/pkg/apperr"
 	"github.com/tsdlamongan/whcms/backend/pkg/httpx"
@@ -169,4 +171,160 @@ func TestIdentityHelpers(t *testing.T) {
 	resp, err := app.Test(httptest.NewRequest("GET", "/t", nil))
 	require.NoError(t, err)
 	assert.Equal(t, 200, resp.StatusCode)
+}
+
+func TestQueryID(t *testing.T) {
+	tests := []struct {
+		name    string
+		query   string
+		want    int64
+		wantErr bool
+	}{
+		{"absent means no filter", "/t", 0, false},
+		{"blank means no filter", "/t?client_id=", 0, false},
+		{"valid id", "/t?client_id=42", 42, false},
+		{"zero is rejected", "/t?client_id=0", 0, true},
+		{"negative is rejected", "/t?client_id=-3", 0, true},
+		{"non numeric is rejected", "/t?client_id=abc", 0, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var (
+				got int64
+				err error
+			)
+			status, env := doRequest(t, func(c fiber.Ctx) error {
+				got, err = httpx.QueryID(c, "client_id")
+				if err != nil {
+					return httpx.Fail(c, err)
+				}
+				return httpx.OK(c, nil)
+			}, tt.query)
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Equal(t, 422, status)
+				require.NotNil(t, env.Error)
+				assert.Equal(t, "VALIDATION", env.Error.Code)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, 200, status)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestQueryDate(t *testing.T) {
+	tests := []struct {
+		name    string
+		query   string
+		want    string // YYYY-MM-DD, "" = zero time
+		wantErr bool
+	}{
+		{"absent means no filter", "/t", "", false},
+		{"blank means no filter", "/t?date_from=", "", false},
+		{"valid date", "/t?date_from=2026-02-28", "2026-02-28", false},
+		{"wrong format is rejected", "/t?date_from=28-02-2026", "", true},
+		{"impossible date is rejected", "/t?date_from=2026-02-30", "", true},
+		{"garbage is rejected", "/t?date_from=yesterday", "", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var (
+				got time.Time
+				err error
+			)
+			status, env := doRequest(t, func(c fiber.Ctx) error {
+				got, err = httpx.QueryDate(c, "date_from")
+				if err != nil {
+					return httpx.Fail(c, err)
+				}
+				return httpx.OK(c, nil)
+			}, tt.query)
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Equal(t, 422, status)
+				require.NotNil(t, env.Error)
+				assert.Equal(t, "VALIDATION", env.Error.Code)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, 200, status)
+			if tt.want == "" {
+				assert.True(t, got.IsZero())
+				return
+			}
+			assert.Equal(t, tt.want, got.Format(httpx.DateLayout))
+		})
+	}
+}
+
+func TestQueryIDs(t *testing.T) {
+	tests := []struct {
+		name    string
+		query   string
+		want    []int64
+		wantErr bool
+	}{
+		{"absent means no filter", "/t", nil, false},
+		{"blank means no filter", "/t?ids=", nil, false},
+		{"single id", "/t?ids=7", []int64{7}, false},
+		{"several ids with blanks tolerated", "/t?ids=3,%204,5%20", []int64{3, 4, 5}, false},
+		{"zero is rejected", "/t?ids=1,0", nil, true},
+		{"negative is rejected", "/t?ids=-1", nil, true},
+		{"non numeric is rejected", "/t?ids=1,x", nil, true},
+		{"empty item is rejected", "/t?ids=1,,2", nil, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var (
+				got []int64
+				err error
+			)
+			status, env := doRequest(t, func(c fiber.Ctx) error {
+				got, err = httpx.QueryIDs(c, "ids")
+				if err != nil {
+					return httpx.Fail(c, err)
+				}
+				return httpx.OK(c, nil)
+			}, tt.query)
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Equal(t, 422, status)
+				require.NotNil(t, env.Error)
+				assert.Equal(t, "VALIDATION", env.Error.Code)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, 200, status)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+
+	t.Run("more than MaxPerPage ids is rejected", func(t *testing.T) {
+		ids := strings.TrimSuffix(strings.Repeat("1,", httpx.MaxPerPage+1), ",")
+		status, _ := doRequest(t, func(c fiber.Ctx) error {
+			_, err := httpx.QueryIDs(c, "ids")
+			if err != nil {
+				return httpx.Fail(c, err)
+			}
+			return httpx.OK(c, nil)
+		}, "/t?ids="+ids)
+		assert.Equal(t, 422, status)
+	})
+
+	t.Run("exactly MaxPerPage ids is accepted", func(t *testing.T) {
+		ids := strings.TrimSuffix(strings.Repeat("1,", httpx.MaxPerPage), ",")
+		var got []int64
+		status, _ := doRequest(t, func(c fiber.Ctx) error {
+			var err error
+			got, err = httpx.QueryIDs(c, "ids")
+			if err != nil {
+				return httpx.Fail(c, err)
+			}
+			return httpx.OK(c, nil)
+		}, "/t?ids="+ids)
+		assert.Equal(t, 200, status)
+		assert.Len(t, got, httpx.MaxPerPage)
+	})
 }

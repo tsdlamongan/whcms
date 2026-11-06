@@ -7,6 +7,24 @@ All notable changes to WHCMS are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- Domain sniper (admin side): background hunts that keep trying to register a
+  dropping domain until the registrar accepts it. A supervisor in the worker
+  claims hunts under a Postgres lease (restart/second-worker safe), probes
+  availability cheaply and bursts register calls inside the drop window,
+  verifies ambiguous replies before retrying, pauses all hunts when the
+  reseller credentials/balance fail, and refunds paid hunts that lose.
+  Admin pages under `/admin/snipes`; new `snipe.*` settings, migrations
+  `000025`/`000026`; mockserver gains `/mock/rdash/{script,attempts,fault,balance}`.
+- Domain sniper (client side, paid up front): admin-priced plans
+  (`/admin/snipes/plans`), a client area under `/snipes` with a live price
+  breakdown, one invoice (service fee + domain price) whose payment starts
+  the hunt, and refunds to account credit when a hunt ends without winning
+  (domain price back, service fee kept; a payment that arrives after the
+  hunt ended is credited back in full). Unpaid hunts are swept once their
+  invoice is a day overdue. Client drop windows need both ends and are capped
+  at 6 hours; the sniper accepts new paid hunts only while `snipe.max_active_global`
+  (default 50) has room; refunds are held back until the registrar confirms the
+  domain is not ours.
 - Modular payment-gateway registry: Duitku config (incl. base URL) editable
   live from the admin, plus a manual bank-transfer gateway with
   admin-confirmed settlement; VA/QRIS instructions render inline and pending
@@ -61,6 +79,21 @@ All notable changes to WHCMS are documented here. The format follows
 - Several SvelteKit `load` functions now fetch independent data concurrently.
 - `scripts/e2e-up.sh` generates per-checkout secrets, preflights required
   services, and installs frontend dependencies when missing.
+- Tooling: the root `Makefile` is now the only one (`backend/Makefile` is
+  gone) with `up`, `down`, `cover`, `lint`, `format`, `test` and `help`
+  (plus `e2e`, `tunnel`, `hooks`). `make up` is a dev server — api, worker
+  and frontend from `.env`, killing whatever holds their ports; `make down`
+  stops it and clears leftovers. The old `make test-backend` / `make
+  test-frontend` / `scripts/e2e-up.sh` / `scripts/e2e-down.sh` are replaced by
+  `make cover` / `make e2e` and `scripts/stack.sh`.
+- Config is split into two root env files: `.env` (dev, used by `make up`) and
+  `.env.testing` (mocked; used by cover/lint/test/e2e, created from
+  `.env.testing.example` on first use). `backend/.env` and `frontend/.env` are
+  superseded by the root `.env`. The test stack now has its own Redis DB
+  (13) and S3 bucket (`whmcs-e2e`), so it can no longer share queues with a
+  dev worker.
+- `make lint` now covers the frontend too (prettier + svelte-check) and
+  `make format` formats both sides.
 
 ### Fixed
 - Provisioning: account creation is idempotent; username collisions and

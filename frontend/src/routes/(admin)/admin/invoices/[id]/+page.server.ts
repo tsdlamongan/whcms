@@ -16,25 +16,20 @@ import type { AdminClientLite, AdminInvoice, AdminInvoiceItem, AdminTransaction 
 interface AdminInvoiceDetailResponse {
 	invoice: AdminInvoice;
 	items?: AdminInvoiceItem[];
+	/** This invoice's own payment attempts (billing.InvoiceDetail.transactions). */
+	transactions?: AdminTransaction[];
 }
 
 export const load: PageServerLoad = async (event) => {
 	const id = event.params.id;
 
-	// The transactions list only depends on the route param, so it runs
-	// concurrently with the invoice fetch.
-	const invoicePromise = apiFetch<AdminInvoiceDetailResponse>(event, `/api/v1/admin/invoices/${id}`);
-	const txPromise = apiFetch<AdminTransaction[]>(event, '/api/v1/admin/transactions', {
-		query: { invoice_id: id, per_page: 50 }
-	});
-	const res = await invoicePromise;
+	const res = await apiFetch<AdminInvoiceDetailResponse>(event, `/api/v1/admin/invoices/${id}`);
 
 	if (res.error || !res.data?.invoice) {
 		return {
 			invoice: null as AdminInvoice | null,
 			client: null as AdminClientLite | null,
 			transactions: [] as AdminTransaction[],
-			transactionsError: null as string | null,
 			errorMessage: res.error?.message ?? 'Invoice not found',
 			notFound: res.status === 404
 		};
@@ -52,14 +47,12 @@ export const load: PageServerLoad = async (event) => {
 		client = clientRes.data ?? null;
 	}
 
-	// Transaction history for this invoice (admin transactions list filtered).
-	const txRes = await txPromise;
-
 	return {
 		invoice,
 		client,
-		transactions: txRes.data ?? [],
-		transactionsError: txRes.error?.message ?? null,
+		// The detail endpoint already returns exactly this invoice's
+		// transactions (no second, unfiltered list call needed).
+		transactions: res.data.transactions ?? [],
 		errorMessage: null as string | null,
 		notFound: false
 	};
@@ -128,41 +121,5 @@ export const actions: Actions = {
 		});
 		if (res.error) return actionError(res);
 		return { success: 'cancel' as const };
-	},
-
-	addItem: async (event) => {
-		const form = await event.request.formData();
-		const description = String(form.get('description') ?? '').trim();
-		const amount = Math.trunc(Number(form.get('amount') ?? 0));
-		const taxed = form.get('taxed') === 'on' || form.get('taxed') === 'true';
-
-		if (!description) {
-			return fail(400, { errorKey: 'adminBilling.detail.errItemDescription' });
-		}
-		if (!Number.isFinite(amount)) {
-			return fail(400, { errorKey: 'adminBilling.detail.errAmount' });
-		}
-
-		const res = await apiFetch(event, `/api/v1/admin/invoices/${event.params.id}/items`, {
-			method: 'POST',
-			body: { description, amount, taxed }
-		});
-		if (res.error) return actionError(res);
-		return { success: 'addItem' as const };
-	},
-
-	deleteItem: async (event) => {
-		const form = await event.request.formData();
-		const itemId = Number(form.get('item_id') ?? 0);
-
-		if (!itemId || itemId < 1) {
-			return fail(400, { errorMessage: 'Missing item id' });
-		}
-
-		const res = await apiFetch(event, `/api/v1/admin/invoices/${event.params.id}/items/${itemId}`, {
-			method: 'DELETE'
-		});
-		if (res.error) return actionError(res);
-		return { success: 'deleteItem' as const };
 	}
 };

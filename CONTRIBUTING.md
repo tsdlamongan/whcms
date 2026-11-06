@@ -16,18 +16,20 @@ S3-compatible store (RustFS or MinIO) on `:9000`. Two paths:
 - **Docker:** `docker compose -f deploy/docker-compose.yml --profile dev up
   -d --build` starts everything, including the mockserver.
 
-`make help` (repo root) lists every task. `make up` / `make down` start and
-stop the full local stack used by the E2E suite.
+`make help` (repo root) lists every task — the root `Makefile` is the only one.
+`make up` / `make down` start and stop the dev server (config: `.env`);
+`make cover`, `make lint`, `make test` and `make e2e` run against the mocked
+test setup (config: `.env.testing`, created for you on first use).
 
 After cloning, run **`make hooks`** once: it installs a pre-push hook that
-runs `make lint` (gofmt, golangci-lint, mockserver vet, and the e2e
-fixture-import guard) — the exact lint set CI enforces, so a red lint job
-never gets discovered on the remote. Bypass a single push with
+runs `make lint` (gofmt, prettier, `go vet`, golangci-lint, svelte-check and the
+e2e fixture-import guard), so a red lint job never gets discovered on the
+remote. `make format` fixes what it can. Bypass a single push with
 `SKIP_LINT=1 git push`.
 
 ## Ground rules (enforced by CI)
 
-1. **Backend coverage must stay above 90%.** `make test-backend` runs
+1. **Backend coverage must stay above 90%.** `make cover` runs
    build + vet + the full unit/integration suite and fails below the gate.
    Every new exported function needs tests.
 2. **Every new user-facing frontend flow ships its own Playwright E2E spec**
@@ -58,10 +60,11 @@ tests) — the step-by-step recipe is in `CLAUDE.md` §3. Frontend pages pair
 Before opening a PR:
 
 ```bash
-make test-backend            # >90% coverage gate (needs local Postgres)
-cd frontend && npm run check # svelte-check, must be 0 errors
+make lint                    # gofmt, prettier, go vet, golangci-lint, svelte-check
+make cover                   # >90% coverage gate (needs local Postgres, Redis, S3)
 cd frontend && npm run build
-make up && make test-frontend  # Playwright E2E, or SPEC=<file> for one spec
+make e2e                     # Playwright E2E on a fresh mocked stack, or SPEC=<file> for one spec
+# …or all of it in one go: make test
 ```
 
 ## Commit messages — Conventional Commits (required)

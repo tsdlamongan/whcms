@@ -6,10 +6,11 @@
 //   - a shared_hosting product bound to the cpanel server group with
 //     auto_setup=on_payment and monthly pricing.
 //
-// It does NOT seed a "domain" product: internal/modules/orders/pricing.go's
-// planDomain falls back to the registrar's (RDash mock) quoted per-year price
-// when no product_id is given on a domain_register/domain_transfer order
-// item, so standalone domain orders need no product row. The "rdash"
+// It does NOT seed a "domain" product: standalone domain orders need no
+// product row, but a domain can only be ordered when its extension has an
+// ACTIVE Domain Pricing row (internal/modules/orders/pricing.go's planDomain),
+// so it seeds tld_pricing for the extensions the specs order under (see
+// e2eSellableTLDs). The "rdash"
 // registrar row inserted by migration 000002 is also left untouched: the
 // RDash adapter (internal/integration/rdash, wired in
 // internal/composition/build.go) takes its reseller_id/api_key/base_url from
@@ -29,6 +30,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/tsdlamongan/whcms/backend/internal/platform/config"
@@ -179,6 +181,17 @@ func run() error {
 		return fmt.Errorf("seed pricing: %w", err)
 	}
 	slog.Info("seeded product pricing", "product_id", productID, "cycle", "monthly", "price", 50000)
+
+	// --- sellable domain extensions ------------------------------------------
+	// A domain can only be ordered when its extension has an ACTIVE Domain
+	// Pricing row, so the specs' extensions are priced here at the RDash
+	// mock's 150.000/year (1..10 years, linear).
+	for _, tld := range e2eSellableTLDs {
+		if err := seedTLDPricing(ctx, pool, tld, 150000); err != nil {
+			return fmt.Errorf("seed tld pricing %s: %w", tld, err)
+		}
+	}
+	slog.Info("seeded domain pricing", "tlds", e2eSellableTLDs)
 
 	// --- portal feature fixtures (announcements / KB / network status) -------
 	announcementID, err := seedAnnouncement(ctx, pool, adminID)
@@ -385,6 +398,40 @@ func seedPricing(ctx context.Context, pool *pgxpool.Pool, productID int64, cycle
 		VALUES ($1, $2, $3, $4, 'IDR')
 		ON CONFLICT (product_id, cycle, currency) DO NOTHING`,
 		productID, cycle, price, setupFee)
+	return err
+}
+
+// e2eSellableTLDs are the extensions the E2E specs order domains under:
+// com (generic), e2e.test (`<label>.e2e.test` fixtures) and co.id (the
+// document lifecycle specs). my.id is deliberately NOT here: the TLD pricing
+// import spec owns it (it deletes and re-imports that row), so a spec that
+// needs it provisions its own via ensureSellableTld.
+var e2eSellableTLDs = []string{"com", "e2e.test", "co.id"}
+
+// seedTLDPricing creates an ACTIVE Domain Pricing row for tld on the rdash
+// registrar: register price perYear * years for 1..10 years, the same renew
+// and transfer price. Idempotent (never touches an existing row).
+func seedTLDPricing(ctx context.Context, pool *pgxpool.Pool, tld string, perYear int64) error {
+	register := make(map[string]int64, 10)
+	renew := make(map[string]int64, 10)
+	for y := int64(1); y <= 10; y++ {
+		register[strconv.FormatInt(y, 10)] = perYear * y
+		renew[strconv.FormatInt(y, 10)] = perYear * y
+	}
+	registerJSON, err := json.Marshal(register)
+	if err != nil {
+		return err
+	}
+	renewJSON, err := json.Marshal(renew)
+	if err != nil {
+		return err
+	}
+	_, err = pool.Exec(ctx, `
+		INSERT INTO tld_pricing (tld, registrar_id, active, min_years, max_years, register_prices, renew_prices, transfer_price)
+		SELECT $1, r.id, TRUE, 1, 10, $2::jsonb, $3::jsonb, $4
+		FROM registrars r WHERE r.name = 'rdash'
+		ON CONFLICT (tld) DO NOTHING`,
+		tld, registerJSON, renewJSON, perYear)
 	return err
 }
 

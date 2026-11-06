@@ -134,6 +134,7 @@ type testEnv struct {
 	activator  *mocks.MockServiceActivator
 	renewer    *mocks.MockServiceRenewer
 	domRenewer *mocks.MockDomainRenewer
+	snipes     *mocks.MockSnipeActivator
 	notifier   *mocks.MockNotificationSender
 	pdf        *mocks.MockPDFGenerator
 	storage    *mocks.MockStorage
@@ -165,6 +166,7 @@ func newFixture() *testEnv {
 		activator:  &mocks.MockServiceActivator{},
 		renewer:    &mocks.MockServiceRenewer{},
 		domRenewer: &mocks.MockDomainRenewer{},
+		snipes:     &mocks.MockSnipeActivator{},
 		notifier:   &mocks.MockNotificationSender{},
 		pdf:        &mocks.MockPDFGenerator{},
 		storage:    &mocks.MockStorage{},
@@ -189,6 +191,7 @@ func (e *testEnv) service() *Service {
 		Activator:     e.activator,
 		Renewer:       e.renewer,
 		DomainRenewer: e.domRenewer,
+		Snipes:        e.snipes,
 		Notifier:      e.notifier,
 		PDF:           e.pdf,
 		Storage:       e.storage,
@@ -415,6 +418,8 @@ func TestProcessPaidDispatch(t *testing.T) {
 			{RelatedType: domain.RelatedServiceRenewal, RelatedID: rid(11)},
 			{RelatedType: domain.RelatedServiceUpgrade, RelatedID: rid(12)},
 			{RelatedType: domain.RelatedDomainRenewal, RelatedID: rid(13)},
+			{RelatedType: domain.RelatedDomainSnipe, RelatedID: rid(14)},
+			{RelatedType: domain.RelatedDomainSnipe}, // no id: skipped, never a call with 0
 			{RelatedType: domain.RelatedDeposit, Amount: 50_000},
 			{RelatedType: domain.RelatedLateFee, Amount: 5_000},
 			{RelatedType: domain.RelatedManual, Amount: 1_000},
@@ -428,7 +433,11 @@ func TestProcessPaidDispatch(t *testing.T) {
 		activated = append(activated, orderID)
 		return nil
 	}
-	var renewed, upgraded, domainsRenewed []int64
+	var renewed, upgraded, domainsRenewed, snipesActivated []int64
+	env.snipes.ActivateSnipeAfterPaymentFn = func(_ context.Context, id int64) error {
+		snipesActivated = append(snipesActivated, id)
+		return nil
+	}
 	env.renewer.RenewServiceFn = func(_ context.Context, id int64) error {
 		renewed = append(renewed, id)
 		return nil
@@ -455,6 +464,7 @@ func TestProcessPaidDispatch(t *testing.T) {
 	assert.Equal(t, []int64{11}, renewed)
 	assert.Equal(t, []int64{12}, upgraded)
 	assert.Equal(t, []int64{13}, domainsRenewed)
+	assert.Equal(t, []int64{14}, snipesActivated, "the paid snipe line starts its hunt")
 	require.Len(t, env.credit.Added, 1)
 	assert.Equal(t, creditCall{ClientID: 3, Amount: 50_000, Reason: "Deposit INV-202607-000001", InvoiceID: 1}, env.credit.Added[0])
 	assert.Equal(t, "payment_received", sentTpl)
@@ -1269,6 +1279,28 @@ func TestRefundInvoice(t *testing.T) {
 	assert.Equal(t, domain.TxRefunded, updatedTx[0].Status)
 	require.Len(t, env.credit.Added, 1)
 	assert.Equal(t, creditCall{ClientID: 3, Amount: 200_000, Reason: "Refund INV-R", InvoiceID: 1}, env.credit.Added[0])
+}
+
+func TestRefundInvoiceRefusesADomainHuntInvoice(t *testing.T) {
+	env := newFixture()
+	env.invoices.GetByIDForUpdateFn = func(_ context.Context, id int64) (*domain.Invoice, error) {
+		return &domain.Invoice{ID: id, InvoiceNumber: "INV-S", ClientID: 3, Status: domain.InvoicePaid, Total: 222_000}, nil
+	}
+	snipeID := int64(5)
+	env.invoices.GetItemsFn = func(context.Context, int64) ([]domain.InvoiceItem, error) {
+		return []domain.InvoiceItem{
+			{Description: "Hunting service", RelatedType: domain.RelatedManual},
+			{Description: "hunt.com registration", RelatedType: domain.RelatedDomainSnipe, RelatedID: &snipeID},
+		}, nil
+	}
+	env.invoices.UpdateStatusFn = func(context.Context, int64, domain.InvoiceStatus, *time.Time) error {
+		t.Fatal("the invoice must stay paid")
+		return nil
+	}
+	_, err := env.service().RefundInvoice(context.Background(), 42, 1, RefundInput{ToCredit: true})
+	assert.Equal(t, apperr.CodeConflict, codeOf(t, err))
+	assert.Contains(t, err.Error(), "cancel the hunt")
+	assert.Empty(t, env.credit.Added)
 }
 
 func TestRefundInvoiceNotPaid(t *testing.T) {

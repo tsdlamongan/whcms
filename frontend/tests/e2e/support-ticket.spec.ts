@@ -78,6 +78,7 @@ test('client opens a ticket with an attachment, is notified, replies, transition
 				last_name: 'Ticket',
 				address1: 'Jl. Percobaan 1',
 				city: 'Jakarta',
+				state: 'DKI Jakarta',
 				postcode: '12345',
 				country: 'ID',
 				phone: '+628123456789'

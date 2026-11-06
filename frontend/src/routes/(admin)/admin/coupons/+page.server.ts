@@ -35,7 +35,7 @@ export const load: PageServerLoad = async (event) => {
 			query: { page, per_page: perPage, search: search || undefined }
 		}),
 		apiFetch<ProductOption[]>(event, '/api/v1/admin/products', {
-			query: { per_page: 100 }
+			query: { per_page: 1000 }
 		})
 	]);
 

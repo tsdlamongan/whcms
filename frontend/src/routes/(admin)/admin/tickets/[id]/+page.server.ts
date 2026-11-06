@@ -1,3 +1,4 @@
+import { clientNamesFor } from '$lib/server/adminNames';
 import { apiFetch } from '$lib/server/api';
 import { fail } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
@@ -36,6 +37,12 @@ export const load: PageServerLoad = async (event) => {
 			ticket = flat;
 			rawReplies = flat.replies ?? [];
 		}
+	}
+
+	// The ticket row carries only client_id; resolve the display name.
+	if (ticket && ticket.client_id && !ticket.client_name) {
+		const clientName = (await clientNamesFor(event, [ticket.client_id])).get(ticket.client_id);
+		if (clientName) ticket = { ...ticket, client_name: clientName };
 	}
 
 	// Admin view keeps internal notes (highlighted in the UI).
@@ -127,8 +134,8 @@ export const actions: Actions = {
 			return fail(400, { updateErrorKey: 'adminsupport.tickets.updateFailed' });
 		}
 
-		const res = await apiFetch(event, `/api/v1/admin/tickets/${event.params.id}`, {
-			method: 'PATCH',
+		const res = await apiFetch(event, `/api/v1/admin/tickets/${event.params.id}/status`, {
+			method: 'POST',
 			body: { status }
 		});
 
@@ -145,8 +152,8 @@ export const actions: Actions = {
 			return fail(400, { updateErrorKey: 'adminsupport.tickets.updateFailed' });
 		}
 
-		const res = await apiFetch(event, `/api/v1/admin/tickets/${event.params.id}`, {
-			method: 'PATCH',
+		const res = await apiFetch(event, `/api/v1/admin/tickets/${event.params.id}/priority`, {
+			method: 'POST',
 			body: { priority }
 		});
 
@@ -156,9 +163,11 @@ export const actions: Actions = {
 		return { updated: true };
 	},
 
+	// Closing is just the "closed" status: the API has no separate /close for staff.
 	close: async (event) => {
-		const res = await apiFetch(event, `/api/v1/admin/tickets/${event.params.id}/close`, {
-			method: 'POST'
+		const res = await apiFetch(event, `/api/v1/admin/tickets/${event.params.id}/status`, {
+			method: 'POST',
+			body: { status: 'closed' }
 		});
 
 		if (res.error) {

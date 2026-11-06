@@ -7,6 +7,7 @@ import (
 	"github.com/tsdlamongan/whcms/backend/internal/ports"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestListParamsLimit(t *testing.T) {
@@ -20,7 +21,9 @@ func TestListParamsLimit(t *testing.T) {
 		{"within range passes through", 10, 10},
 		{"exactly 1 passes through", 1, 1},
 		{"exactly 100 passes through", 100, 100},
-		{"above 100 clamps to 100", 150, 100},
+		{"the page-size selector's 500 passes through", 500, 500},
+		{"exactly the cap passes through", 1000, 1000},
+		{"above the cap clamps to 1000", 1500, 1000},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -42,7 +45,8 @@ func TestListParamsOffset(t *testing.T) {
 		{"page 1 -> offset 0 regardless of perPage", 1, 10, 0},
 		{"page 3 with perPage 10 -> offset 20", 3, 10, 20},
 		{"page 2 with default perPage (25) -> offset 25", 2, 0, 25},
-		{"page 2 with perPage clamped to 100 -> offset 100", 2, 150, 100},
+		{"page 2 with a 500 page size -> offset 500", 2, 500, 500},
+		{"page 2 with perPage clamped to 1000 -> offset 1000", 2, 1500, 1000},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -103,5 +107,46 @@ func TestJobOptions(t *testing.T) {
 			ProcessIn: time.Hour,
 			UniqueTTL: 2 * time.Hour,
 		}, *o)
+	})
+}
+
+func TestListParamsCreatedBounds(t *testing.T) {
+	day := func(s string) time.Time {
+		v, err := time.Parse("2006-01-02", s)
+		require.NoError(t, err)
+		return v
+	}
+
+	t.Run("unset bounds are nil (unbounded)", func(t *testing.T) {
+		from, to := ports.ListParams{}.CreatedBounds()
+		assert.Nil(t, from)
+		assert.Nil(t, to)
+	})
+
+	t.Run("from is the start of its UTC day, to is exclusive of the day after", func(t *testing.T) {
+		from, to := ports.ListParams{From: day("2026-02-28"), To: day("2026-02-28")}.CreatedBounds()
+		require.NotNil(t, from)
+		require.NotNil(t, to)
+		assert.Equal(t, "2026-02-28T00:00:00Z", from.Format(time.RFC3339))
+		assert.Equal(t, "2026-03-01T00:00:00Z", to.Format(time.RFC3339), "To is inclusive: the whole day counts")
+	})
+
+	t.Run("only one side set leaves the other open", func(t *testing.T) {
+		from, to := ports.ListParams{From: day("2026-01-01")}.CreatedBounds()
+		require.NotNil(t, from)
+		assert.Nil(t, to)
+
+		from, to = ports.ListParams{To: day("2026-12-31")}.CreatedBounds()
+		assert.Nil(t, from)
+		require.NotNil(t, to)
+		assert.Equal(t, "2027-01-01T00:00:00Z", to.Format(time.RFC3339))
+	})
+
+	t.Run("a non-UTC instant is normalised to its UTC day", func(t *testing.T) {
+		wib := time.FixedZone("WIB", 7*3600)
+		// 01:00 on 2 Jan in Jakarta is still 1 Jan in UTC.
+		from, _ := ports.ListParams{From: time.Date(2026, 1, 2, 1, 0, 0, 0, wib)}.CreatedBounds()
+		require.NotNil(t, from)
+		assert.Equal(t, "2026-01-01T00:00:00Z", from.Format(time.RFC3339))
 	})
 }

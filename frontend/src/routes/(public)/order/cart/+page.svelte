@@ -1,7 +1,9 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
 	import { enhance } from '$app/forms';
 	import { Alert, EmptyState, FormField, MoneyText, Tabs } from '$lib/components';
 	import Turnstile from '$lib/components/ca/Turnstile.svelte';
+	import { requiresDocuments } from '$lib/domainDocuments';
 	import { t } from '$lib/i18n';
 	import {
 		cart,
@@ -44,6 +46,7 @@
 	let regPhone = $state(untrack(() => form?.registerValues?.phone ?? ''));
 	let regAddress = $state(untrack(() => form?.registerValues?.address1 ?? ''));
 	let regCity = $state(untrack(() => form?.registerValues?.city ?? ''));
+	let regState = $state(untrack(() => form?.registerValues?.state ?? ''));
 	let regPostcode = $state(untrack(() => form?.registerValues?.postcode ?? ''));
 	let regCountry = $state(untrack(() => form?.registerValues?.country ?? 'ID'));
 	let registering = $state(false);
@@ -53,6 +56,21 @@
 	let resending = $state(false);
 	let checkingOut = $state(false);
 	let captchaReset = $state(0);
+	let captchaReady = $state(false);
+
+	/** Extension of a domain line when it is not on sale, else null. */
+	function unsoldExtension(item: { item_type: string; domain?: string }): string | null {
+		if (item.item_type !== 'domain_register' && item.item_type !== 'domain_transfer') return null;
+		if (!item.domain || !data.sellableTlds) return null;
+		const ext = item.domain.slice(item.domain.indexOf('.') + 1).toLowerCase();
+		return data.sellableTlds.includes(ext) ? null : ext;
+	}
+	const hasUnsoldDomain = $derived(cart.items.some((item) => unsoldExtension(item) !== null));
+	// Login, register and checkout each render their own Turnstile, but never
+	// more than one at a time, so a single flag gates whichever is on screen.
+	const captchaPending = $derived(
+		!!(data.captcha?.enabled && data.captcha.siteKey) && !captchaReady
+	);
 
 	const loginError = $derived(
 		form?.loginErrorKey ? t(form.loginErrorKey) : (form?.loginErrorMessage ?? null)
@@ -62,6 +80,9 @@
 	);
 	const checkoutError = $derived(
 		form?.checkoutErrorKey ? t(form.checkoutErrorKey) : (form?.checkoutErrorMessage ?? null)
+	);
+	const checkoutProfileIncomplete = $derived(
+		form?.checkoutErrorKey === 'orderfe.cart.profileIncomplete'
 	);
 
 	function itemTitle(index: number): string {
@@ -80,7 +101,7 @@
 </script>
 
 <svelte:head>
-	<title>{t('orderfe.cart.title')} — WHCMS</title>
+	<title>{t('orderfe.cart.title')} — {appName}</title>
 </svelte:head>
 
 <h1 class="ca-h1">{t('orderfe.cart.title')}</h1>
@@ -110,8 +131,14 @@
 		</div>
 	</section>
 {:else}
-	<div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
-		<div class="space-y-6 lg:col-span-2">
+	<!-- The summary/checkout column is a fixed 22rem on desktop: its card body
+	     (20px padding + 1px border each side) then leaves 310px, above the 300px
+	     Cloudflare needs to render the Turnstile widget at `flexible` (full
+	     container width, flush with the checkout button). A proportional column
+	     went as narrow as ~215px, which forced the 150px `compact` widget. Below
+	     xl the cart stacks, so the card (and the widget) spans the full width. -->
+	<div class="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_22rem]">
+		<div class="space-y-6">
 			<div data-testid="cart-items" style="overflow-x:auto;">
 				<table class="ca-cart-table">
 					<thead>
@@ -128,6 +155,25 @@
 									<div style="font-weight:600;color:#333;">{itemTitle(index)}</div>
 									{#if item.domain}
 										<div class="ca-muted" style="font-size:0.8rem;">{item.domain}</div>
+									{/if}
+									{#if unsoldExtension(item) !== null}
+										<div
+											style="font-size:0.8rem;color:#c43c35;"
+											role="alert"
+											data-testid={`cart-tld-not-offered-${index}`}
+										>
+											{t('orderfe.cart.notOffered', { ext: unsoldExtension(item) ?? '' })}
+										</div>
+									{/if}
+									{#if item.domain && requiresDocuments(item.domain)}
+										<div
+											class="ca-muted"
+											style="font-size:0.8rem;"
+											data-testid={`cart-docs-note-${index}`}
+										>
+											<i class="fas fa-file-alt" aria-hidden="true"></i>
+											{t('orderfe.cart.docsNote')}
+										</div>
 									{/if}
 									{#if item.item_type === 'domain_transfer'}
 										<div class="ca-muted" style="font-size:0.8rem;font-style:italic;">
@@ -267,8 +313,10 @@
 								type="submit"
 								class="ca-btn ca-btn-primary"
 								disabled={applyingCoupon}
+								aria-busy={applyingCoupon}
 								data-testid="coupon-apply"
 							>
+								{#if applyingCoupon}<span class="ca-spinner" aria-hidden="true"></span>{/if}
 								{t('orderfe.cart.applyCoupon')}
 							</button>
 						</form>
@@ -329,6 +377,17 @@
 			{#if checkoutError}
 				<Alert type="error" title={t('orderfe.cart.checkoutFailed')}>
 					<span data-testid="checkout-error">{checkoutError}</span>
+					{#if checkoutProfileIncomplete}
+						<div style="margin-top:8px;">
+							<a
+								href="/account"
+								data-testid="checkout-complete-profile-link"
+								style="color:var(--ca-primary);font-weight:600;"
+							>
+								{t('orderfe.cart.completeProfileLink')}
+							</a>
+						</div>
+					{/if}
 				</Alert>
 			{/if}
 
@@ -395,14 +454,20 @@
 									data-testid="cart-login-password"
 								/>
 								{#if data.captcha?.enabled && data.captcha.siteKey}
-									<Turnstile siteKey={data.captcha.siteKey} resetSignal={captchaReset} />
+									<Turnstile
+										siteKey={data.captcha.siteKey}
+										resetSignal={captchaReset}
+										bind:ready={captchaReady}
+									/>
 								{/if}
 								<button
 									type="submit"
 									class="ca-btn ca-btn-primary ca-btn-block"
-									disabled={loggingIn}
+									disabled={loggingIn || captchaPending}
+									aria-busy={loggingIn}
 									data-testid="cart-login-submit"
 								>
+									{#if loggingIn}<span class="ca-spinner" aria-hidden="true"></span>{/if}
 									{t('auth.login')}
 								</button>
 								<p style="margin-top:12px;text-align:center;font-size:0.8rem;">
@@ -493,19 +558,31 @@
 									name="address1"
 									bind:value={regAddress}
 									autocomplete="street-address"
+									required
 								/>
-								<div class="grid grid-cols-1 gap-x-3 sm:grid-cols-3">
+								<div class="grid grid-cols-1 gap-x-3 sm:grid-cols-2">
 									<FormField
 										label={t('orderfe.register.city')}
 										name="city"
 										bind:value={regCity}
 										autocomplete="address-level2"
+										required
 									/>
+									<FormField
+										label={t('orderfe.register.state')}
+										name="state"
+										bind:value={regState}
+										autocomplete="address-level1"
+										required
+									/>
+								</div>
+								<div class="grid grid-cols-1 gap-x-3 sm:grid-cols-2">
 									<FormField
 										label={t('orderfe.register.postcode')}
 										name="postcode"
 										bind:value={regPostcode}
 										autocomplete="postal-code"
+										required
 									/>
 									<FormField
 										label={t('orderfe.register.country')}
@@ -515,14 +592,20 @@
 									/>
 								</div>
 								{#if data.captcha?.enabled && data.captcha.siteKey}
-									<Turnstile siteKey={data.captcha.siteKey} resetSignal={captchaReset} />
+									<Turnstile
+										siteKey={data.captcha.siteKey}
+										resetSignal={captchaReset}
+										bind:ready={captchaReady}
+									/>
 								{/if}
 								<button
 									type="submit"
 									class="ca-btn ca-btn-primary ca-btn-block"
-									disabled={registering}
+									disabled={registering || captchaPending}
+									aria-busy={registering}
 									data-testid="cart-register-submit"
 								>
+									{#if registering}<span class="ca-spinner" aria-hidden="true"></span>{/if}
 									{t('auth.register')}
 								</button>
 							</form>
@@ -570,8 +653,10 @@
 								type="submit"
 								class="ca-btn ca-btn-primary ca-btn-block"
 								disabled={resending}
+								aria-busy={resending}
 								data-testid="resend-verification"
 							>
+								{#if resending}<span class="ca-spinner" aria-hidden="true"></span>{/if}
 								{t('orderfe.cart.resend')}
 							</button>
 						</form>
@@ -601,16 +686,24 @@
 								<input type="hidden" name="coupon" value={cart.coupon.code} />
 							{/if}
 							{#if data.captcha?.enabled && data.captcha.siteKey}
-								<Turnstile siteKey={data.captcha.siteKey} resetSignal={captchaReset} />
+								<Turnstile
+									siteKey={data.captcha.siteKey}
+									resetSignal={captchaReset}
+									bind:ready={captchaReady}
+								/>
 							{/if}
 							<button
 								type="submit"
 								class="ca-btn ca-btn-success ca-btn-block ca-btn-lg"
-								disabled={checkingOut || cart.count === 0}
+								disabled={checkingOut || cart.count === 0 || captchaPending || hasUnsoldDomain}
+								aria-busy={checkingOut}
 								data-testid="checkout-submit"
 							>
+								{#if checkingOut}
+									<span class="ca-spinner" aria-hidden="true"></span>
+								{/if}
 								{checkingOut ? t('common.loading') : t('orderfe.cart.checkout')}
-								<i class="fas fa-arrow-right" aria-hidden="true"></i>
+								{#if !checkingOut}<i class="fas fa-arrow-right" aria-hidden="true"></i>{/if}
 							</button>
 						</form>
 						<p style="margin-top:12px;text-align:center;font-size:0.85rem;">

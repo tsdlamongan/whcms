@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
 	import DomainAddonRow from './DomainAddonRow.svelte';
 	import type { PageProps } from './$types';
 
@@ -6,7 +7,7 @@
 </script>
 
 <svelte:head>
-	<title>Domain Addons — HostPanel Admin</title>
+	<title>Domain Addons — {appName} Admin</title>
 </svelte:head>
 
 <h1 class="hp-h1">Domain Addons</h1>

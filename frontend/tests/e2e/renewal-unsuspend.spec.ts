@@ -135,6 +135,7 @@ test('overdue renewal invoice paid via client UI unsuspends the service', async 
 					last_name: 'Renewal',
 					address1: 'Jl. E2E No. 5',
 					city: 'Jakarta',
+					state: 'DKI Jakarta',
 					postcode: '10110',
 					country: 'ID',
 					phone: '081200000000'

@@ -174,7 +174,7 @@ type AdminCreateDomainRequest struct {
 // manually-added existing domain can have its renewal billing corrected
 // without a registrar round-trip.
 type AdminUpdateDomainRequest struct {
-	Status           *string  `json:"status" validate:"omitempty,oneof=pending active pending_transfer expired cancelled"`
+	Status           *string  `json:"status" validate:"omitempty,oneof=pending active pending_transfer expired cancelled suspended rejected"`
 	AutoRenew        *bool    `json:"auto_renew"`
 	Nameservers      []string `json:"nameservers" validate:"omitempty,min=2,max=4,dive,required"`
 	RegistrationDate *string  `json:"registration_date" validate:"omitempty,datetime=2006-01-02"`
@@ -469,4 +469,18 @@ func isPrivateOrLoopbackHost(host string) bool {
 		return false
 	}
 	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified()
+}
+
+// AdminRefundRequest credits a client what they paid for a rejected/cancelled
+// domain. Amount defaults to the full domain price and may not exceed it.
+type AdminRefundRequest struct {
+	Amount *int64 `json:"amount" validate:"omitempty,min=1"`
+	Reason string `json:"reason" validate:"max=500"`
+}
+
+// DocumentLinkResponse is the registrar-hosted page where a domain's
+// documents are uploaded. The URL is a bearer secret: it is served with
+// no-store and never persisted.
+type DocumentLinkResponse struct {
+	URL string `json:"url"`
 }

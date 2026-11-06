@@ -42,7 +42,36 @@ type ListParams struct {
 	// ServiceID filters CancellationRequestRepo.List to one service (0 =
 	// unset); unused by every other List caller, same convention as Gateway.
 	ServiceID int64
+	// ClientID narrows an ADMIN list (services, domains, invoices, orders) to
+	// one client (0 = unset) - the client-detail tabs depend on it. Client-area
+	// lists scope by the token's client via their own ListByClient argument and
+	// ignore this field.
+	ClientID int64
+	// IDs restricts InvoiceRepo.List to these invoice ids (empty = no
+	// restriction) so a list screen can resolve the invoices its rows point to
+	// in one call.
+	IDs []int64
+	// InvoiceID filters TransactionRepo.List to one invoice (0 = unset).
+	InvoiceID int64
+	// ProductID / ServerID filter ServiceRepo.List (0 = unset).
+	ProductID int64
+	ServerID  int64
+	// GroupID / Type filter ProductRepo.List by product group / product type
+	// (0 / "" = unset).
+	GroupID int64
+	Type    string
+	// From / To bound an admin list's creation date, both inclusive whole
+	// days in UTC (zero = unset). Honoured by InvoiceRepo.List and
+	// TransactionRepo.List.
+	From time.Time
+	To   time.Time
 }
+
+// MaxPerPage is the largest page size any list query honours. It matches the
+// HTTP layer's clamp (httpx.MaxPerPage) and the page-size selector, which
+// offers up to 1000 rows (CONTRACTS.md §3): a lower SQL cap would silently
+// return fewer rows than the pager advertises and misalign every later page.
+const MaxPerPage = 1000
 
 // Offset returns the SQL offset.
 func (p ListParams) Offset() int {
@@ -52,13 +81,33 @@ func (p ListParams) Offset() int {
 	return (p.Page - 1) * p.Limit()
 }
 
+// CreatedBounds converts the inclusive From/To days into the half-open
+// [from, toExclusive) UTC timestamp range a repository compares created_at
+// against. A nil bound means "unbounded on that side" and binds as SQL NULL.
+func (p ListParams) CreatedBounds() (from, toExclusive *time.Time) {
+	if !p.From.IsZero() {
+		f := utcDay(p.From)
+		from = &f
+	}
+	if !p.To.IsZero() {
+		t := utcDay(p.To).AddDate(0, 0, 1)
+		toExclusive = &t
+	}
+	return from, toExclusive
+}
+
+func utcDay(t time.Time) time.Time {
+	y, m, d := t.UTC().Date()
+	return time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
+}
+
 // Limit returns the SQL limit with defaults applied.
 func (p ListParams) Limit() int {
 	if p.PerPage < 1 {
 		return 25
 	}
-	if p.PerPage > 100 {
-		return 100
+	if p.PerPage > MaxPerPage {
+		return MaxPerPage
 	}
 	return p.PerPage
 }
@@ -268,6 +317,28 @@ type DomainRepo interface {
 	// ListRenewalsDue returns active auto_renew domains with next_due_date <= before.
 	ListRenewalsDue(ctx context.Context, before time.Time) ([]domain.Domain, error)
 	ListForSync(ctx context.Context, limit int) ([]domain.Domain, error)
+	// ListAwaitingVerification returns domains whose document/email
+	// verification is still open (including suspended ones), least recently
+	// updated first, bounded by limit - the fast verification poller's work list.
+	ListAwaitingVerification(ctx context.Context, limit int) ([]domain.Domain, error)
+}
+
+// DomainRegistrationPayment is what the client paid for one domain's
+// registration or transfer: its order-item invoice line plus its share of the
+// invoice discount and tax.
+type DomainRegistrationPayment struct {
+	InvoiceID     int64
+	InvoiceNumber string
+	Amount        int64 // whole IDR
+}
+
+// DomainPaymentSource resolves what a domain cost its client. Implemented by
+// domains.Repo (it joins order items to their paid invoice).
+type DomainPaymentSource interface {
+	// RegistrationPayment returns NOT_FOUND when the domain was not bought
+	// through a paid order (admin-added, won by a hunt, or its invoice was
+	// never paid / already refunded).
+	RegistrationPayment(ctx context.Context, domainID int64) (*DomainRegistrationPayment, error)
 }
 
 // RegistrarRepo persists registrar configuration rows.
@@ -677,6 +748,15 @@ type DomainAvailability struct {
 	Available bool   `json:"available"`
 	Premium   bool   `json:"premium"`
 	Price     int64  `json:"price"` // register price for a 1-year term
+	// Sellable: the extension has an ACTIVE row in Domain Pricing, i.e. the
+	// shop actually sells it. An extension that is not on sale is shown as
+	// such (no price, no add-to-cart) and checkout refuses it; Price is only
+	// meaningful when Sellable.
+	Sellable bool `json:"sellable"`
+	// DocumentRequired: the extension needs identity/legal documents after
+	// registration (.co.id, .or.id, .ac.id, .sch.id, .ponpes.id) - shown at
+	// checkout so the client is not surprised by the upload step.
+	DocumentRequired bool `json:"document_required"`
 	// RegisterPrices is the full year-1..10 register price matrix, set only
 	// when Price was sourced from an active TLDPricing row (the one pricing
 	// source that isn't a flat annual rate - see domains.overlayPricing).
@@ -718,12 +798,24 @@ type TransferDomainRequest struct {
 	EPPCode string
 }
 
+// DomainVerificationInfo is the registrar's document/verification and refund
+// view of a domain (RDash `is_required_document`, `verification_status`,
+// `status_reason`, `is_refundable`). It rides along on every register,
+// transfer and sync result.
+type DomainVerificationInfo struct {
+	DocumentRequired bool
+	Verification     domain.DomainVerification // "" when the registrar did not report one
+	StatusReason     string
+	Refundable       bool
+}
+
 // DomainResult is returned by register/transfer/renew calls.
 type DomainResult struct {
 	Name       string
 	Status     string
 	ExpiryDate time.Time
 	OrderID    string // registrar-side order/reference id
+	DomainVerificationInfo
 }
 
 // DNSRecord is one DNS record at the registrar.
@@ -740,6 +832,7 @@ type DomainSyncInfo struct {
 	Status     string
 	ExpiryDate time.Time
 	NS         []string
+	DomainVerificationInfo
 }
 
 // RegistrarAccountInfo is the reseller account profile/balance used for a
@@ -782,6 +875,13 @@ type RegistrarModule interface {
 	// (paginating through every page). Read-only, no side effects - feeds
 	// the admin TLD Pricing "Import from Registrar" flow.
 	ListCatalogPrices(ctx context.Context) ([]RegistrarCatalogPrice, error)
+	// DocumentUploadLink returns the registrar-hosted page where the
+	// registrant uploads the documents a domain requires. The registrar has no
+	// upload API - the link is the only way in, and it is a bearer secret:
+	// fetch it on demand, never persist or log it.
+	DocumentUploadLink(ctx context.Context, name string) (string, error)
+	// ResendVerification re-sends the registrant's domain verification email.
+	ResendVerification(ctx context.Context, name string) error
 }
 
 // Infra ports

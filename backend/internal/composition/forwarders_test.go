@@ -229,3 +229,41 @@ func TestNotificationSenderFwd(t *testing.T) {
 	assert.Equal(t, "subj", gotSubject)
 	assert.Equal(t, "msg", gotMessage)
 }
+
+func TestSnipeActivatorFwd(t *testing.T) {
+	ctx := context.Background()
+	var got int64
+	inner := &mocks.MockSnipeActivator{ActivateSnipeAfterPaymentFn: func(_ context.Context, id int64) error {
+		got = id
+		return nil
+	}}
+	f := &snipeActivatorFwd{inner: inner}
+	require.NoError(t, f.ActivateSnipeAfterPayment(ctx, 77))
+	assert.EqualValues(t, 77, got)
+
+	wantErr := errors.New("boom")
+	inner.ActivateSnipeAfterPaymentFn = func(context.Context, int64) error { return wantErr }
+	assert.Same(t, wantErr, f.ActivateSnipeAfterPayment(ctx, 1))
+}
+
+func TestInvoiceCancellerFwd(t *testing.T) {
+	ctx := context.Background()
+	want := &domain.Invoice{ID: 9}
+	var gotActor, gotID int64
+	inner := &mocks.MockInvoiceCanceller{CancelInvoiceFn: func(_ context.Context, actor, id int64) (*domain.Invoice, error) {
+		gotActor, gotID = actor, id
+		return want, nil
+	}}
+	f := &invoiceCancellerFwd{inner: inner}
+	inv, err := f.CancelInvoice(ctx, 3, 9)
+	require.NoError(t, err)
+	assert.Same(t, want, inv)
+	assert.EqualValues(t, 3, gotActor)
+	assert.EqualValues(t, 9, gotID)
+
+	wantErr := errors.New("boom")
+	inner.CancelInvoiceFn = func(context.Context, int64, int64) (*domain.Invoice, error) { return nil, wantErr }
+	inv, err = f.CancelInvoice(ctx, 3, 9)
+	assert.Nil(t, inv)
+	assert.Same(t, wantErr, err)
+}

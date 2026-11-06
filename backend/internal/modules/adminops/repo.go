@@ -250,6 +250,34 @@ func (r *Repo) OrdersReport(ctx context.Context, from, to time.Time) ([]ports.Re
 	return out, nil
 }
 
+// OrdersByStatus returns order counts and totals per status in [from, to),
+// most numerous first (ties broken by status name for a stable order).
+func (r *Repo) OrdersByStatus(ctx context.Context, from, to time.Time) ([]OrderStatusCount, error) {
+	rows, err := r.db.Querier(ctx).Query(ctx, `
+		SELECT status, count(*)::bigint, COALESCE(SUM(total), 0)::bigint
+		FROM orders
+		WHERE created_at >= $1 AND created_at < $2
+		GROUP BY status
+		ORDER BY count(*) DESC, status`, from, to)
+	if err != nil {
+		return nil, fmt.Errorf("adminops: orders by status: %w", err)
+	}
+	defer rows.Close()
+
+	var out []OrderStatusCount
+	for rows.Next() {
+		var s OrderStatusCount
+		if err := rows.Scan(&s.Status, &s.Count, &s.Amount); err != nil {
+			return nil, fmt.Errorf("adminops: orders by status scan: %w", err)
+		}
+		out = append(out, s)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("adminops: orders by status rows: %w", err)
+	}
+	return out, nil
+}
+
 // ServicesReport returns service counts grouped by status.
 func (r *Repo) ServicesReport(ctx context.Context) (map[string]int64, error) {
 	rows, err := r.db.Querier(ctx).Query(ctx,
@@ -350,8 +378,8 @@ func pageLimit(perPage int) int {
 	if perPage < 1 {
 		return 25
 	}
-	if perPage > 100 {
-		return 100
+	if perPage > ports.MaxPerPage {
+		return ports.MaxPerPage
 	}
 	return perPage
 }

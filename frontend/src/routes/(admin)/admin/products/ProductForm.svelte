@@ -461,7 +461,12 @@
 							Shell Access
 						</label>
 						<label class="hp-checkline" style="padding:0">
-							<input id="field-cgi_access" name="cgi_access" type="checkbox" bind:checked={cgiAccess} />
+							<input
+								id="field-cgi_access"
+								name="cgi_access"
+								type="checkbox"
+								bind:checked={cgiAccess}
+							/>
 							CGI Access
 						</label>
 					</div>

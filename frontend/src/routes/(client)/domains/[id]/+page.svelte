@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
 	import { enhance } from '$app/forms';
 	import Alert from '$lib/components/Alert.svelte';
 	import Breadcrumb from '$lib/components/Breadcrumb.svelte';
@@ -17,6 +18,7 @@
 	import type { PageProps } from './$types';
 	import ContactForm from './ContactForm.svelte';
 	import DnsEditor from './DnsEditor.svelte';
+	import VerificationPanel from './VerificationPanel.svelte';
 
 	let { data, form }: PageProps = $props();
 
@@ -163,7 +165,7 @@
 </script>
 
 <svelte:head>
-	<title>{domain?.name ?? t('nav.domains')} — WHCMS</title>
+	<title>{domain?.name ?? t('nav.domains')} — {appName}</title>
 </svelte:head>
 
 <Breadcrumb items={breadcrumb} />
@@ -193,6 +195,8 @@
 			</span>
 		{/if}
 	</div>
+
+	<VerificationPanel {domain} {form} />
 
 	<div class="mb-5" data-testid="domain-tabs">
 		<Tabs {tabs} active={data.tab} />

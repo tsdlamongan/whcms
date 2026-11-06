@@ -53,5 +53,5 @@ body:
     id: logs
     attributes:
       label: Relevant logs
-      description: API/worker output, browser console, or `.e2e-logs/*` excerpts. Redact secrets.
+      description: API/worker output, browser console, or `.stack/*.log` excerpts. Redact secrets.
       render: shell

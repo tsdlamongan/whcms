@@ -36,12 +36,25 @@ interface AdminClientDetail {
 	updated_at: string;
 }
 
-/** Optional joined user info some backends embed in the detail aggregate. */
+/** Account facts about the client's login user (only the ones the API actually returns). */
 interface ClientUserInfo {
 	email?: string;
 	twofa_enabled?: boolean;
 	email_verified_at?: string | null;
 	last_login_at?: string | null;
+}
+
+/** clients.ClientCounts - per-client totals shown as tab badges. */
+export interface ClientCounts {
+	services: number;
+	services_active: number;
+	domains: number;
+	invoices: number;
+	invoices_unpaid: number;
+	unpaid_total: number;
+	tickets: number;
+	tickets_open: number;
+	transactions: number;
 }
 
 /** domain.Service JSON tags (+ optional joined product name). */
@@ -188,12 +201,24 @@ export const load: PageServerLoad = async (event) => {
 
 	let client: AdminClientDetail | null = null;
 	let userInfo: ClientUserInfo | null = null;
+	let counts: ClientCounts | null = null;
 	let email = '';
 	if (detailRes.data && typeof detailRes.data === 'object') {
 		const raw = detailRes.data as Record<string, unknown>;
 		client = (raw.client && typeof raw.client === 'object' ? raw.client : raw) as AdminClientDetail;
 		if (raw.user && typeof raw.user === 'object') {
 			userInfo = raw.user as ClientUserInfo;
+		}
+		// GET /admin/clients/:id returns the login facts at the top level
+		// (adminops/clients.ClientDetail), not nested under `user`.
+		if ('last_login_at' in raw) {
+			userInfo = {
+				...userInfo,
+				last_login_at: typeof raw.last_login_at === 'string' ? raw.last_login_at : null
+			};
+		}
+		if (raw.counts && typeof raw.counts === 'object') {
+			counts = raw.counts as ClientCounts;
 		}
 		email =
 			(typeof raw.email === 'string' ? raw.email : undefined) ??
@@ -226,6 +251,7 @@ export const load: PageServerLoad = async (event) => {
 		client,
 		email,
 		userInfo,
+		counts,
 		loadError: detailRes.error ? detailRes.error.message : null,
 		tab,
 		listPage,

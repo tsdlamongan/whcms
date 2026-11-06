@@ -185,9 +185,9 @@ func TestCheckAvailability(t *testing.T) {
 			if strings.Contains(name, "taken") {
 				available = 0
 			}
-			writeEnv(w, http.StatusOK, "Success", []map[string]any{{
+			writeEnv(w, http.StatusOK, "Success", map[string]any{
 				"name": name, "available": available, "message": "ok",
-			}})
+			})
 		},
 		"GET /account/prices": func(w http.ResponseWriter, r *http.Request) {
 			ext := r.URL.Query().Get("domainExtension[extension]")
@@ -228,7 +228,7 @@ func TestCheckAvailabilityPriceCachedPerExtension(t *testing.T) {
 	var priceHits atomic.Int32
 	f := newFixture(t, routes(t, map[string]http.HandlerFunc{
 		"GET /domains/availability": func(w http.ResponseWriter, r *http.Request) {
-			writeEnv(w, http.StatusOK, "ok", []map[string]any{{"name": r.URL.Query().Get("domain"), "available": 1}})
+			writeEnv(w, http.StatusOK, "ok", map[string]any{"name": r.URL.Query().Get("domain"), "available": 1})
 		},
 		"GET /account/prices": func(w http.ResponseWriter, r *http.Request) {
 			priceHits.Add(1)
@@ -250,7 +250,7 @@ func TestCheckAvailabilityPriceCachedPerExtension(t *testing.T) {
 func TestCheckAvailabilityNoPriceOnFile(t *testing.T) {
 	f := newFixture(t, routes(t, map[string]http.HandlerFunc{
 		"GET /domains/availability": func(w http.ResponseWriter, r *http.Request) {
-			writeEnv(w, http.StatusOK, "ok", []map[string]any{{"name": "x.zz", "available": 1}})
+			writeEnv(w, http.StatusOK, "ok", map[string]any{"name": "x.zz", "available": 1})
 		},
 		"GET /account/prices": func(w http.ResponseWriter, r *http.Request) {
 			writeEnv(w, http.StatusOK, "ok", []map[string]any{})
@@ -265,7 +265,7 @@ func TestCheckAvailabilityNoPriceOnFile(t *testing.T) {
 func TestCheckAvailabilityPriceLookupPropagatesError(t *testing.T) {
 	f := newFixture(t, routes(t, map[string]http.HandlerFunc{
 		"GET /domains/availability": func(w http.ResponseWriter, r *http.Request) {
-			writeEnv(w, http.StatusOK, "ok", []map[string]any{{"name": "x.id", "available": 1}})
+			writeEnv(w, http.StatusOK, "ok", map[string]any{"name": "x.id", "available": 1})
 		},
 		"GET /account/prices": func(w http.ResponseWriter, r *http.Request) { writeEnv(w, http.StatusInternalServerError, "boom", nil) },
 	}))
@@ -301,9 +301,9 @@ func TestCheckAvailabilityEmptyNames(t *testing.T) {
 	assert.Zero(t, f.hits.Load())
 }
 
-func TestCheckAvailabilityEmptyResponseArray(t *testing.T) {
+func TestCheckAvailabilityNullData(t *testing.T) {
 	f := newFixture(t, func(w http.ResponseWriter, r *http.Request) {
-		writeEnv(w, http.StatusOK, "Success", []map[string]any{})
+		writeEnv(w, http.StatusOK, "Success", nil)
 	})
 	res, err := f.client.CheckAvailability(context.Background(), []string{"x.id"})
 	require.NoError(t, err)
@@ -529,6 +529,72 @@ func TestRegisterCustomerNameFallsBackToEmail(t *testing.T) {
 		},
 	}))
 	contact := ports.RegistrantContact{Email: "jane@example.test"}
+	_, err := f.client.Register(context.Background(), ports.RegisterDomainRequest{Name: "x.id", Contact: contact})
+	require.NoError(t, err)
+}
+
+func TestContactNameAndOrg(t *testing.T) {
+	cases := []struct {
+		name     string
+		contact  ports.RegistrantContact
+		wantName string
+		wantOrg  string
+	}{
+		{
+			name:     "full name and company kept as-is",
+			contact:  ports.RegistrantContact{FirstName: "Budi", LastName: "Santoso", Company: "PT Test", Email: "budi@example.test"},
+			wantName: "Budi Santoso",
+			wantOrg:  "PT Test",
+		},
+		{
+			name:     "blank name and company fall back to email",
+			contact:  ports.RegistrantContact{Email: "jane@example.test"},
+			wantName: "jane@example.test",
+			wantOrg:  "jane@example.test",
+		},
+		{
+			// RDash rejects "The organization must be at least 3 characters."
+			// for a real but short company name (e.g. "PT", "CV").
+			name:     "short company falls back to the resolved name",
+			contact:  ports.RegistrantContact{FirstName: "Budi", LastName: "Santoso", Company: "PT", Email: "budi@example.test"},
+			wantName: "Budi Santoso",
+			wantOrg:  "Budi Santoso",
+		},
+		{
+			name:     "short name with no company falls back to email for both",
+			contact:  ports.RegistrantContact{FirstName: "Al", Email: "al@example.test"},
+			wantName: "al@example.test",
+			wantOrg:  "al@example.test",
+		},
+		{
+			name:     "short name and short company both fall back to email",
+			contact:  ports.RegistrantContact{FirstName: "Al", Company: "CV", Email: "al@example.test"},
+			wantName: "al@example.test",
+			wantOrg:  "al@example.test",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			name, org := contactNameAndOrg(tc.contact)
+			assert.Equal(t, tc.wantName, name)
+			assert.Equal(t, tc.wantOrg, org)
+		})
+	}
+}
+
+func TestRegisterCustomerShortCompanyFallsBackToName(t *testing.T) {
+	f := newFixture(t, routes(t, map[string]http.HandlerFunc{
+		"POST /customers": func(w http.ResponseWriter, r *http.Request) {
+			form := requireForm(t, r)
+			assert.Equal(t, "Budi Santoso", form.Get("name"))
+			assert.Equal(t, "Budi Santoso", form.Get("organization"))
+			writeEnv(w, http.StatusOK, "ok", map[string]any{"id": 1})
+		},
+		"POST /domains": func(w http.ResponseWriter, r *http.Request) {
+			writeEnv(w, http.StatusOK, "ok", map[string]any{"id": 1, "name": "x.id", "status_label": "Active"})
+		},
+	}))
+	contact := ports.RegistrantContact{FirstName: "Budi", LastName: "Santoso", Company: "PT", Email: "budi@example.test"}
 	_, err := f.client.Register(context.Background(), ports.RegisterDomainRequest{Name: "x.id", Contact: contact})
 	require.NoError(t, err)
 }
@@ -920,7 +986,7 @@ func TestSyncDomainUnknownMapsNotFound(t *testing.T) {
 func TestAccountInfo(t *testing.T) {
 	f := newFixture(t, routes(t, map[string]http.HandlerFunc{
 		"GET /account/profile": func(w http.ResponseWriter, r *http.Request) {
-			writeEnv(w, http.StatusOK, "ok", map[string]any{"id": 584, "name": "PT Example"})
+			writeEnv(w, http.StatusOK, "ok", map[string]any{"id": 1001, "name": "PT Example"})
 		},
 		"GET /account/balance": func(w http.ResponseWriter, r *http.Request) {
 			writeEnv(w, http.StatusOK, "ok", map[string]any{"currency": "IDR", "balance": "1013000.00"})
@@ -928,7 +994,7 @@ func TestAccountInfo(t *testing.T) {
 	}))
 	info, err := f.client.AccountInfo(context.Background())
 	require.NoError(t, err)
-	assert.Equal(t, "584", info.AccountID)
+	assert.Equal(t, "1001", info.AccountID)
 	assert.Equal(t, "PT Example", info.Name)
 	assert.Equal(t, "IDR", info.Currency)
 	assert.Equal(t, int64(1013000), info.Balance)
@@ -1142,8 +1208,12 @@ func TestEnvelopeWithoutSuccessFieldIsTrusted(t *testing.T) {
 	f := newFixture(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
+		data := any(map[string]any{"name": "x.id", "available": 1})
+		if strings.Contains(r.URL.Path, "prices") {
+			data = []map[string]any{}
+		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"data": []map[string]any{{"name": "x.id", "available": 1}},
+			"data": data,
 			"meta": map[string]any{"current_page": 1},
 		})
 	})
@@ -1198,7 +1268,7 @@ func TestGetRetriesTwiceOn5xxThenSucceeds(t *testing.T) {
 				writeEnv(w, http.StatusBadGateway, "boom", nil)
 				return
 			}
-			writeEnv(w, http.StatusOK, "ok", []map[string]any{{"name": "x.id", "available": 1}})
+			writeEnv(w, http.StatusOK, "ok", map[string]any{"name": "x.id", "available": 1})
 		},
 		"GET /account/prices": func(w http.ResponseWriter, r *http.Request) { writeEnv(w, http.StatusOK, "ok", []map[string]any{}) },
 	}))
@@ -1297,7 +1367,11 @@ func TestResolveCredentialsUsesResolverWhenSet(t *testing.T) {
 		require.True(t, ok)
 		assert.Equal(t, "live-reseller", user)
 		assert.Equal(t, "live-key", pass)
-		writeEnv(w, http.StatusOK, "ok", []map[string]any{{"name": "x.id", "available": 1}})
+		if strings.Contains(r.URL.Path, "prices") {
+			writeEnv(w, http.StatusOK, "ok", []map[string]any{})
+			return
+		}
+		writeEnv(w, http.StatusOK, "ok", map[string]any{"name": "x.id", "available": 1})
 	})
 	f.client.resolve = func(ctx context.Context) (Credentials, error) {
 		return Credentials{BaseURL: f.srv.URL, ResellerID: "live-reseller", APIKey: "live-key"}, nil
@@ -1315,13 +1389,17 @@ func TestResolveCredentialsUsesResolverBaseURL(t *testing.T) {
 	var hitCustom, hitStatic atomic.Bool
 	customEndpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hitCustom.Store(true)
-		writeEnv(w, http.StatusOK, "ok", []map[string]any{{"name": "x.id", "available": 1}})
+		if strings.Contains(r.URL.Path, "prices") {
+			writeEnv(w, http.StatusOK, "ok", []map[string]any{})
+			return
+		}
+		writeEnv(w, http.StatusOK, "ok", map[string]any{"name": "x.id", "available": 1})
 	}))
 	t.Cleanup(customEndpoint.Close)
 
 	f := newFixture(t, func(w http.ResponseWriter, r *http.Request) {
 		hitStatic.Store(true)
-		writeEnv(w, http.StatusOK, "ok", []map[string]any{{"name": "x.id", "available": 1}})
+		writeEnv(w, http.StatusOK, "ok", map[string]any{"name": "x.id", "available": 1})
 	})
 	f.client.resolve = func(ctx context.Context) (Credentials, error) {
 		return Credentials{BaseURL: customEndpoint.URL + "/", ResellerID: testResellerID, APIKey: testAPIKey}, nil
@@ -1337,7 +1415,11 @@ func TestResolveCredentialsUsesResolverBaseURL(t *testing.T) {
 func TestResolveCredentialsFallsBackToStaticConfigOnError(t *testing.T) {
 	f := newFixture(t, func(w http.ResponseWriter, r *http.Request) {
 		requireBasicAuth(t, r) // testResellerID/testAPIKey - the static fixture config
-		writeEnv(w, http.StatusOK, "ok", []map[string]any{{"name": "x.id", "available": 1}})
+		if strings.Contains(r.URL.Path, "prices") {
+			writeEnv(w, http.StatusOK, "ok", []map[string]any{})
+			return
+		}
+		writeEnv(w, http.StatusOK, "ok", map[string]any{"name": "x.id", "available": 1})
 	})
 	f.client.resolve = func(ctx context.Context) (Credentials, error) {
 		return Credentials{}, errBoom
@@ -1357,7 +1439,11 @@ func TestResolveCredentialsNilResolverUsesStaticConfig(t *testing.T) {
 
 func TestNilLoggerIsSafe(t *testing.T) {
 	f := newFixture(t, func(w http.ResponseWriter, r *http.Request) {
-		writeEnv(w, http.StatusOK, "ok", []map[string]any{{"name": "x.id", "available": 1}})
+		if strings.Contains(r.URL.Path, "prices") {
+			writeEnv(w, http.StatusOK, "ok", []map[string]any{})
+			return
+		}
+		writeEnv(w, http.StatusOK, "ok", map[string]any{"name": "x.id", "available": 1})
 	})
 	f.client.log = nopLogger{}
 	_, err := f.client.CheckAvailability(context.Background(), []string{"x.id"})

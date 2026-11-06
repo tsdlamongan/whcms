@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
 	import { enhance } from '$app/forms';
 	import { invalidateAll } from '$app/navigation';
 	import DateText from '$lib/components/DateText.svelte';
@@ -58,7 +59,7 @@
 </script>
 
 <svelte:head>
-	<title>{ticket ? `Ticket ${ticket.ticket_number}` : 'Support Tickets'} — HostPanel Admin</title>
+	<title>{ticket ? `Ticket ${ticket.ticket_number}` : 'Support Tickets'} — {appName} Admin</title>
 </svelte:head>
 
 {#if data.notFound || !ticket}

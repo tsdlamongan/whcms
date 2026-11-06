@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
 	import { goto, invalidateAll } from '$app/navigation';
 	import { Alert } from '$lib/components';
 	import { t } from '$lib/i18n';
@@ -44,7 +45,7 @@
 </script>
 
 <svelte:head>
-	<title>{t('clientBilling.return.title')} — WHCMS</title>
+	<title>{t('clientBilling.return.title')} — {appName}</title>
 </svelte:head>
 
 <div class="mx-auto max-w-md">

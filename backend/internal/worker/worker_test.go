@@ -105,6 +105,9 @@ func (f *fakeDeps) SyncDomainJob(_ context.Context, domainID int64) error {
 func (f *fakeDeps) SyncAllDomains(_ context.Context) (int, error) {
 	return f.recordCount("SyncAllDomains")
 }
+func (f *fakeDeps) SyncAwaitingVerification(_ context.Context) (int, error) {
+	return f.recordCount("SyncAwaitingVerification")
+}
 
 // BillingJobs
 func (f *fakeDeps) GenerateRenewalInvoices(_ context.Context) (int, error) {
@@ -256,6 +259,7 @@ var cronDispatch = []struct {
 	{jobs.TypeCronAutoTerminate, "AutoTerminate"},
 	{jobs.TypeCronPaymentReconcile, "ReconcilePending"},
 	{jobs.TypeCronDomainSync, "SyncAllDomains"},
+	{jobs.TypeCronDomainVerificationSync, "SyncAwaitingVerification"},
 	{jobs.TypeCronHousekeeping, "Housekeep"},
 }
 
@@ -306,6 +310,44 @@ func TestOneOffTask_MissingIDSkipsRetry(t *testing.T) {
 			assert.Empty(t, e.deps.methodCalls(), "service method must not run without an id")
 		})
 	}
+}
+
+// A VALIDATION error (e.g. a client profile permanently missing address
+// details) means retrying can never succeed - domainRegister/domainTransfer
+// skip retry on it instead of burning asynq's exponential backoff.
+func TestDomainJobs_ValidationErrorSkipsRetry(t *testing.T) {
+	cases := []struct {
+		taskType string
+		payload  any
+		method   string
+	}{
+		{jobs.TypeDomainRegister, jobs.DomainRegisterPayload{DomainID: 13}, "RegisterDomainJob"},
+		{jobs.TypeDomainTransfer, jobs.DomainTransferPayload{DomainID: 14}, "TransferDomainJob"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.taskType, func(t *testing.T) {
+			e := newFixture()
+			e.deps.errs[tc.method] = apperr.Validation("client profile is missing address details")
+
+			err := e.process(t, tc.taskType, tc.payload)
+
+			require.Error(t, err)
+			assert.ErrorIs(t, err, asynq.SkipRetry)
+			assert.Len(t, e.deps.alerts, 1, "a skipped-retry validation failure still alerts the admin immediately")
+		})
+	}
+}
+
+// Other one-off tasks must not get this treatment: a VALIDATION error from,
+// say, ProvisionCreate is not necessarily permanent, so it stays retryable.
+func TestOneOffTask_ValidationErrorStaysRetryableOutsideDomainJobs(t *testing.T) {
+	e := newFixture()
+	e.deps.errs["ProvisionCreate"] = apperr.Validation("bad input")
+
+	err := e.process(t, jobs.TypeProvisionCreate, jobs.ProvisionCreatePayload{ServiceID: 5})
+
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, asynq.SkipRetry)
 }
 
 // Cron routing + locking
@@ -468,6 +510,7 @@ func TestSchedules_ExactSpecTable(t *testing.T) {
 		{Spec: "30 3 * * *", Type: jobs.TypeCronAutoTerminate},
 		{Spec: "*/10 * * * *", Type: jobs.TypeCronPaymentReconcile},
 		{Spec: "0 4 * * *", Type: jobs.TypeCronDomainSync},
+		{Spec: "*/30 * * * *", Type: jobs.TypeCronDomainVerificationSync},
 		{Spec: "0 5 * * 0", Type: jobs.TypeCronHousekeeping},
 	}
 	require.Equal(t, want, Schedules())

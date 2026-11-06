@@ -1,8 +1,8 @@
 // Package domains implements the M-DOMAINS module: public availability
 // checks, client domain management (nameservers, DNS, EPP, renewals,
-// auto-renew/contact, addons), registrar job methods consumed by the worker
-// (register/transfer/renew/sync) and admin domain/registrar/pricing/addon
-// endpoints.
+// auto-renew/contact, addons, document upload for TLDs that require it),
+// registrar job methods consumed by the worker (register/transfer/renew/sync/
+// verification sync) and admin domain/registrar/pricing/addon endpoints.
 //
 // Route table (RegisterRoutes):
 //
@@ -18,12 +18,16 @@
 //	GET    /domains/:id/epp                     client
 //	POST   /domains/:id/renew                   client (creates renewal invoice)
 //	POST   /domains/:id/addons                  client (replace active addons, adjusts recurring amount)
+//	POST   /domains/:id/documents/link          client - registrar-hosted document upload page (rate-limited)
+//	POST   /domains/:id/verification/resend     client - resend the registrant verification email (rate-limited)
+//	POST   /domains/:id/refresh                 client - sync with the registrar now (rate-limited)
 //	GET    /admin/domains                       admin/staff (permission: domains)
 //	POST   /admin/domains                       admin/staff (permission: domains) - add existing domain (no registrar call)
 //	GET    /admin/domains/:id                   admin/staff (permission: domains)
 //	PATCH  /admin/domains/:id                   admin/staff (permission: domains) (status, auto_renew, nameservers, billing fields)
 //	POST   /admin/domains/:id/sync              admin/staff (permission: domains)
 //	POST   /admin/domains/:id/renew             admin/staff (permission: domains)
+//	POST   /admin/domains/:id/refund            admin/staff (permission: domains) - credit a rejected domain's price
 //	GET    /admin/registrars                    admin
 //	GET    /admin/registrars/:id                admin
 //	PUT    /admin/registrars/:id                admin
@@ -62,10 +66,11 @@ import (
 	"github.com/tsdlamongan/whcms/backend/pkg/apperr"
 )
 
-// Notification template keys (seeded in 000002_seed_core).
+// Notification template keys (seeded in 000002_seed_core / 000023).
 const (
-	tplDomainRegistered = "domain_registered"
-	tplDomainRenewed    = "domain_renewed"
+	tplDomainRegistered        = "domain_registered"
+	tplDomainRenewed           = "domain_renewed"
+	tplDomainProfileIncomplete = "domain_profile_incomplete"
 )
 
 // syncBatchLimit bounds one SyncAllDomains run.
@@ -99,11 +104,14 @@ type Deps struct {
 	// avoid creating a second invoice (owned by billing; see
 	// ports.RenewalInvoiceChecker).
 	RenewalCheck ports.RenewalInvoiceChecker
-	Notifier     ports.NotificationSender
-	Encryptor    ports.Encryptor
-	Audit        ports.AuditLogger
-	Clock        ports.Clock
-	Log          *slog.Logger
+	// Payments resolves what a client paid for a domain's registration - the
+	// basis of the refund issued when the registrar rejects the domain.
+	Payments  ports.DomainPaymentSource
+	Notifier  ports.NotificationSender
+	Encryptor ports.Encryptor
+	Audit     ports.AuditLogger
+	Clock     ports.Clock
+	Log       *slog.Logger
 
 	// RegistrarAPIKeyPresent reports whether RDASH_API_KEY is set in the
 	// environment (never the key itself) - surfaced to the admin registrars
@@ -159,35 +167,43 @@ func (s *Service) CheckAvailability(ctx context.Context, names []string) ([]port
 	}
 	for i := range res {
 		s.overlayPricing(ctx, &res[i])
+		res[i].DocumentRequired = domain.NameRequiresDocuments(res[i].Name)
 	}
 	return res, nil
 }
 
-// overlayPricing replaces a live registrar quote with admin-configured
-// pricing when available, in priority order: an exact premium-domain
-// override, else a premium length-tier match (TLD + registrable-label
-// character count, e.g. Dewabiz's "Limited Character" table), else the
-// active TLD pricing row's year-1 register price (plus its full per-year
+// overlayPricing turns the registrar's availability answer into what the shop
+// sells. The extension must have an ACTIVE row in Domain Pricing (Sellable);
+// otherwise the domain is not for sale: no price is shown - the registrar's
+// own quote is the shop's cost, never a selling price - and checkout refuses
+// it. For a sellable extension the price is, in priority order: an exact
+// premium-domain override, else a premium length-tier match (TLD +
+// registrable-label character count, e.g. Dewabiz's "Limited Character"
+// table), else the TLD row's year-1 register price (plus its full per-year
 // matrix, via RegisterPrices - see orders/pricing.go's planDomain, which
 // prices a >1-year registration from that same matrix rather than a flat
 // Price*years multiple, since the matrix isn't guaranteed linear, e.g. a
-// free-first-year promo). Every lookup miss (unconfigured TLD, no premium
-// override/tier) leaves the registrar's own quote untouched - never a hard
-// failure.
+// free-first-year promo).
 func (s *Service) overlayPricing(ctx context.Context, avail *ports.DomainAvailability) {
+	ext := domainExtension(avail.Name)
+	tld, err := s.d.TLDPricing.GetByTLD(ctx, ext)
+	if err != nil && apperr.From(err).Code != apperr.CodeNotFound {
+		s.d.Log.WarnContext(ctx, "domain availability: tld pricing lookup failed", "tld", ext, "error", err)
+	}
+	avail.Sellable = err == nil && tld != nil && tld.Active
+	if !avail.Sellable {
+		avail.Price = 0
+		avail.Premium = false
+		return
+	}
 	if premium, err := s.d.PremiumPricing.GetByName(ctx, avail.Name); err == nil && premium != nil {
 		avail.Premium = true
 		avail.Price = premium.RegisterPrice
 		return
 	}
-	ext := domainExtension(avail.Name)
 	if tier, err := s.d.PremiumLengthPricing.GetByTLDAndLength(ctx, ext, domainLabelLength(avail.Name, ext)); err == nil && tier != nil {
 		avail.Premium = true
 		avail.Price = tier.Price
-		return
-	}
-	tld, err := s.d.TLDPricing.GetByTLD(ctx, ext)
-	if err != nil || tld == nil || !tld.Active {
 		return
 	}
 	if price, ok := tld.RegisterPrices["1"]; ok {
@@ -586,7 +602,13 @@ func (s *Service) RegisterDomainJob(ctx context.Context, domainID int64) error {
 	if dom.Status != domain.DomainPending {
 		return apperr.Newf(apperr.CodeConflict, "domain %s is %s, cannot register", dom.Name, dom.Status)
 	}
-	contact, userID, err := s.registrantContact(ctx, dom.ClientID)
+	if registrarOrderID(dom) != "" {
+		// Already placed at the registrar, which holds it back until its
+		// documents are verified (Auto Activation off): the verification
+		// poller activates it. Re-registering would only be refused.
+		return nil
+	}
+	contact, userID, err := s.registrantContact(ctx, dom)
 	if err != nil {
 		return err
 	}
@@ -606,7 +628,7 @@ func (s *Service) RegisterDomainJob(ctx context.Context, domainID int64) error {
 	if err := s.activateFromResult(ctx, dom, res, ns); err != nil {
 		return err
 	}
-	s.notify(ctx, userID, tplDomainRegistered, dom)
+	s.notify(ctx, userID, registeredTemplate(dom), dom)
 	return nil
 }
 
@@ -623,6 +645,9 @@ func (s *Service) TransferDomainJob(ctx context.Context, domainID int64) error {
 	if dom.Status != domain.DomainPending && dom.Status != domain.DomainPendingTransfer {
 		return apperr.Newf(apperr.CodeConflict, "domain %s is %s, cannot transfer", dom.Name, dom.Status)
 	}
+	if registrarOrderID(dom) != "" {
+		return nil // transfer already submitted; the sync poller completes it
+	}
 	if dom.EPPCodeEnc == "" {
 		return apperr.Conflict("domain " + dom.Name + " has no EPP code for transfer")
 	}
@@ -630,7 +655,7 @@ func (s *Service) TransferDomainJob(ctx context.Context, domainID int64) error {
 	if err != nil {
 		return apperr.Internal(err)
 	}
-	contact, userID, err := s.registrantContact(ctx, dom.ClientID)
+	contact, userID, err := s.registrantContact(ctx, dom)
 	if err != nil {
 		return err
 	}
@@ -651,7 +676,7 @@ func (s *Service) TransferDomainJob(ctx context.Context, domainID int64) error {
 	if err := s.activateFromResult(ctx, dom, res, ns); err != nil {
 		return err
 	}
-	s.notify(ctx, userID, tplDomainRegistered, dom)
+	s.notify(ctx, userID, registeredTemplate(dom), dom)
 	return nil
 }
 
@@ -693,8 +718,11 @@ func (s *Service) RenewDomainJob(ctx context.Context, domainID int64) error {
 	return nil
 }
 
-// SyncDomainJob pulls status/expiry/nameservers from the registrar and
-// applies them (status only through the domain state machine).
+// SyncDomainJob pulls status, expiry, nameservers and the document/
+// verification state from the registrar and applies them (status only
+// through the domain state machine). A domain the registrar rejected is
+// settled - status, refund and records - atomically (see settleRejected);
+// a bounced document review or a suspension emails the client.
 func (s *Service) SyncDomainJob(ctx context.Context, domainID int64) error {
 	dom, err := s.d.Domains.GetByID(ctx, domainID)
 	if err != nil {
@@ -704,29 +732,19 @@ func (s *Service) SyncDomainJob(ctx context.Context, domainID int64) error {
 	if err != nil {
 		return err
 	}
-	if next, ok := mapRegistrarStatus(info.Status); ok && next != dom.Status {
-		if domain.DomainCanTransition(dom.Status, next) {
-			dom.Status = next
-		} else {
-			s.d.Log.WarnContext(ctx, "domain sync: illegal status transition skipped",
-				"domain", dom.Name, "from", dom.Status, "to", next)
-		}
+	if next, ok := mapSyncStatus(info); ok && next == domain.DomainRejected &&
+		dom.Status != domain.DomainRejected && domain.DomainCanTransition(dom.Status, next) {
+		return s.settleRejected(ctx, domainID, info)
 	}
-	if !info.ExpiryDate.IsZero() {
-		expiry := info.ExpiryDate
-		dom.ExpiryDate = &expiry
-		if dom.NextDueDate == nil || dom.NextDueDate.Before(expiry) {
-			dom.NextDueDate = &expiry
-		}
+	ev, err := s.mutateFromSync(ctx, dom, info)
+	if err != nil {
+		return err
 	}
-	if len(info.NS) > 0 {
-		raw, err := json.Marshal(info.NS)
-		if err != nil {
-			return apperr.Internal(err)
-		}
-		dom.Nameservers = raw
+	if err := s.d.Domains.Update(ctx, dom); err != nil {
+		return err
 	}
-	return s.d.Domains.Update(ctx, dom)
+	s.dispatchSyncEvents(ctx, dom, ev)
+	return nil
 }
 
 // SyncAllDomains syncs a bounded batch of domains; failures are logged and
@@ -1318,8 +1336,15 @@ func cycleYears(c domain.BillingCycle) int {
 
 // registrantContact builds the registrar contact from the client profile and
 // the owning user's email; also returns the user id for notifications.
-func (s *Service) registrantContact(ctx context.Context, clientID int64) (ports.RegistrantContact, int64, error) {
-	cl, err := s.d.Clients.GetByID(ctx, clientID)
+//
+// Address/city/state/postcode/phone are optional on the client profile, but
+// the registrar requires all five for the registrant contact - fail fast
+// with an actionable message (and a client-facing email pointing at their
+// account profile) rather than a raw registrar validation error. The user id
+// is still returned alongside this error so the caller can be notified
+// without a second client lookup.
+func (s *Service) registrantContact(ctx context.Context, dom *domain.Domain) (ports.RegistrantContact, int64, error) {
+	cl, err := s.d.Clients.GetByID(ctx, dom.ClientID)
 	if err != nil {
 		return ports.RegistrantContact{}, 0, err
 	}
@@ -1327,26 +1352,34 @@ func (s *Service) registrantContact(ctx context.Context, clientID int64) (ports.
 	if err != nil {
 		return ports.RegistrantContact{}, 0, err
 	}
-	contact := ports.RegistrantContact{
+	contact, err := contactFromClient(cl, u.Email)
+	if err != nil {
+		s.notify(ctx, cl.UserID, tplDomainProfileIncomplete, dom)
+		return ports.RegistrantContact{}, cl.UserID, err
+	}
+	return contact, cl.UserID, nil
+}
+
+// contactFromClient builds the registrar contact from a client profile and the
+// owning user's email, VALIDATION when the profile lacks the address details
+// the registrar requires for every registration.
+func contactFromClient(cl *domain.Client, email string) (ports.RegistrantContact, error) {
+	if !cl.HasRegistrantAddress() {
+		return ports.RegistrantContact{}, apperr.Validation(
+			"client profile is missing registrant details (address, city, state, postal code, phone) required for domain registration")
+	}
+	return ports.RegistrantContact{
 		FirstName: cl.FirstName,
 		LastName:  cl.LastName,
 		Company:   cl.Company,
-		Email:     u.Email,
+		Email:     email,
 		Phone:     cl.Phone,
 		Address1:  cl.Address1,
 		City:      cl.City,
 		State:     cl.State,
 		Postcode:  cl.Postcode,
 		Country:   cl.Country,
-	}
-	// Address/city/state/postcode are optional on the client profile, but the
-	// registrar requires all four for the registrant contact - fail fast with
-	// an actionable message rather than a raw registrar validation error.
-	if contact.Address1 == "" || contact.City == "" || contact.State == "" || contact.Postcode == "" {
-		return ports.RegistrantContact{}, 0, apperr.Validation(
-			"client profile is missing address details (address, city, state, postal code) required for domain registration")
-	}
-	return contact, cl.UserID, nil
+	}, nil
 }
 
 // clientUserID resolves the owning user id for notifications.
@@ -1384,15 +1417,21 @@ func (s *Service) nameserversFor(ctx context.Context, dom *domain.Domain) ([]str
 }
 
 // activateFromResult applies a successful register/transfer result: status ->
-// active via the state machine, dates set, nameservers + registrar meta stored.
+// active via the state machine, dates set, nameservers + registrar meta stored,
+// the registrar's verification state recorded. A document-requiring domain the
+// registrar holds back until its documents are verified (Auto Activation off)
+// stays pending / pending_transfer - the verification poller activates it.
 func (s *Service) activateFromResult(ctx context.Context, dom *domain.Domain, res *ports.DomainResult, ns []string) error {
-	next, err := domain.TransitionDomain(dom.Status, domain.DomainActive)
-	if err != nil {
-		return err
+	s.applyVerification(dom, res.DomainVerificationInfo)
+	if !heldByRegistrar(res) {
+		next, err := domain.TransitionDomain(dom.Status, domain.DomainActive)
+		if err != nil {
+			return err
+		}
+		dom.Status = next
+		now := s.d.Clock.Now()
+		dom.RegistrationDate = &now
 	}
-	dom.Status = next
-	now := s.d.Clock.Now()
-	dom.RegistrationDate = &now
 	if !res.ExpiryDate.IsZero() {
 		expiry := res.ExpiryDate
 		dom.ExpiryDate = &expiry
@@ -1416,15 +1455,68 @@ func (s *Service) activateFromResult(ctx context.Context, dom *domain.Domain, re
 	return s.d.Domains.Update(ctx, dom)
 }
 
+// heldByRegistrar reports whether the registrar accepted the order but keeps
+// the domain pending until its required documents are verified.
+func heldByRegistrar(res *ports.DomainResult) bool {
+	if !res.DocumentRequired || res.Verification == domain.VerificationActive {
+		return false
+	}
+	st, ok := mapRegistrarStatus(res.Status)
+	return ok && (st == domain.DomainPending || st == domain.DomainPendingTransfer)
+}
+
+// registrarOrderID returns the registrar-side id recorded when the order was
+// placed ("" when it never was).
+func registrarOrderID(dom *domain.Domain) string {
+	var meta struct {
+		OrderID string `json:"order_id"`
+	}
+	if len(dom.RegistrarMeta) > 0 {
+		_ = json.Unmarshal(dom.RegistrarMeta, &meta)
+	}
+	return meta.OrderID
+}
+
+// registeredTemplate picks the email for a freshly registered/transferred
+// domain: a domain that still owes documents gets the upload instructions
+// instead of the plain "registered" notice.
+func registeredTemplate(dom *domain.Domain) string {
+	if dom.DocumentRequired && dom.Verification != domain.VerificationActive {
+		return tplDomainDocumentsRequired
+	}
+	return tplDomainRegistered
+}
+
 // notify sends a domain template email; failures are logged, never returned
 // (the domain state is already persisted - retrying would re-run the job as a
 // no-op and lose the mail anyway).
 func (s *Service) notify(ctx context.Context, userID int64, key string, dom *domain.Domain) {
+	s.notifyWith(ctx, userID, key, dom, nil)
+}
+
+// notifyWith is notify plus template data beyond the domain's own: the
+// registrar's reason and, while verification is open, the documented
+// upload/suspend/delete dates.
+func (s *Service) notifyWith(ctx context.Context, userID int64, key string, dom *domain.Domain, extra map[string]any) {
 	data := map[string]any{
-		"Domain": dom.Name,
+		"Domain":   dom.Name,
+		"DomainID": dom.ID,
+		"Reason":   dom.StatusReason,
 	}
 	if dom.ExpiryDate != nil {
 		data["ExpiryDate"] = dom.ExpiryDate.Format(dateFormat)
+	}
+	if dl := dom.Deadlines(); dl != nil {
+		data["SuspendOn"] = dl.SuspendOn.Format(dateFormat)
+		if dl.UploadBy != nil {
+			data["UploadBy"] = dl.UploadBy.Format(dateFormat)
+		}
+		if dl.DeleteOn != nil {
+			data["DeleteOn"] = dl.DeleteOn.Format(dateFormat)
+		}
+	}
+	for k, v := range extra {
+		data[k] = v
 	}
 	if err := s.d.Notifier.SendTemplate(ctx, userID, key, data); err != nil {
 		s.d.Log.WarnContext(ctx, "domain notification failed",
@@ -1443,7 +1535,11 @@ func mapRegistrarStatus(s string) (domain.DomainStatus, bool) {
 		return domain.DomainPending, true
 	case "pending_transfer", "transfer_in_progress", "transferring":
 		return domain.DomainPendingTransfer, true
-	case "cancelled", "canceled", "deleted", "pending_delete", "transferred_away", "rejected":
+	case "suspended":
+		return domain.DomainSuspended, true
+	case "rejected":
+		return domain.DomainRejected, true
+	case "cancelled", "canceled", "deleted", "pending_delete", "transferred_away":
 		return domain.DomainCancelled, true
 	}
 	return "", false

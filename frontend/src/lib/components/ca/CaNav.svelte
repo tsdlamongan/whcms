@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { env } from '$env/dynamic/public';
+	import { appName } from '$lib/appName';
 	import { t } from '$lib/i18n';
 	import { accountMenu, isActivePath, primaryNav, type CaNavItem, type CaNavLink } from './nav';
 
@@ -21,8 +21,6 @@
 	}
 
 	let { user, pathname, loginTestid, clientAreaTestid }: Props = $props();
-
-	const appName = env.PUBLIC_APP_NAME || 'WHCMS';
 
 	const primary = $derived(primaryNav(user));
 	const overflow = $derived(primary.filter((i) => i.overflow));

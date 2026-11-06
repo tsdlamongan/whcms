@@ -442,6 +442,7 @@ func TestOrdersReportEndpointAndCSV(t *testing.T) {
 				From: "2026-06-01", To: "2026-06-30",
 				Points:      []ports.RevenuePoint{{Period: "2026-06-02", Amount: 50, Count: 1}},
 				TotalAmount: 50, TotalCount: 1,
+				ByStatus: []adminops.OrderStatusCount{{Status: "active", Count: 1, Amount: 50}},
 			}, nil
 		},
 	}
@@ -453,9 +454,14 @@ func TestOrdersReportEndpointAndCSV(t *testing.T) {
 	env := readEnvelope(t, resp.Body)
 	assert.Contains(t, string(env.Data), `"total_amount":50`)
 
+	assert.Contains(t, string(env.Data), `"by_status":[{"status":"active","count":1,"amount":50}]`)
+
 	resp, err = app.Test(httptest.NewRequest("GET", "/api/v1/admin/reports/orders?format=csv", nil))
 	require.NoError(t, err)
 	assert.Contains(t, resp.Header.Get("Content-Disposition"), "orders_2026-06-01_2026-06-30.csv")
+	csvBody, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	assert.Equal(t, "period,amount,count\n2026-06-02,50,1\nTOTAL,50,1\n\nstatus,amount,count\nactive,50,1\n", string(csvBody))
 
 	resp, err = app.Test(httptest.NewRequest("GET", "/api/v1/admin/reports/orders?to=xx", nil))
 	require.NoError(t, err)

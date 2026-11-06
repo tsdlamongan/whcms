@@ -53,6 +53,8 @@ type fakeSvc struct {
 	TwoFASetupFn         func(ctx context.Context, userID int64) (*auth.TwoFASetupResponse, error)
 	TwoFAEnableFn        func(ctx context.Context, userID int64, in auth.TwoFAEnableRequest) error
 	TwoFADisableFn       func(ctx context.Context, userID int64, in auth.TwoFADisableRequest) error
+	ConfirmPasswordFn    func(ctx context.Context, userID int64, in auth.ConfirmPasswordRequest) (*auth.PasswordConfirmation, error)
+	PasswordConfirmFn    func(ctx context.Context, userID int64) (*auth.PasswordConfirmation, error)
 	ImpersonateFn        func(ctx context.Context, actorUserID, clientID int64, ip string) (*auth.AuthResponse, error)
 }
 
@@ -149,6 +151,20 @@ func (f *fakeSvc) TwoFADisable(ctx context.Context, userID int64, in auth.TwoFAD
 		return f.TwoFADisableFn(ctx, userID, in)
 	}
 	return nil
+}
+
+func (f *fakeSvc) ConfirmPassword(ctx context.Context, userID int64, in auth.ConfirmPasswordRequest) (*auth.PasswordConfirmation, error) {
+	if f.ConfirmPasswordFn != nil {
+		return f.ConfirmPasswordFn(ctx, userID, in)
+	}
+	return &auth.PasswordConfirmation{Confirmed: true}, nil
+}
+
+func (f *fakeSvc) PasswordConfirmation(ctx context.Context, userID int64) (*auth.PasswordConfirmation, error) {
+	if f.PasswordConfirmFn != nil {
+		return f.PasswordConfirmFn(ctx, userID)
+	}
+	return &auth.PasswordConfirmation{}, nil
 }
 
 func (f *fakeSvc) Impersonate(ctx context.Context, actorUserID, clientID int64, ip string) (*auth.AuthResponse, error) {
@@ -414,6 +430,58 @@ func TestHandlerTwoFA(t *testing.T) {
 
 	status, _ = doJSON(t, app, "POST", "/api/v1/auth/2fa/setup", "", "")
 	assert.Equal(t, 401, status)
+}
+
+func TestHandlerConfirmPassword(t *testing.T) {
+	var gotUser int64
+	var gotIn auth.ConfirmPasswordRequest
+	svc := &fakeSvc{
+		ConfirmPasswordFn: func(_ context.Context, userID int64, in auth.ConfirmPasswordRequest) (*auth.PasswordConfirmation, error) {
+			gotUser, gotIn = userID, in
+			if in.Password != "right" {
+				return nil, apperr.Unauthorized("password is incorrect")
+			}
+			return &auth.PasswordConfirmation{Confirmed: true}, nil
+		},
+		PasswordConfirmFn: func(_ context.Context, userID int64) (*auth.PasswordConfirmation, error) {
+			gotUser = userID
+			return &auth.PasswordConfirmation{Confirmed: true}, nil
+		},
+	}
+	app := newApp(svc, nil)
+
+	status, env := doJSON(t, app, "POST", "/api/v1/auth/confirm-password", `{"password":"right"}`, "admin-token")
+	assert.Equal(t, 200, status)
+	assert.Equal(t, int64(1), gotUser)
+	assert.Equal(t, "right", gotIn.Password)
+	assert.JSONEq(t, `{"confirmed":true}`, string(env.Data))
+
+	status, env = doJSON(t, app, "POST", "/api/v1/auth/confirm-password", `{"password":"nope"}`, "admin-token")
+	assert.Equal(t, 401, status)
+	require.NotNil(t, env.Error)
+	assert.Equal(t, "UNAUTHORIZED", env.Error.Code)
+
+	status, _ = doJSON(t, app, "POST", "/api/v1/auth/confirm-password", `{not json`, "admin-token")
+	assert.Equal(t, 422, status)
+
+	gotUser = 0
+	status, env = doJSON(t, app, "GET", "/api/v1/auth/confirm-password", "", "staff-token")
+	assert.Equal(t, 200, status)
+	assert.Equal(t, int64(3), gotUser)
+	assert.JSONEq(t, `{"confirmed":true}`, string(env.Data))
+
+	status, _ = doJSON(t, app, "GET", "/api/v1/auth/confirm-password", "", "")
+	assert.Equal(t, 401, status)
+	status, _ = doJSON(t, app, "POST", "/api/v1/auth/confirm-password", `{"password":"x"}`, "")
+	assert.Equal(t, 401, status)
+}
+
+func TestHandlerConfirmPasswordStatusError(t *testing.T) {
+	svc := &fakeSvc{PasswordConfirmFn: func(context.Context, int64) (*auth.PasswordConfirmation, error) {
+		return nil, apperr.Internal(assert.AnError)
+	}}
+	status, _ := doJSON(t, newApp(svc, nil), "GET", "/api/v1/auth/confirm-password", "", "admin-token")
+	assert.Equal(t, 500, status)
 }
 
 func TestHandlerImpersonate(t *testing.T) {

@@ -3,7 +3,7 @@ import type { Locale } from '../i18n.svelte';
 const messages: Partial<Record<Locale, Record<string, unknown>>> = {
 	id: {
 		install: {
-			title: 'Pemasangan WHCMS',
+			title: 'Pemasangan {name}',
 			infra: {
 				heading: 'Hubungkan infrastruktur',
 				intro:
@@ -50,7 +50,7 @@ const messages: Partial<Record<Locale, Record<string, unknown>>> = {
 			},
 			admin: {
 				heading: 'Buat akun admin pertama',
-				intro: 'Akun ini akan memiliki akses penuh ke panel admin WHCMS.',
+				intro: 'Akun ini akan memiliki akses penuh ke panel admin {name}.',
 				email: 'Email',
 				password: 'Kata sandi',
 				passwordHint: 'Minimal 8 karakter.',
@@ -75,7 +75,7 @@ const messages: Partial<Record<Locale, Record<string, unknown>>> = {
 	},
 	en: {
 		install: {
-			title: 'WHCMS Installation',
+			title: '{name} Installation',
 			infra: {
 				heading: 'Connect your infrastructure',
 				intro:
@@ -122,7 +122,7 @@ const messages: Partial<Record<Locale, Record<string, unknown>>> = {
 			},
 			admin: {
 				heading: 'Create the first admin account',
-				intro: 'This account will have full access to the WHCMS admin panel.',
+				intro: 'This account will have full access to the {name} admin panel.',
 				email: 'Email',
 				password: 'Password',
 				passwordHint: 'At least 8 characters.',

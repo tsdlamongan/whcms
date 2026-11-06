@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
 	import { enhance } from '$app/forms';
 	import Alert from '$lib/components/Alert.svelte';
 	import Breadcrumb from '$lib/components/Breadcrumb.svelte';
@@ -61,7 +62,7 @@
 </script>
 
 <svelte:head>
-	<title>{pageTitle} — WHCMS</title>
+	<title>{pageTitle} — {appName}</title>
 </svelte:head>
 
 <Breadcrumb

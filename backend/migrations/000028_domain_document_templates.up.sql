@@ -1,0 +1,103 @@
+-- Email templates for the domain document / verification lifecycle
+-- (docs.dewabiz.co.id "Auto Activation"), id + en:
+--   domain_documents_required  the domain is active but still needs documents (upload window / deadlines)
+--   domain_documents_rejected  a document review bounced the upload - upload again
+--   domain_suspended           the registrar suspended the domain (documents/verification overdue)
+--   domain_rejected            the registrar rejected or deleted the registration (+ refund outcome)
+-- Same inline-styled markup as migrations 000020/000023 so they render
+-- correctly through the global "_layout" wrapper. Data: Name, Domain,
+-- DomainID, Reason, UploadBy, SuspendOn, DeleteOn (dates, empty when no
+-- verification is open) and, for domain_rejected, Refunded, RefundAmount,
+-- DocumentFailure.
+INSERT INTO email_templates (key, locale, subject, body_html, body_text) VALUES
+('domain_documents_required', 'id', 'Tindakan diperlukan: unggah dokumen untuk domain {{.Domain}}',
+ '<h1 class="em-h1" style="margin:0 0 16px;font:600 22px/1.3 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Arial,sans-serif;color:#222222;">Unggah dokumen domain Anda</h1><p style="margin:0px 0 14px;font:400 15px/1.65 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Arial,sans-serif;color:#3c3c3c;">Halo {{.Name}},</p><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:20px 0;background:#fff7e6;border-left:4px solid #f89406;border-radius:3px;"><tr><td style="padding:13px 16px;font:400 14px/1.6 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Arial,sans-serif;color:#7a4a00;">Domain <strong>{{.Domain}}</strong> memerlukan dokumen persyaratan (identitas dan dokumen legalitas sesuai ekstensi domain). Domain sudah aktif sementara - unggah dokumennya agar tidak ditangguhkan.</td></tr></table><p style="margin:0px 0 14px;font:400 15px/1.65 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Arial,sans-serif;color:#3c3c3c;">{{if .UploadBy}}Unggah dokumen paling lambat <strong>{{.UploadBy}}</strong>. {{end}}{{if .SuspendOn}}Jika belum ada dokumen yang valid, domain ditangguhkan pada <strong>{{.SuspendOn}}</strong>{{if .DeleteOn}} dan dihapus pada <strong>{{.DeleteOn}}</strong> tanpa pengembalian dana{{end}}.{{end}}</p><table role="presentation" class="em-btn" cellpadding="0" cellspacing="0" border="0" style="margin:24px 0 6px;"><tr><td align="center" style="border-radius:4px;background:#336699;"><a href="{{.FrontendURL}}/domains/{{.DomainID}}" style="display:inline-block;padding:13px 30px;font:600 15px/1 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Arial,sans-serif;color:#ffffff;text-decoration:none;border-radius:4px;">Unggah Dokumen</a></td></tr></table><p style="margin:18px 0 0px;font:400 13px/1.65 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Arial,sans-serif;color:#8a8a8a;">Dokumen diunggah pada halaman verifikasi registrar yang dibuka dari halaman domain di portal klien.</p>',
+ 'Halo {{.Name}},
+
+Domain {{.Domain}} memerlukan dokumen persyaratan (identitas dan dokumen legalitas sesuai ekstensi domain). Domain sudah aktif sementara - unggah dokumennya agar tidak ditangguhkan.
+{{if .UploadBy}}
+Unggah dokumen paling lambat {{.UploadBy}}.{{end}}{{if .SuspendOn}}
+Jika belum ada dokumen yang valid, domain ditangguhkan pada {{.SuspendOn}}{{if .DeleteOn}} dan dihapus pada {{.DeleteOn}} tanpa pengembalian dana{{end}}.{{end}}
+
+Unggah dokumen di: {{.FrontendURL}}/domains/{{.DomainID}}
+
+-- {{.CompanyName}}'),
+('domain_documents_required', 'en', 'Action needed: upload documents for domain {{.Domain}}',
+ '<h1 class="em-h1" style="margin:0 0 16px;font:600 22px/1.3 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Arial,sans-serif;color:#222222;">Upload your domain documents</h1><p style="margin:0px 0 14px;font:400 15px/1.65 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Arial,sans-serif;color:#3c3c3c;">Hello {{.Name}},</p><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:20px 0;background:#fff7e6;border-left:4px solid #f89406;border-radius:3px;"><tr><td style="padding:13px 16px;font:400 14px/1.6 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Arial,sans-serif;color:#7a4a00;">The domain <strong>{{.Domain}}</strong> requires supporting documents (identity and legal documents for the extension). It is active for now - upload the documents so it is not suspended.</td></tr></table><p style="margin:0px 0 14px;font:400 15px/1.65 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Arial,sans-serif;color:#3c3c3c;">{{if .UploadBy}}Upload the documents by <strong>{{.UploadBy}}</strong>. {{end}}{{if .SuspendOn}}Without valid documents the domain is suspended on <strong>{{.SuspendOn}}</strong>{{if .DeleteOn}} and deleted on <strong>{{.DeleteOn}}</strong> with no refund{{end}}.{{end}}</p><table role="presentation" class="em-btn" cellpadding="0" cellspacing="0" border="0" style="margin:24px 0 6px;"><tr><td align="center" style="border-radius:4px;background:#336699;"><a href="{{.FrontendURL}}/domains/{{.DomainID}}" style="display:inline-block;padding:13px 30px;font:600 15px/1 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Arial,sans-serif;color:#ffffff;text-decoration:none;border-radius:4px;">Upload Documents</a></td></tr></table><p style="margin:18px 0 0px;font:400 13px/1.65 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Arial,sans-serif;color:#8a8a8a;">Documents are uploaded on the registrar verification page, opened from the domain page in the client portal.</p>',
+ 'Hello {{.Name}},
+
+The domain {{.Domain}} requires supporting documents (identity and legal documents for the extension). It is active for now - upload the documents so it is not suspended.
+{{if .UploadBy}}
+Upload the documents by {{.UploadBy}}.{{end}}{{if .SuspendOn}}
+Without valid documents the domain is suspended on {{.SuspendOn}}{{if .DeleteOn}} and deleted on {{.DeleteOn}} with no refund{{end}}.{{end}}
+
+Upload documents at: {{.FrontendURL}}/domains/{{.DomainID}}
+
+-- {{.CompanyName}}'),
+('domain_documents_rejected', 'id', 'Dokumen domain {{.Domain}} ditolak - unggah ulang',
+ '<h1 class="em-h1" style="margin:0 0 16px;font:600 22px/1.3 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Arial,sans-serif;color:#222222;">Dokumen domain ditolak</h1><p style="margin:0px 0 14px;font:400 15px/1.65 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Arial,sans-serif;color:#3c3c3c;">Halo {{.Name}},</p><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:20px 0;background:#fdf1f0;border-left:4px solid #c43c35;border-radius:3px;"><tr><td style="padding:13px 16px;font:400 14px/1.6 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Arial,sans-serif;color:#7b2622;">Dokumen yang Anda unggah untuk domain <strong>{{.Domain}}</strong> ditolak{{if .Reason}}: <strong>{{.Reason}}</strong>{{end}}.</td></tr></table><p style="margin:0px 0 14px;font:400 15px/1.65 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Arial,sans-serif;color:#3c3c3c;">Unggah ulang dokumen yang benar agar domain tidak ditangguhkan.{{if .SuspendOn}} Batas penangguhan: <strong>{{.SuspendOn}}</strong>{{if .DeleteOn}}; domain dihapus pada <strong>{{.DeleteOn}}</strong> tanpa pengembalian dana jika dokumen tetap belum valid{{end}}.{{end}}</p><table role="presentation" class="em-btn" cellpadding="0" cellspacing="0" border="0" style="margin:24px 0 6px;"><tr><td align="center" style="border-radius:4px;background:#336699;"><a href="{{.FrontendURL}}/domains/{{.DomainID}}" style="display:inline-block;padding:13px 30px;font:600 15px/1 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Arial,sans-serif;color:#ffffff;text-decoration:none;border-radius:4px;">Unggah Ulang Dokumen</a></td></tr></table><p style="margin:18px 0 0px;font:400 13px/1.65 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Arial,sans-serif;color:#8a8a8a;">Pastikan dokumen terbaca jelas dan atas nama pemilik domain.</p>',
+ 'Halo {{.Name}},
+
+Dokumen yang Anda unggah untuk domain {{.Domain}} ditolak{{if .Reason}}: {{.Reason}}{{end}}.
+
+Unggah ulang dokumen yang benar agar domain tidak ditangguhkan.{{if .SuspendOn}} Batas penangguhan: {{.SuspendOn}}{{if .DeleteOn}}; domain dihapus pada {{.DeleteOn}} tanpa pengembalian dana jika dokumen tetap belum valid{{end}}.{{end}}
+
+Unggah ulang di: {{.FrontendURL}}/domains/{{.DomainID}}
+
+-- {{.CompanyName}}'),
+('domain_documents_rejected', 'en', 'Documents for {{.Domain}} were rejected - please re-upload',
+ '<h1 class="em-h1" style="margin:0 0 16px;font:600 22px/1.3 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Arial,sans-serif;color:#222222;">Your domain documents were rejected</h1><p style="margin:0px 0 14px;font:400 15px/1.65 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Arial,sans-serif;color:#3c3c3c;">Hello {{.Name}},</p><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:20px 0;background:#fdf1f0;border-left:4px solid #c43c35;border-radius:3px;"><tr><td style="padding:13px 16px;font:400 14px/1.6 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Arial,sans-serif;color:#7b2622;">The documents you uploaded for the domain <strong>{{.Domain}}</strong> were rejected{{if .Reason}}: <strong>{{.Reason}}</strong>{{end}}.</td></tr></table><p style="margin:0px 0 14px;font:400 15px/1.65 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Arial,sans-serif;color:#3c3c3c;">Upload the correct documents again so the domain is not suspended.{{if .SuspendOn}} Suspension date: <strong>{{.SuspendOn}}</strong>{{if .DeleteOn}}; the domain is deleted on <strong>{{.DeleteOn}}</strong> with no refund if the documents are still not valid{{end}}.{{end}}</p><table role="presentation" class="em-btn" cellpadding="0" cellspacing="0" border="0" style="margin:24px 0 6px;"><tr><td align="center" style="border-radius:4px;background:#336699;"><a href="{{.FrontendURL}}/domains/{{.DomainID}}" style="display:inline-block;padding:13px 30px;font:600 15px/1 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Arial,sans-serif;color:#ffffff;text-decoration:none;border-radius:4px;">Re-upload Documents</a></td></tr></table><p style="margin:18px 0 0px;font:400 13px/1.65 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Arial,sans-serif;color:#8a8a8a;">Make sure the documents are clearly legible and in the domain owner name.</p>',
+ 'Hello {{.Name}},
+
+The documents you uploaded for the domain {{.Domain}} were rejected{{if .Reason}}: {{.Reason}}{{end}}.
+
+Upload the correct documents again so the domain is not suspended.{{if .SuspendOn}} Suspension date: {{.SuspendOn}}{{if .DeleteOn}}; the domain is deleted on {{.DeleteOn}} with no refund if the documents are still not valid{{end}}.{{end}}
+
+Re-upload at: {{.FrontendURL}}/domains/{{.DomainID}}
+
+-- {{.CompanyName}}'),
+('domain_suspended', 'id', 'Domain {{.Domain}} ditangguhkan',
+ '<h1 class="em-h1" style="margin:0 0 16px;font:600 22px/1.3 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Arial,sans-serif;color:#222222;">Domain Anda ditangguhkan</h1><p style="margin:0px 0 14px;font:400 15px/1.65 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Arial,sans-serif;color:#3c3c3c;">Halo {{.Name}},</p><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:20px 0;background:#fdf1f0;border-left:4px solid #c43c35;border-radius:3px;"><tr><td style="padding:13px 16px;font:400 14px/1.6 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Arial,sans-serif;color:#7b2622;">Domain <strong>{{.Domain}}</strong> ditangguhkan oleh registrar{{if .Reason}}: <strong>{{.Reason}}</strong>{{end}}.</td></tr></table><p style="margin:0px 0 14px;font:400 15px/1.65 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Arial,sans-serif;color:#3c3c3c;">Selama ditangguhkan, domain tidak dapat dipakai. Lengkapi verifikasi (unggah dokumen atau konfirmasi email registrant) agar domain aktif kembali.{{if .DeleteOn}} Jika tidak dilengkapi sebelum <strong>{{.DeleteOn}}</strong>, domain dihapus tanpa pengembalian dana.{{end}}</p><table role="presentation" class="em-btn" cellpadding="0" cellspacing="0" border="0" style="margin:24px 0 6px;"><tr><td align="center" style="border-radius:4px;background:#336699;"><a href="{{.FrontendURL}}/domains/{{.DomainID}}" style="display:inline-block;padding:13px 30px;font:600 15px/1 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Arial,sans-serif;color:#ffffff;text-decoration:none;border-radius:4px;">Lengkapi Verifikasi</a></td></tr></table><p style="margin:18px 0 0px;font:400 13px/1.65 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Arial,sans-serif;color:#8a8a8a;">Butuh bantuan? Balas email ini atau buka tiket dukungan.</p>',
+ 'Halo {{.Name}},
+
+Domain {{.Domain}} ditangguhkan oleh registrar{{if .Reason}}: {{.Reason}}{{end}}.
+
+Selama ditangguhkan, domain tidak dapat dipakai. Lengkapi verifikasi (unggah dokumen atau konfirmasi email registrant) agar domain aktif kembali.{{if .DeleteOn}} Jika tidak dilengkapi sebelum {{.DeleteOn}}, domain dihapus tanpa pengembalian dana.{{end}}
+
+Lengkapi di: {{.FrontendURL}}/domains/{{.DomainID}}
+
+-- {{.CompanyName}}'),
+('domain_suspended', 'en', 'Domain {{.Domain}} has been suspended',
+ '<h1 class="em-h1" style="margin:0 0 16px;font:600 22px/1.3 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Arial,sans-serif;color:#222222;">Your domain was suspended</h1><p style="margin:0px 0 14px;font:400 15px/1.65 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Arial,sans-serif;color:#3c3c3c;">Hello {{.Name}},</p><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:20px 0;background:#fdf1f0;border-left:4px solid #c43c35;border-radius:3px;"><tr><td style="padding:13px 16px;font:400 14px/1.6 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Arial,sans-serif;color:#7b2622;">The domain <strong>{{.Domain}}</strong> was suspended by the registrar{{if .Reason}}: <strong>{{.Reason}}</strong>{{end}}.</td></tr></table><p style="margin:0px 0 14px;font:400 15px/1.65 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Arial,sans-serif;color:#3c3c3c;">While suspended the domain cannot be used. Complete the verification (upload documents or confirm the registrant email) to reactivate it.{{if .DeleteOn}} If it is not completed before <strong>{{.DeleteOn}}</strong>, the domain is deleted with no refund.{{end}}</p><table role="presentation" class="em-btn" cellpadding="0" cellspacing="0" border="0" style="margin:24px 0 6px;"><tr><td align="center" style="border-radius:4px;background:#336699;"><a href="{{.FrontendURL}}/domains/{{.DomainID}}" style="display:inline-block;padding:13px 30px;font:600 15px/1 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Arial,sans-serif;color:#ffffff;text-decoration:none;border-radius:4px;">Complete Verification</a></td></tr></table><p style="margin:18px 0 0px;font:400 13px/1.65 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Arial,sans-serif;color:#8a8a8a;">Need help? Reply to this email or open a support ticket.</p>',
+ 'Hello {{.Name}},
+
+The domain {{.Domain}} was suspended by the registrar{{if .Reason}}: {{.Reason}}{{end}}.
+
+While suspended the domain cannot be used. Complete the verification (upload documents or confirm the registrant email) to reactivate it.{{if .DeleteOn}} If it is not completed before {{.DeleteOn}}, the domain is deleted with no refund.{{end}}
+
+Complete it at: {{.FrontendURL}}/domains/{{.DomainID}}
+
+-- {{.CompanyName}}'),
+('domain_rejected', 'id', 'Domain {{.Domain}} ditolak oleh registrar',
+ '<h1 class="em-h1" style="margin:0 0 16px;font:600 22px/1.3 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Arial,sans-serif;color:#222222;">Pendaftaran domain ditolak</h1><p style="margin:0px 0 14px;font:400 15px/1.65 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Arial,sans-serif;color:#3c3c3c;">Halo {{.Name}},</p><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:20px 0;background:#fdf1f0;border-left:4px solid #c43c35;border-radius:3px;"><tr><td style="padding:13px 16px;font:400 14px/1.6 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Arial,sans-serif;color:#7b2622;">Pendaftaran domain <strong>{{.Domain}}</strong> ditolak atau dihapus oleh registrar{{if .Reason}}: <strong>{{.Reason}}</strong>{{end}}.</td></tr></table><p style="margin:0px 0 14px;font:400 15px/1.65 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Arial,sans-serif;color:#3c3c3c;">{{if .Refunded}}Dana sebesar <strong>{{.RefundAmount}}</strong> telah dikembalikan sebagai kredit akun Anda dan dapat dipakai untuk pembayaran berikutnya.{{else if .DocumentFailure}}Sesuai kebijakan registrar, tidak ada pengembalian dana untuk domain yang dokumen persyaratannya tidak diunggah atau ditolak.{{else}}Registrar menandai pendaftaran ini tidak dapat dikembalikan dananya. Hubungi kami jika Anda keberatan.{{end}}</p><table role="presentation" class="em-btn" cellpadding="0" cellspacing="0" border="0" style="margin:24px 0 6px;"><tr><td align="center" style="border-radius:4px;background:#336699;"><a href="{{.FrontendURL}}/domains" style="display:inline-block;padding:13px 30px;font:600 15px/1 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Arial,sans-serif;color:#ffffff;text-decoration:none;border-radius:4px;">Lihat Domain Saya</a></td></tr></table><p style="margin:18px 0 0px;font:400 13px/1.65 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Arial,sans-serif;color:#8a8a8a;">Nama domain ini sudah tidak ada di akun Anda dan dapat didaftarkan kembali.</p>',
+ 'Halo {{.Name}},
+
+Pendaftaran domain {{.Domain}} ditolak atau dihapus oleh registrar{{if .Reason}}: {{.Reason}}{{end}}.
+
+{{if .Refunded}}Dana sebesar {{.RefundAmount}} telah dikembalikan sebagai kredit akun Anda dan dapat dipakai untuk pembayaran berikutnya.{{else if .DocumentFailure}}Sesuai kebijakan registrar, tidak ada pengembalian dana untuk domain yang dokumen persyaratannya tidak diunggah atau ditolak.{{else}}Registrar menandai pendaftaran ini tidak dapat dikembalikan dananya. Hubungi kami jika Anda keberatan.{{end}}
+
+Domain Anda: {{.FrontendURL}}/domains
+
+-- {{.CompanyName}}'),
+('domain_rejected', 'en', 'Domain {{.Domain}} was rejected by the registrar',
+ '<h1 class="em-h1" style="margin:0 0 16px;font:600 22px/1.3 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Arial,sans-serif;color:#222222;">Domain registration rejected</h1><p style="margin:0px 0 14px;font:400 15px/1.65 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Arial,sans-serif;color:#3c3c3c;">Hello {{.Name}},</p><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:20px 0;background:#fdf1f0;border-left:4px solid #c43c35;border-radius:3px;"><tr><td style="padding:13px 16px;font:400 14px/1.6 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Arial,sans-serif;color:#7b2622;">The registration of <strong>{{.Domain}}</strong> was rejected or deleted by the registrar{{if .Reason}}: <strong>{{.Reason}}</strong>{{end}}.</td></tr></table><p style="margin:0px 0 14px;font:400 15px/1.65 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Arial,sans-serif;color:#3c3c3c;">{{if .Refunded}}<strong>{{.RefundAmount}}</strong> has been returned to your account credit and can be used for your next payment.{{else if .DocumentFailure}}Under the registrar policy there is no refund for a domain whose required documents were not uploaded or were rejected.{{else}}The registrar marked this registration as non-refundable. Contact us if you disagree.{{end}}</p><table role="presentation" class="em-btn" cellpadding="0" cellspacing="0" border="0" style="margin:24px 0 6px;"><tr><td align="center" style="border-radius:4px;background:#336699;"><a href="{{.FrontendURL}}/domains" style="display:inline-block;padding:13px 30px;font:600 15px/1 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Arial,sans-serif;color:#ffffff;text-decoration:none;border-radius:4px;">View My Domains</a></td></tr></table><p style="margin:18px 0 0px;font:400 13px/1.65 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Arial,sans-serif;color:#8a8a8a;">This domain name is no longer in your account and can be registered again.</p>',
+ 'Hello {{.Name}},
+
+The registration of {{.Domain}} was rejected or deleted by the registrar{{if .Reason}}: {{.Reason}}{{end}}.
+
+{{if .Refunded}}{{.RefundAmount}} has been returned to your account credit and can be used for your next payment.{{else if .DocumentFailure}}Under the registrar policy there is no refund for a domain whose required documents were not uploaded or were rejected.{{else}}The registrar marked this registration as non-refundable. Contact us if you disagree.{{end}}
+
+Your domains: {{.FrontendURL}}/domains
+
+-- {{.CompanyName}}')
+ON CONFLICT (key, locale) DO NOTHING;

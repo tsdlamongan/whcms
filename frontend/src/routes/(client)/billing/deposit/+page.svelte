@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
 	import { enhance } from '$app/forms';
 	import { Alert, Breadcrumb, FormField, LoadingButton, MoneyText } from '$lib/components';
 	import { t } from '$lib/i18n';
@@ -17,7 +18,7 @@
 </script>
 
 <svelte:head>
-	<title>{t('billing.addFunds')} — WHCMS</title>
+	<title>{t('billing.addFunds')} — {appName}</title>
 </svelte:head>
 
 <Breadcrumb

@@ -236,6 +236,16 @@ func (h *Handler) Upgrade(c fiber.Ctx) error {
 // AdminListServices lists all services with filters.
 func (h *Handler) AdminListServices(c fiber.Ctx) error {
 	p := listParams(c)
+	var err error
+	if p.ClientID, err = httpx.QueryID(c, "client_id"); err != nil {
+		return err
+	}
+	if p.ProductID, err = httpx.QueryID(c, "product_id"); err != nil {
+		return err
+	}
+	if p.ServerID, err = httpx.QueryID(c, "server_id"); err != nil {
+		return err
+	}
 	list, total, err := h.svc.ListServices(c.Context(), 0, p)
 	if err != nil {
 		return err

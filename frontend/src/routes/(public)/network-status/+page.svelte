@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
 	import { Alert, DateText, StatusBadge } from '$lib/components';
 	import { t } from '$lib/i18n';
 	import type { PageProps } from './$types';
@@ -21,7 +22,7 @@
 </script>
 
 <svelte:head>
-	<title>{t('portal.networkStatus.title')} — WHCMS</title>
+	<title>{t('portal.networkStatus.title')} — {appName}</title>
 </svelte:head>
 
 <h1 class="ca-h1">{t('portal.networkStatus.title')}</h1>

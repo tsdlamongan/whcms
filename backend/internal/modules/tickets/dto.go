@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/tsdlamongan/whcms/backend/internal/domain"
+	"github.com/tsdlamongan/whcms/backend/internal/ports"
 )
 
 // Request DTOs
@@ -34,6 +35,11 @@ type SetStatusInput struct {
 	Status string `json:"status" validate:"required,oneof=open answered customer_reply on_hold closed"`
 }
 
+// SetPriorityInput sets the ticket priority (staff/admin).
+type SetPriorityInput struct {
+	Priority string `json:"priority" validate:"required,oneof=low medium high"`
+}
+
 // DepartmentInput creates/updates a ticket department (admin).
 type DepartmentInput struct {
 	Name   string `json:"name" validate:"required,min=2,max=100"`
@@ -45,20 +51,22 @@ type DepartmentInput struct {
 // AdminListFilter filters the staff/admin ticket list.
 type AdminListFilter struct {
 	Status         string `json:"status" validate:"omitempty,oneof=open answered customer_reply on_hold closed"`
+	Priority       string `json:"priority" validate:"omitempty,oneof=low medium high"`
 	DepartmentID   int64  `json:"department_id" validate:"gte=0"`
 	AssignedUserID int64  `json:"assigned_user_id" validate:"gte=0"`
+	ClientID       int64  `json:"client_id" validate:"gte=0"`
 	Search         string `json:"search"`
 	Page           int    `json:"page"`
 	PerPage        int    `json:"per_page"`
 }
 
-// Limit returns the SQL limit with defaults applied (1..100, default 25).
+// Limit returns the SQL limit with defaults applied (1..ports.MaxPerPage, default 25).
 func (f AdminListFilter) Limit() int {
 	if f.PerPage < 1 {
 		return 25
 	}
-	if f.PerPage > 100 {
-		return 100
+	if f.PerPage > ports.MaxPerPage {
+		return ports.MaxPerPage
 	}
 	return f.PerPage
 }

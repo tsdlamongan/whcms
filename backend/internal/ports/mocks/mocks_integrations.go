@@ -172,20 +172,22 @@ func (m *MockServerModule) SSOURL(ctx context.Context, s ports.ServerConfig, use
 
 // MockRegistrarModule mocks ports.RegistrarModule.
 type MockRegistrarModule struct {
-	CheckAvailabilityFn func(ctx context.Context, names []string) ([]ports.DomainAvailability, error)
-	RegisterFn          func(ctx context.Context, req ports.RegisterDomainRequest) (*ports.DomainResult, error)
-	TransferFn          func(ctx context.Context, req ports.TransferDomainRequest) (*ports.DomainResult, error)
-	RenewFn             func(ctx context.Context, name string, years int) (*ports.DomainResult, error)
-	GetNameserversFn    func(ctx context.Context, name string) ([]string, error)
-	UpdateNameserversFn func(ctx context.Context, name string, ns []string) error
-	GetContactFn        func(ctx context.Context, name string) (*ports.RegistrantContact, error)
-	UpdateContactFn     func(ctx context.Context, name string, c ports.RegistrantContact) error
-	GetEPPCodeFn        func(ctx context.Context, name string) (string, error)
-	GetDNSRecordsFn     func(ctx context.Context, name string) ([]ports.DNSRecord, error)
-	UpdateDNSRecordsFn  func(ctx context.Context, name string, recs []ports.DNSRecord) error
-	SyncDomainFn        func(ctx context.Context, name string) (*ports.DomainSyncInfo, error)
-	AccountInfoFn       func(ctx context.Context) (*ports.RegistrarAccountInfo, error)
-	ListCatalogPricesFn func(ctx context.Context) ([]ports.RegistrarCatalogPrice, error)
+	CheckAvailabilityFn  func(ctx context.Context, names []string) ([]ports.DomainAvailability, error)
+	RegisterFn           func(ctx context.Context, req ports.RegisterDomainRequest) (*ports.DomainResult, error)
+	TransferFn           func(ctx context.Context, req ports.TransferDomainRequest) (*ports.DomainResult, error)
+	RenewFn              func(ctx context.Context, name string, years int) (*ports.DomainResult, error)
+	GetNameserversFn     func(ctx context.Context, name string) ([]string, error)
+	UpdateNameserversFn  func(ctx context.Context, name string, ns []string) error
+	GetContactFn         func(ctx context.Context, name string) (*ports.RegistrantContact, error)
+	UpdateContactFn      func(ctx context.Context, name string, c ports.RegistrantContact) error
+	GetEPPCodeFn         func(ctx context.Context, name string) (string, error)
+	GetDNSRecordsFn      func(ctx context.Context, name string) ([]ports.DNSRecord, error)
+	UpdateDNSRecordsFn   func(ctx context.Context, name string, recs []ports.DNSRecord) error
+	SyncDomainFn         func(ctx context.Context, name string) (*ports.DomainSyncInfo, error)
+	AccountInfoFn        func(ctx context.Context) (*ports.RegistrarAccountInfo, error)
+	ListCatalogPricesFn  func(ctx context.Context) ([]ports.RegistrarCatalogPrice, error)
+	DocumentUploadLinkFn func(ctx context.Context, name string) (string, error)
+	ResendVerificationFn func(ctx context.Context, name string) error
 }
 
 func (m *MockRegistrarModule) CheckAvailability(ctx context.Context, names []string) ([]ports.DomainAvailability, error) {
@@ -284,4 +286,18 @@ func (m *MockRegistrarModule) ListCatalogPrices(ctx context.Context) ([]ports.Re
 		return m.ListCatalogPricesFn(ctx)
 	}
 	return nil, nil
+}
+
+func (m *MockRegistrarModule) DocumentUploadLink(ctx context.Context, name string) (string, error) {
+	if m.DocumentUploadLinkFn != nil {
+		return m.DocumentUploadLinkFn(ctx, name)
+	}
+	return "", nil
+}
+
+func (m *MockRegistrarModule) ResendVerification(ctx context.Context, name string) error {
+	if m.ResendVerificationFn != nil {
+		return m.ResendVerificationFn(ctx, name)
+	}
+	return nil
 }

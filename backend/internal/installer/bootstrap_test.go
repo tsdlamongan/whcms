@@ -25,8 +25,8 @@ func discardLogger() *slog.Logger {
 // clearEnv unsets the given keys for the duration of the test, restoring
 // their prior values (present or absent) on cleanup. Needed because
 // requiredVars may already be set in the ambient environment a test runs
-// under (e.g. via `make test-backend`'s own DATABASE_URL/JWT_SECRET/
-// APP_ENCRYPTION_KEY), which would otherwise make these tests order/
+// under (e.g. `make cover` loads DATABASE_URL/JWT_SECRET/APP_ENCRYPTION_KEY
+// from .env.testing), which would otherwise make these tests order/
 // environment-dependent.
 func clearEnv(t *testing.T, keys ...string) {
 	t.Helper()
@@ -160,10 +160,10 @@ func TestSaveRequiresDatabaseURL(t *testing.T) {
 func TestSaveRejectsInvalidMailDriver(t *testing.T) {
 	// save() lets a real env var win over the submitted value (mirroring
 	// ApplyEnvFile's precedence - see the comment on save()), so MAIL_DRIVER
-	// must be cleared too: otherwise a developer's own backend/.env (loaded
-	// into this test process's env by backend/Makefile's `include .env` +
-	// `export`) silently overrides "pigeon" with its own valid driver and
-	// this test passes for the wrong reason (or fails, as it did here).
+	// must be cleared too: otherwise a MAIL_DRIVER from an env file loaded into
+	// this test process's env (scripts/with-env.sh does that for `make cover`)
+	// silently overrides "pigeon" with its own valid driver and this test
+	// passes for the wrong reason (or fails, as it did here).
 	clearEnv(t, "DATABASE_URL", "JWT_SECRET", "APP_ENCRYPTION_KEY", "MAIL_DRIVER")
 	envPath := filepath.Join(t.TempDir(), "app.env")
 	app, _ := newBootstrapApp(discardLogger(), envPath, nil)

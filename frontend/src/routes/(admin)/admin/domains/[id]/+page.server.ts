@@ -1,3 +1,4 @@
+import { clientNamesFor } from '$lib/server/adminNames';
 import { apiFetch } from '$lib/server/api';
 import { error, fail } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
@@ -21,6 +22,20 @@ interface AdminDomain {
 	updated_at: string;
 	client_name?: string;
 	registrar_name?: string;
+	/** Registrar document/verification lifecycle (domain.Domain JSON tags). */
+	document_required: boolean;
+	verification_status: '' | 'waiting' | 'verifying' | 'document_validating' | 'active';
+	status_reason: string;
+	document_rejected_at: string | null;
+	registrar_refundable: boolean;
+	refund_amount: number;
+	refunded_at: string | null;
+	verification_deadlines: {
+		kind: 'documents' | 'email';
+		upload_by?: string;
+		suspend_on: string;
+		delete_on?: string;
+	} | null;
 }
 
 /** POST /admin/domains/:id/renew may return the created renewal invoice. */
@@ -35,7 +50,8 @@ export const load: PageServerLoad = async (event) => {
 	if (res.error || !res.data) {
 		error(res.status >= 400 ? res.status : 500, res.error?.message ?? 'error');
 	}
-	return { domain: res.data };
+	const clientName = (await clientNamesFor(event, [res.data.client_id])).get(res.data.client_id);
+	return { domain: clientName ? { ...res.data, client_name: clientName } : res.data };
 };
 
 export const actions: Actions = {
@@ -69,6 +85,38 @@ export const actions: Actions = {
 			action: 'renew',
 			invoiceId: res.data?.invoice_id ?? res.data?.id ?? null
 		};
+	},
+
+	/** Credit the client what they paid for a rejected/cancelled domain. */
+	refund: async (event) => {
+		const form = await event.request.formData();
+		const amountRaw = String(form.get('amount') ?? '').trim();
+		const reason = String(form.get('reason') ?? '').trim();
+
+		const body: Record<string, unknown> = {};
+		if (amountRaw !== '') {
+			const amount = Number(amountRaw);
+			if (!Number.isInteger(amount) || amount <= 0) {
+				return fail(400, {
+					action: 'refund',
+					errorMessage: 'Refund amount must be a whole number of rupiah greater than zero.'
+				});
+			}
+			body.amount = amount;
+		}
+		if (reason) body.reason = reason;
+
+		const res = await apiFetch<unknown>(event, `/api/v1/admin/domains/${event.params.id}/refund`, {
+			method: 'POST',
+			body
+		});
+		if (res.error) {
+			return fail(res.status >= 400 ? res.status : 500, {
+				action: 'refund',
+				errorMessage: res.error.message
+			});
+		}
+		return { success: true, action: 'refund' };
 	},
 
 	nameservers: async (event) => {

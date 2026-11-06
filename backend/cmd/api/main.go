@@ -32,6 +32,7 @@ import (
 	"github.com/tsdlamongan/whcms/backend/internal/modules/orders"
 	"github.com/tsdlamongan/whcms/backend/internal/modules/payments"
 	"github.com/tsdlamongan/whcms/backend/internal/modules/provisioning"
+	"github.com/tsdlamongan/whcms/backend/internal/modules/snipe"
 	"github.com/tsdlamongan/whcms/backend/internal/modules/tickets"
 	"github.com/tsdlamongan/whcms/backend/internal/platform/config"
 	"github.com/tsdlamongan/whcms/backend/internal/platform/db"
@@ -194,6 +195,7 @@ func run() error {
 	payments.NewHandler(app.Payments, mw).RegisterRoutes(api)
 	provisioning.NewHandler(app.Provisioning, mw).RegisterRoutes(api)
 	domains.NewHandler(app.Domains, mw).RegisterRoutes(api)
+	snipe.NewHandler(app.Snipe, mw).RegisterRoutes(api)
 	tickets.NewHandler(app.Tickets, mw).RegisterRoutes(api)
 	notifications.NewHandler(app.Notifications, mw).RegisterRoutes(api)
 	adminops.NewHandler(app.AdminOps, mw).RegisterRoutes(api)

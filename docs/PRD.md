@@ -576,6 +576,8 @@ Men-deploy & memelihara sistem. Butuh containerisasi, konfigurasi via environmen
 
 **Auto-activation:** untuk domain Indonesia yang membutuhkan dokumen, hormati flag *auto-activation* RDash; layanan bisa aktif dulu lalu dokumen diunggah/diverifikasi sesuai kebijakan RDash.
 
+*Implementasi FR-DOM-009 (lihat `CONTRACTS.md` §16):* RDash tidak menyediakan API unggah — hanya tautan halaman unggah milik registrar (`POST /domains/{id}/documents/link`), jadi portal klien meminta tautan itu on-demand dan membukanya di tab baru. Status verifikasi (`verification_status`, `status_reason`) disinkronkan dari registrar; penolakan dokumen, penangguhan (hari ke-5) dan penghapusan (hari ke-30) memicu email ke klien. Sesuai dokumentasi, **tidak ada pengembalian dana bila dokumen tidak diunggah atau ditolak**; domain yang ditolak registrar dan ditandai `is_refundable` dikembalikan sebagai kredit akun sebesar yang dibayar klien untuk domain tersebut, dan admin dapat memberi refund manual.
+
 ### 8.5 Prinsip Umum Semua Integrasi
 
 - **Timeout & retry** dengan backoff; batas retry jelas; kegagalan permanen → status *Error* + alert admin.

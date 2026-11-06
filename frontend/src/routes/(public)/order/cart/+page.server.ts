@@ -135,12 +135,23 @@ function parseItems(raw: string): OrderItemInput[] | null {
 	return items;
 }
 
+/** GET /api/v1/domains/tlds response row (domain.TLDPricing JSON tags). */
+interface ActiveTLD {
+	tld: string;
+}
+
 export const load: PageServerLoad = async (event) => {
 	const captcha = await loadCaptchaConfig(event);
 	const tax = await loadTaxConfig(event);
+	// The extensions on sale, so a cart line for one that is not (stale cart,
+	// or the operator switched it off) is flagged up front instead of failing
+	// at checkout. null = the catalog could not be loaded: block nothing here,
+	// the server still refuses an unsold extension.
+	const tldsRes = await apiFetch<ActiveTLD[]>(event, '/api/v1/domains/tlds');
+	const sellableTlds: string[] | null = tldsRes.data ? tldsRes.data.map((t) => t.tld) : null;
 
 	if (!event.locals.user) {
-		return { user: null, emailVerified: false, captcha, tax };
+		return { user: null, emailVerified: false, captcha, tax, sellableTlds };
 	}
 
 	// locals.user.email_verified comes from hooks.server.ts (/auth/me user DTO).
@@ -155,7 +166,8 @@ export const load: PageServerLoad = async (event) => {
 		user: event.locals.user,
 		emailVerified: event.locals.user.email_verified || !requireVerify,
 		captcha,
-		tax
+		tax,
+		sellableTlds
 	};
 };
 
@@ -209,6 +221,7 @@ export const actions: Actions = {
 			company: value('company'),
 			address1: value('address1'),
 			city: value('city'),
+			state: value('state'),
 			postcode: value('postcode'),
 			country: value('country') || 'ID',
 			phone: value('phone')
@@ -322,8 +335,13 @@ export const actions: Actions = {
 		});
 
 		if (res.error || !res.data) {
+			const details = res.error?.details ?? [];
+			const profileIncomplete = details.some(
+				(d) => (d as { field?: string })?.field === 'profile_address'
+			);
 			return fail(res.status >= 400 ? res.status : 400, {
-				checkoutErrorMessage: res.error?.message ?? 'error',
+				checkoutErrorKey: profileIncomplete ? 'orderfe.cart.profileIncomplete' : undefined,
+				checkoutErrorMessage: profileIncomplete ? undefined : (res.error?.message ?? 'error'),
 				checkoutErrorCode: res.error?.code
 			});
 		}

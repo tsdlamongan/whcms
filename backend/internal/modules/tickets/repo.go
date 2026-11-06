@@ -137,6 +137,14 @@ func (r *Repo) ListAdmin(ctx context.Context, f AdminListFilter) ([]domain.Ticke
 		args = append(args, f.Status)
 		where = append(where, "status = $"+strconv.Itoa(len(args)))
 	}
+	if f.Priority != "" {
+		args = append(args, f.Priority)
+		where = append(where, "priority = $"+strconv.Itoa(len(args)))
+	}
+	if f.ClientID != 0 {
+		args = append(args, f.ClientID)
+		where = append(where, "client_id = $"+strconv.Itoa(len(args)))
+	}
 	if f.DepartmentID != 0 {
 		args = append(args, f.DepartmentID)
 		where = append(where, "department_id = $"+strconv.Itoa(len(args)))

@@ -25,6 +25,7 @@ type fakeDashboardStore struct {
 	StatsFn             func(ctx context.Context) (*ports.DashboardStats, error)
 	RevenueFn           func(ctx context.Context, from, to time.Time, groupBy string) ([]ports.RevenuePoint, error)
 	OrdersReportFn      func(ctx context.Context, from, to time.Time) ([]ports.RevenuePoint, error)
+	OrdersByStatusFn    func(ctx context.Context, from, to time.Time) ([]adminops.OrderStatusCount, error)
 	ServicesReportFn    func(ctx context.Context) (map[string]int64, error)
 	ExtraStatsFn        func(ctx context.Context) (*adminops.ExtraStats, error)
 	RevenueByGatewayFn  func(ctx context.Context, from, to time.Time) ([]adminops.GatewayRevenue, error)
@@ -50,6 +51,13 @@ func (f *fakeDashboardStore) Revenue(ctx context.Context, from, to time.Time, gr
 func (f *fakeDashboardStore) OrdersReport(ctx context.Context, from, to time.Time) ([]ports.RevenuePoint, error) {
 	if f.OrdersReportFn != nil {
 		return f.OrdersReportFn(ctx, from, to)
+	}
+	return nil, nil
+}
+
+func (f *fakeDashboardStore) OrdersByStatus(ctx context.Context, from, to time.Time) ([]adminops.OrderStatusCount, error) {
+	if f.OrdersByStatusFn != nil {
+		return f.OrdersByStatusFn(ctx, from, to)
 	}
 	return nil, nil
 }
@@ -475,10 +483,31 @@ func TestOrdersReport(t *testing.T) {
 			{Period: "2026-07-02", Amount: 100000, Count: 1},
 		}, nil
 	}
+	f.dash.OrdersByStatusFn = func(_ context.Context, from, to time.Time) ([]adminops.OrderStatusCount, error) {
+		return []adminops.OrderStatusCount{
+			{Status: "active", Count: 4, Amount: 250000},
+			{Status: "pending", Count: 1, Amount: 50000},
+		}, nil
+	}
 	data, err := f.service().OrdersReport(context.Background(), time.Time{}, time.Time{})
 	require.NoError(t, err)
 	assert.Equal(t, int64(300000), data.TotalAmount)
 	assert.Equal(t, int64(5), data.TotalCount)
+	require.Len(t, data.ByStatus, 2)
+	assert.Equal(t, "active", data.ByStatus[0].Status)
+
+	// no orders at all: the breakdown is an empty list, never null in JSON
+	f.dash.OrdersByStatusFn = nil
+	data, err = f.service().OrdersReport(context.Background(), time.Time{}, time.Time{})
+	require.NoError(t, err)
+	assert.NotNil(t, data.ByStatus)
+	assert.Empty(t, data.ByStatus)
+	f.dash.OrdersByStatusFn = func(_ context.Context, from, to time.Time) ([]adminops.OrderStatusCount, error) {
+		return nil, errors.New("status boom")
+	}
+	_, err = f.service().OrdersReport(context.Background(), time.Time{}, time.Time{})
+	requireCode(t, err, apperr.CodeInternal)
+	f.dash.OrdersByStatusFn = nil
 
 	_, err = f.service().OrdersReport(context.Background(),
 		time.Date(2026, 7, 2, 0, 0, 0, 0, time.UTC), time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC))

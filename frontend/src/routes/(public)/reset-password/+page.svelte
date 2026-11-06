@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
 	import { enhance } from '$app/forms';
 	import FormField from '$lib/components/FormField.svelte';
 	import LoadingButton from '$lib/components/LoadingButton.svelte';
@@ -21,7 +22,7 @@
 </script>
 
 <svelte:head>
-	<title>{t('auth.resetPassword')} — WHCMS</title>
+	<title>{t('auth.resetPassword')} — {appName}</title>
 </svelte:head>
 
 <h1 class="ca-h1">{t('auth.resetPassword')}</h1>

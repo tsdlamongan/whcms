@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
 	import { enhance } from '$app/forms';
 	import DateText from '$lib/components/DateText.svelte';
 	import HpModal from '$lib/components/hp/HpModal.svelte';
@@ -15,9 +16,7 @@
 			? [data.client.first_name, data.client.last_name].filter(Boolean).join(' ') ||
 					data.client.email ||
 					`#${data.client.id}`
-			: order
-				? `#${order.client_id}`
-				: ''
+			: (data.clientName ?? (order ? `#${order.client_id}` : ''))
 	);
 
 	type OrderAction = 'accept' | 'cancel' | 'fraud';
@@ -88,7 +87,7 @@
 </script>
 
 <svelte:head>
-	<title>{order?.order_number ?? 'Order'} — HostPanel Admin</title>
+	<title>{order?.order_number ?? 'Order'} — {appName} Admin</title>
 </svelte:head>
 
 {#if !order}

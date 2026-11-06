@@ -919,17 +919,18 @@ func (m *MockServerRepo) PickServer(ctx context.Context, groupID int64) (*domain
 
 // MockDomainRepo mocks ports.DomainRepo.
 type MockDomainRepo struct {
-	CreateFn           func(ctx context.Context, d *domain.Domain) error
-	GetByIDFn          func(ctx context.Context, id int64) (*domain.Domain, error)
-	GetByNameFn        func(ctx context.Context, name string) (*domain.Domain, error)
-	GetByIDForUpdateFn func(ctx context.Context, id int64) (*domain.Domain, error)
-	GetByIDsFn         func(ctx context.Context, ids []int64) ([]domain.Domain, error)
-	UpdateFn           func(ctx context.Context, d *domain.Domain) error
-	UpdateStatusFn     func(ctx context.Context, id int64, status domain.DomainStatus) error
-	ListFn             func(ctx context.Context, p ports.ListParams) ([]domain.Domain, int64, error)
-	ListByClientFn     func(ctx context.Context, clientID int64, p ports.ListParams) ([]domain.Domain, int64, error)
-	ListRenewalsDueFn  func(ctx context.Context, before time.Time) ([]domain.Domain, error)
-	ListForSyncFn      func(ctx context.Context, limit int) ([]domain.Domain, error)
+	CreateFn                   func(ctx context.Context, d *domain.Domain) error
+	GetByIDFn                  func(ctx context.Context, id int64) (*domain.Domain, error)
+	GetByNameFn                func(ctx context.Context, name string) (*domain.Domain, error)
+	GetByIDForUpdateFn         func(ctx context.Context, id int64) (*domain.Domain, error)
+	GetByIDsFn                 func(ctx context.Context, ids []int64) ([]domain.Domain, error)
+	UpdateFn                   func(ctx context.Context, d *domain.Domain) error
+	UpdateStatusFn             func(ctx context.Context, id int64, status domain.DomainStatus) error
+	ListFn                     func(ctx context.Context, p ports.ListParams) ([]domain.Domain, int64, error)
+	ListByClientFn             func(ctx context.Context, clientID int64, p ports.ListParams) ([]domain.Domain, int64, error)
+	ListRenewalsDueFn          func(ctx context.Context, before time.Time) ([]domain.Domain, error)
+	ListForSyncFn              func(ctx context.Context, limit int) ([]domain.Domain, error)
+	ListAwaitingVerificationFn func(ctx context.Context, limit int) ([]domain.Domain, error)
 }
 
 func (m *MockDomainRepo) Create(ctx context.Context, d *domain.Domain) error {
@@ -1005,6 +1006,25 @@ func (m *MockDomainRepo) ListRenewalsDue(ctx context.Context, before time.Time) 
 func (m *MockDomainRepo) ListForSync(ctx context.Context, limit int) ([]domain.Domain, error) {
 	if m.ListForSyncFn != nil {
 		return m.ListForSyncFn(ctx, limit)
+	}
+	return nil, nil
+}
+
+func (m *MockDomainRepo) ListAwaitingVerification(ctx context.Context, limit int) ([]domain.Domain, error) {
+	if m.ListAwaitingVerificationFn != nil {
+		return m.ListAwaitingVerificationFn(ctx, limit)
+	}
+	return nil, nil
+}
+
+// MockDomainPaymentSource mocks ports.DomainPaymentSource.
+type MockDomainPaymentSource struct {
+	RegistrationPaymentFn func(ctx context.Context, domainID int64) (*ports.DomainRegistrationPayment, error)
+}
+
+func (m *MockDomainPaymentSource) RegistrationPayment(ctx context.Context, domainID int64) (*ports.DomainRegistrationPayment, error) {
+	if m.RegistrationPaymentFn != nil {
+		return m.RegistrationPaymentFn(ctx, domainID)
 	}
 	return nil, nil
 }

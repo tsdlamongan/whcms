@@ -185,24 +185,20 @@ func TestRDashAvailability(t *testing.T) {
 
 	resp, m := rdashGet(t, ts, "/v1/domains/availability", url.Values{"domain": {"fresh-name.id"}})
 	wantStatus(t, resp, http.StatusOK)
-	results := rdashDataArray(t, m)
-	if len(results) != 1 {
-		t.Fatalf("results len = %d, want 1", len(results))
-	}
-	first := results[0].(map[string]any)
+	first := rdashDataMap(t, m)
 	wantField(t, first, "name", "fresh-name.id")
 	wantField(t, first, "available", 1)
 
 	t.Run("taken substring unavailable", func(t *testing.T) {
 		_, m := rdashGet(t, ts, "/v1/domains/availability", url.Values{"domain": {"alreadytaken.com"}})
-		res := rdashDataArray(t, m)[0].(map[string]any)
+		res := rdashDataMap(t, m)
 		wantField(t, res, "available", 0)
 	})
 
 	t.Run("registered domain becomes unavailable", func(t *testing.T) {
 		rdashRegister(t, ts, "now-mine.id", 1)
 		_, m := rdashGet(t, ts, "/v1/domains/availability", url.Values{"domain": {"now-mine.id"}})
-		res := rdashDataArray(t, m)[0].(map[string]any)
+		res := rdashDataMap(t, m)
 		wantField(t, res, "available", 0)
 	})
 

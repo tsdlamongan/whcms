@@ -91,6 +91,7 @@ type fakeSvc struct {
 	AssignFn           func(ctx context.Context, actorUserID, ticketID int64, in tickets.AssignInput) (*domain.Ticket, error)
 	AdminReplyFn       func(ctx context.Context, actorUserID, ticketID int64, in tickets.ReplyInput, files []tickets.AttachmentUpload) (*tickets.TicketDetail, error)
 	SetStatusFn        func(ctx context.Context, actorUserID, ticketID int64, in tickets.SetStatusInput) (*domain.Ticket, error)
+	SetPriorityFn      func(ctx context.Context, actorUserID, ticketID int64, in tickets.SetPriorityInput) (*domain.Ticket, error)
 	AttachmentURLFn    func(ctx context.Context, clientID, ticketID int64, idx int) (string, error)
 	ListDepartmentsFn  func(ctx context.Context, activeOnly bool) ([]domain.TicketDepartment, error)
 	CreateDepartmentFn func(ctx context.Context, actorUserID int64, in tickets.DepartmentInput) (*domain.TicketDepartment, error)
@@ -164,6 +165,13 @@ func (f *fakeSvc) AdminReply(ctx context.Context, actorUserID, ticketID int64, i
 func (f *fakeSvc) SetStatus(ctx context.Context, actorUserID, ticketID int64, in tickets.SetStatusInput) (*domain.Ticket, error) {
 	if f.SetStatusFn != nil {
 		return f.SetStatusFn(ctx, actorUserID, ticketID, in)
+	}
+	return &domain.Ticket{}, nil
+}
+
+func (f *fakeSvc) SetPriority(ctx context.Context, actorUserID, ticketID int64, in tickets.SetPriorityInput) (*domain.Ticket, error) {
+	if f.SetPriorityFn != nil {
+		return f.SetPriorityFn(ctx, actorUserID, ticketID, in)
 	}
 	return &domain.Ticket{}, nil
 }
@@ -442,15 +450,31 @@ func TestHandlerAdminListFilters(t *testing.T) {
 		},
 	}
 	resp, err := adminApp(svc).Test(httptest.NewRequest("GET",
-		"/api/v1/admin/tickets/?status=open&department_id=3&assigned_user_id=55&search=down&page=2&per_page=10", nil))
+		"/api/v1/admin/tickets/?status=open&priority=high&department_id=3&assigned_user_id=55&client_id=9&search=down&page=2&per_page=10", nil))
 	require.NoError(t, err)
 	assert.Equal(t, 200, resp.StatusCode)
 	assert.Equal(t, "open", got.Status)
+	assert.Equal(t, "high", got.Priority)
 	assert.Equal(t, int64(3), got.DepartmentID)
 	assert.Equal(t, int64(55), got.AssignedUserID)
+	assert.Equal(t, int64(9), got.ClientID)
 	assert.Equal(t, "down", got.Search)
 	assert.Equal(t, 2, got.Page)
 	assert.Equal(t, 10, got.PerPage)
+}
+
+func TestHandlerAdminListRejectsInvalidClientID(t *testing.T) {
+	called := false
+	svc := &fakeSvc{
+		AdminListFn: func(ctx context.Context, f tickets.AdminListFilter) ([]domain.Ticket, int64, error) {
+			called = true
+			return nil, 0, nil
+		},
+	}
+	resp, err := adminApp(svc).Test(httptest.NewRequest("GET", "/api/v1/admin/tickets/?client_id=abc", nil))
+	require.NoError(t, err)
+	assert.Equal(t, 422, resp.StatusCode)
+	assert.False(t, called, "a malformed client_id must never widen the list")
 }
 
 func TestHandlerAdminRoutesRequireStaffPermission(t *testing.T) {
@@ -527,6 +551,50 @@ func TestHandlerAdminSetStatus(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 200, resp.StatusCode)
 	assert.Equal(t, "on_hold", gotIn.Status)
+}
+
+func TestHandlerAdminSetPriority(t *testing.T) {
+	var gotActor, gotTicket int64
+	var gotIn tickets.SetPriorityInput
+	svc := &fakeSvc{
+		SetPriorityFn: func(ctx context.Context, actorUserID, ticketID int64, in tickets.SetPriorityInput) (*domain.Ticket, error) {
+			gotActor, gotTicket, gotIn = actorUserID, ticketID, in
+			return &domain.Ticket{ID: ticketID, Priority: domain.TicketPriority(in.Priority)}, nil
+		},
+	}
+	req := httptest.NewRequest("POST", "/api/v1/admin/tickets/11/priority",
+		strings.NewReader(`{"priority":"low"}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := adminApp(svc).Test(req)
+	require.NoError(t, err)
+	assert.Equal(t, 200, resp.StatusCode)
+	assert.Equal(t, int64(1), gotActor)
+	assert.Equal(t, int64(11), gotTicket)
+	assert.Equal(t, "low", gotIn.Priority)
+
+	// bad id and bad body are rejected before reaching the service
+	resp, err = adminApp(svc).Test(httptest.NewRequest("POST", "/api/v1/admin/tickets/abc/priority", strings.NewReader(`{}`)))
+	require.NoError(t, err)
+	assert.Equal(t, 422, resp.StatusCode)
+
+	req = httptest.NewRequest("POST", "/api/v1/admin/tickets/11/priority", strings.NewReader(`not json`))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err = adminApp(svc).Test(req)
+	require.NoError(t, err)
+	assert.Equal(t, 422, resp.StatusCode)
+}
+
+func TestHandlerAdminSetPriorityServiceError(t *testing.T) {
+	svc := &fakeSvc{
+		SetPriorityFn: func(ctx context.Context, actorUserID, ticketID int64, in tickets.SetPriorityInput) (*domain.Ticket, error) {
+			return nil, apperr.Conflict("ticket already has priority high")
+		},
+	}
+	req := httptest.NewRequest("POST", "/api/v1/admin/tickets/11/priority", strings.NewReader(`{"priority":"high"}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := adminApp(svc).Test(req)
+	require.NoError(t, err)
+	assert.Equal(t, 409, resp.StatusCode)
 }
 
 func TestHandlerAdminAttachmentStaffPath(t *testing.T) {
@@ -642,9 +710,13 @@ func TestAdminListFilterPaging(t *testing.T) {
 	assert.Equal(t, 10, f.Limit())
 	assert.Equal(t, 20, f.Offset())
 
+	// the page-size selector offers up to 1000 rows (CONTRACTS §3)
 	f = tickets.AdminListFilter{Page: 2, PerPage: 500}
-	assert.Equal(t, 100, f.Limit())
-	assert.Equal(t, 100, f.Offset())
+	assert.Equal(t, 500, f.Limit())
+	assert.Equal(t, 500, f.Offset())
+
+	f = tickets.AdminListFilter{Page: 2, PerPage: 5000}
+	assert.Equal(t, 1000, f.Limit(), "clamped to ports.MaxPerPage")
 }
 
 func TestHandlerAdminDetail(t *testing.T) {

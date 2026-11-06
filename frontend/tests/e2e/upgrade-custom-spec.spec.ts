@@ -19,24 +19,49 @@ import {
  * Custom-spec (configurable) service upgrade through the client area:
  *
  * an admin defines a configurable cPanel product (disk knob, per-GB pricing);
- * a client orders it at 20 GB and pays (API-driven setup - the order/configure
- * UI itself is covered by configure-custom-product.spec.ts); then - the flow
- * this spec owns - the client opens the service page, resizes the disk to
- * 50 GB in the upgrade modal, sees the live estimate, submits, lands on the
- * prorated diff invoice, pays it via the mock Duitku gateway, and the worker
- * rebuilds the panel package: the service's recurring amount and chosen specs
- * update, a new dynamic package (quota 51200 MB) exists on the mock WHM, and
- * the old dynamic package (no longer referenced) is deleted.
+ * a client orders it and pays (API-driven setup - the order/configure UI
+ * itself is covered by configure-custom-product.spec.ts); then - the flow
+ * this spec owns - the client opens the service page, resizes the disk in
+ * the upgrade modal, sees the live estimate, submits, lands on the prorated
+ * diff invoice, pays it via the mock Duitku gateway, and the worker rebuilds
+ * the panel package: the service's recurring amount and chosen specs update,
+ * a new dynamic package (matching the resized quota) exists on the mock WHM,
+ * and the old dynamic package (no longer referenced) is deleted.
+ *
+ * The panel package name is a deterministic hash of (server prefix, resolved
+ * limits, toggles incl. the product's feature list) - unlike the domain/email/
+ * product slug, it is NOT something `unique()` already randomizes. The worker
+ * deletes the old package only when no other live service on the server still
+ * references it, and the persistent whmcs_e2e DB keeps every earlier run's
+ * services (and any run that aborted before its own resize), so a package name
+ * that an earlier run also produced is legitimately never deleted and the "old
+ * package deleted" assertion below fails. Randomizing the disk sizes alone only
+ * delays that (a few dozen runs fill the small size range); a per-run unique
+ * feature list makes both packages' names unique for good. The sizes stay
+ * randomized so the live estimate is not pinned to one hardcoded pair.
  *
  * Runs against the live stack (mockserver:9090, api:8080, worker, frontend).
  */
 
 test.describe.configure({ mode: 'serial', timeout: 120_000 });
 
+function randStep(min: number, max: number, step: number): number {
+	const n = Math.floor((max - min) / step) + 1;
+	return min + step * Math.floor(Math.random() * n);
+}
+
 test.describe('custom-spec upgrade: resize via client area → pay → package rebuilt', () => {
 	const suffix = unique('upspec');
 	const slug = `e2e-${suffix}`;
 	const hostingDomain = `${uniqueDomainLabel()}.upspec.e2e.test`;
+
+	const includedQty = 5;
+	const pricePerGB = 1_000;
+	const basePrice = 50_000;
+	const originalDiskGB = randStep(20, 70, 5);
+	const resizedDiskGB = originalDiskGB + randStep(20, 30, 5);
+	const originalRecurring = basePrice + (originalDiskGB - includedQty) * pricePerGB;
+	const resizedRecurring = basePrice + (resizedDiskGB - includedQty) * pricePerGB;
 
 	let api: APIRequestContext;
 	let client: Client;
@@ -91,6 +116,8 @@ test.describe('custom-spec upgrade: resize via client area → pay → package r
 				module: 'cpanel',
 				server_group_id: mockServer!.group_id,
 				package_name: 'e2e-base',
+				// Part of the dynamic package name hash: unique per run (see header).
+				feature_list: `fl-${suffix}`,
 				auto_setup: 'on_payment',
 				configurable: true
 			}
@@ -102,7 +129,7 @@ test.describe('custom-spec upgrade: resize via client area → pay → package r
 			(
 				await api.put(`${API_BASE}/api/v1/admin/products/${productId}/pricing`, {
 					headers: adminAuth,
-					data: { cycle: 'monthly', price: 50_000, setup_fee: 0 }
+					data: { cycle: 'monthly', price: basePrice, setup_fee: 0 }
 				})
 			).ok()
 		).toBeTruthy();
@@ -114,7 +141,7 @@ test.describe('custom-spec upgrade: resize via client area → pay → package r
 				label: 'Disk space',
 				provision_key: 'disk',
 				unit: 'gb',
-				included_qty: 5,
+				included_qty: includedQty,
 				min_qty: 5,
 				max_qty: 100,
 				step_qty: 5,
@@ -127,12 +154,12 @@ test.describe('custom-spec upgrade: resize via client area → pay → package r
 			(
 				await api.put(`${API_BASE}/api/v1/admin/product-specs/${specId}/pricing`, {
 					headers: adminAuth,
-					data: { cycle: 'monthly', unit_price: 1_000, unlimited_price: 0 }
+					data: { cycle: 'monthly', unit_price: pricePerGB, unlimited_price: 0 }
 				})
 			).ok()
 		).toBeTruthy();
 
-		// --- Client: order at 20 GB (50k + 15×1k = 65k/mo) and pay ------------
+		// --- Client: order at the randomized original disk size and pay -------
 		client = await registerVerifyLogin(api, 'upspec');
 		const invoiceId = await createOrder(api, client.accessToken, [
 			{
@@ -140,7 +167,7 @@ test.describe('custom-spec upgrade: resize via client area → pay → package r
 				product_id: productId,
 				cycle: 'monthly',
 				domain: hostingDomain,
-				specs: [{ key: 'disk', qty: 20 }]
+				specs: [{ key: 'disk', qty: originalDiskGB }]
 			}
 		]);
 		await payInvoiceViaMock(api, client.accessToken, invoiceId);
@@ -153,7 +180,7 @@ test.describe('custom-spec upgrade: resize via client area → pay → package r
 			'active'
 		);
 		serviceId = svc.id as number;
-		expect(svc.recurring_amount, 'order must price base + chargeable disk').toBe(65_000);
+		expect(svc.recurring_amount, 'order must price base + chargeable disk').toBe(originalRecurring);
 		originalPackage = ((svc.panel_meta as { package_name?: string }) ?? {}).package_name ?? '';
 		expect(originalPackage, 'configurable service must record its dynamic package').not.toBe('');
 	});
@@ -166,7 +193,7 @@ test.describe('custom-spec upgrade: resize via client area → pay → package r
 		await setSessionCookies(context, client.accessToken, client.refreshToken);
 	});
 
-	test('resize disk 20→50 GB, pay the prorated invoice, and the panel package is rebuilt', async ({
+	test('resize the disk spec, pay the prorated invoice, and the panel package is rebuilt', async ({
 		page
 	}) => {
 		// --- Upgrade modal: pick the same product, resize the disk knob -------
@@ -177,14 +204,16 @@ test.describe('custom-spec upgrade: resize via client area → pay → package r
 		await page.locator('select[name="cycle"]').selectOption('monthly');
 
 		// Resizing the service's own product prefills the knob from its current
-		// chosen specs (20 GB), not the product default (10 GB).
+		// chosen specs, not the product default (10 GB).
 		const disk = page.getByTestId('spec-disk-input');
-		await expect(disk).toHaveValue('20');
-		await disk.fill('50');
-		await expect(disk).toHaveValue('50');
+		await expect(disk).toHaveValue(String(originalDiskGB));
+		await disk.fill(String(resizedDiskGB));
+		await expect(disk).toHaveValue(String(resizedDiskGB));
 
-		// Live estimate: 50k base + (50-5)×1k = 95k/mo.
-		await expect(page.getByTestId('service-upgrade-price')).toContainText('95.000');
+		// Live estimate: base + (resized - included) × per-GB price.
+		await expect(page.getByTestId('service-upgrade-price')).toContainText(
+			resizedRecurring.toLocaleString('id-ID')
+		);
 
 		await page.getByTestId('service-upgrade-submit').click();
 		await page.waitForURL(/\/billing\/invoices\/\d+/, { timeout: 20_000 });
@@ -196,7 +225,7 @@ test.describe('custom-spec upgrade: resize via client area → pay → package r
 			headers: authHeaders(client.accessToken)
 		});
 		expect(invRes.ok()).toBeTruthy();
-		expect(JSON.stringify(await invRes.json())).toContain('50GB disk');
+		expect(JSON.stringify(await invRes.json())).toContain(`${resizedDiskGB}GB disk`);
 
 		// Until it is paid, the service shows the pending upgrade + invoice link.
 		await page.goto(`/services/${serviceId}`);
@@ -225,7 +254,7 @@ test.describe('custom-spec upgrade: resize via client area → pay → package r
 				},
 				{ timeout: 30_000, message: 'waiting for the paid upgrade to be applied' }
 			)
-			.toBe(95_000);
+			.toBe(resizedRecurring);
 		expect(pendingUpgrade, 'pending_upgrade must clear once applied').toBeFalsy();
 
 		// --- Worker rebuilds the panel package from the new chosen specs ------
@@ -261,13 +290,22 @@ test.describe('custom-spec upgrade: resize via client area → pay → package r
 				},
 				{ timeout: 20_000, message: 'waiting for the resized dynamic package' }
 			)
-			.toBe(String(50 * 1024)); // 50 GB → 51200 MB
+			.toBe(String(resizedDiskGB * 1024));
 
-		const pkgsRes = await api.get(`${MOCK_BASE}/mock/whm/packages`);
-		const names = (((await pkgsRes.json()).packages ?? []) as Array<{ name: string }>).map(
-			(p) => p.name
-		);
-		expect(names, 'orphaned old dynamic package must be deleted').not.toContain(originalPackage);
+		// The worker deletes the old package AFTER the new one exists and the
+		// account has moved onto it, so poll: a single read right after the new
+		// package appears races the cleanup under load.
+		await expect
+			.poll(
+				async () => {
+					const res = await api.get(`${MOCK_BASE}/mock/whm/packages`);
+					if (!res.ok()) return null;
+					const pkgs = ((await res.json()).packages ?? []) as Array<{ name: string }>;
+					return pkgs.some((p) => p.name === originalPackage);
+				},
+				{ timeout: 20_000, message: 'orphaned old dynamic package must be deleted' }
+			)
+			.toBe(false);
 
 		// The client sees the new configuration reflected on the service page.
 		await page.goto(`/services/${serviceId}`);

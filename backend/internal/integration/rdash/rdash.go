@@ -25,6 +25,8 @@
 //	GET  /domains/details?domain_name=     GetContact (registrant_contact embedded in the detail payload)
 //	PUT  /domains/{id}/contacts            UpdateContact (creates a fresh contact, applied to all 4 roles)
 //	GET  /domains/{id}/auth_code           GetEPPCode
+//	POST /domains/{id}/documents/link      DocumentUploadLink (registrar-hosted upload page; no upload API exists)
+//	POST /domains/{id}/verification/resend ResendVerification (registrant email verification)
 //	GET  /domains/{id}/dns                 GetDNSRecords
 //	POST /domains/{id}/dns                 UpdateDNSRecords (replaces the full record set)
 //	GET  /account/profile, /account/balance AccountInfo (registrar test-connection)
@@ -107,8 +109,11 @@ type Client struct {
 	openUntil time.Time // breaker fast-fail deadline (zero = closed)
 }
 
-// Compile-time interface assertion.
-var _ ports.RegistrarModule = (*Client)(nil)
+// Compile-time interface assertions.
+var (
+	_ ports.RegistrarModule = (*Client)(nil)
+	_ ports.DomainSniper    = (*Client)(nil)
+)
 
 // New builds a Client. hc, log and clock may be nil (a default 30s-timeout
 // http.Client, a no-op logger and the system clock are used respectively).
@@ -232,6 +237,87 @@ type domainPayload struct {
 	Status            *int         `json:"status"`
 	StatusLabel       string       `json:"status_label"`
 	ExpiredAt         string       `json:"expired_at"`
+
+	// Document / verification lifecycle (docs.dewabiz.co.id "Auto
+	// Activation"). Absent on endpoints that return a trimmed domain object;
+	// the register example carries a null numeric verification_status with a
+	// populated label, hence the label fallback.
+	IsRequiredDocument      *flexBool `json:"is_required_document"`
+	VerificationStatus      *int      `json:"verification_status"`
+	VerificationStatusLabel string    `json:"verification_status_label"`
+	StatusReason            *string   `json:"status_reason"`
+	IsRefundable            *flexBool `json:"is_refundable"`
+}
+
+// flexBool decodes a JSON boolean the API sometimes sends as 0/1 or "0"/"1"
+// (is_required_document: 0, is_premium: false in the same payload).
+type flexBool bool
+
+// UnmarshalJSON accepts true/false, numbers and numeric/boolean strings.
+func (b *flexBool) UnmarshalJSON(raw []byte) error {
+	v := strings.Trim(strings.TrimSpace(string(raw)), `"`)
+	switch strings.ToLower(v) {
+	case "true", "1":
+		*b = true
+	case "false", "0", "", "null":
+		*b = false
+	default:
+		n, err := strconv.ParseFloat(v, 64)
+		if err != nil {
+			return fmt.Errorf("rdash: not a boolean: %s", raw)
+		}
+		*b = n != 0
+	}
+	return nil
+}
+
+// verification maps the wire verification fields onto the port: 0 Waiting,
+// 1 Verifying, 2 Document Validating, 3 Active; the numeric code wins, the
+// label is the fallback. is_required_document falls back to the documented
+// TLD list only when the registrar did not report it at all.
+func (d domainPayload) verification() ports.DomainVerificationInfo {
+	info := ports.DomainVerificationInfo{
+		DocumentRequired: domain.NameRequiresDocuments(d.Name),
+		Verification:     verificationFromLabel(d.VerificationStatusLabel),
+	}
+	if d.IsRequiredDocument != nil {
+		info.DocumentRequired = bool(*d.IsRequiredDocument)
+	}
+	if d.VerificationStatus != nil {
+		switch *d.VerificationStatus {
+		case 0:
+			info.Verification = domain.VerificationWaiting
+		case 1:
+			info.Verification = domain.VerificationVerifying
+		case 2:
+			info.Verification = domain.VerificationDocumentValidating
+		case 3:
+			info.Verification = domain.VerificationActive
+		}
+	}
+	if d.StatusReason != nil {
+		info.StatusReason = strings.TrimSpace(*d.StatusReason)
+	}
+	if d.IsRefundable != nil {
+		info.Refundable = bool(*d.IsRefundable)
+	}
+	return info
+}
+
+// verificationFromLabel maps a verification_status_label ("Document
+// Validating") to the enum; unknown labels are "not reported".
+func verificationFromLabel(label string) domain.DomainVerification {
+	switch strings.ToLower(strings.Join(strings.Fields(label), "_")) {
+	case "waiting":
+		return domain.VerificationWaiting
+	case "verifying":
+		return domain.VerificationVerifying
+	case "document_validating":
+		return domain.VerificationDocumentValidating
+	case "active":
+		return domain.VerificationActive
+	}
+	return domain.VerificationNone
 }
 
 // nameservers collects the non-empty nameserver_1..5 fields.
@@ -285,10 +371,11 @@ func (d domainPayload) toResult() (*ports.DomainResult, error) {
 		return nil, err
 	}
 	return &ports.DomainResult{
-		Name:       d.Name,
-		Status:     d.statusString(),
-		ExpiryDate: exp,
-		OrderID:    strconv.FormatInt(d.ID, 10),
+		Name:                   d.Name,
+		Status:                 d.statusString(),
+		ExpiryDate:             exp,
+		OrderID:                strconv.FormatInt(d.ID, 10),
+		DomainVerificationInfo: d.verification(),
 	}, nil
 }
 
@@ -357,7 +444,10 @@ func (c *Client) CheckAvailability(ctx context.Context, names []string) ([]ports
 		go func(i int, name string) {
 			defer wg.Done()
 
-			var data []struct {
+			// This is a single-resource endpoint (one domain per call), so the
+			// real API returns `data` as a single object, not an array -
+			// unlike list endpoints such as GET /domains.
+			var data struct {
 				Name      string `json:"name"`
 				Available int    `json:"available"`
 			}
@@ -367,11 +457,9 @@ func (c *Client) CheckAvailability(ctx context.Context, names []string) ([]ports
 				return
 			}
 			avail := ports.DomainAvailability{Name: name}
-			if len(data) > 0 {
-				avail.Available = data[0].Available != 0
-				if data[0].Name != "" {
-					avail.Name = data[0].Name
-				}
+			avail.Available = data.Available != 0
+			if data.Name != "" {
+				avail.Name = data.Name
 			}
 
 			ext := extensionOf(name)
@@ -490,18 +578,61 @@ func (c *Client) Register(ctx context.Context, req ports.RegisterDomainRequest) 
 	if err != nil {
 		return nil, err
 	}
+	return c.RegisterForCustomer(ctx, name, req.Years, customerID, req.NS)
+}
+
+// RegisterForCustomer registers a domain under an already-resolved registrar
+// customer (POST /domains only - Register's per-call customer lookup is what a
+// hot retry loop must not pay for). A 2xx whose result cannot be read is
+// reported as an ambiguous registrar error (the order may well be placed).
+func (c *Client) RegisterForCustomer(ctx context.Context, name string, years int, customerID int64, ns []string) (*ports.DomainResult, error) {
+	name = normalizeName(name)
+	if name == "" {
+		return nil, apperr.Validation("domain name is required")
+	}
+	if customerID <= 0 {
+		return nil, apperr.Validation("registrar customer id is required")
+	}
 	form := url.Values{
 		"name":        {name},
-		"period":      {strconv.Itoa(atLeastOne(req.Years))},
+		"period":      {strconv.Itoa(atLeastOne(years))},
 		"customer_id": {strconv.FormatInt(customerID, 10)},
 	}
-	addNameservers(form, req.NS)
+	addNameservers(form, ns)
 
 	var data domainPayload
 	if err := c.do(ctx, http.MethodPost, "/domains", nil, form, &data); err != nil {
 		return nil, err
 	}
-	return data.toResult()
+	res, err := data.toResult()
+	if err != nil {
+		return nil, apperr.External(Provider, &ports.RegistrarCallError{
+			HTTPStatus: http.StatusOK, Ambiguous: true, Message: "unreadable registration result", Err: err,
+		})
+	}
+	return res, nil
+}
+
+// EnsureCustomer finds or creates the registrar customer for contact and
+// returns its id (the same lookup Register runs on every call).
+func (c *Client) EnsureCustomer(ctx context.Context, contact ports.RegistrantContact) (int64, error) {
+	return c.ensureCustomer(ctx, contact)
+}
+
+// IsAvailable is one availability probe: GET /domains/availability and
+// nothing else (CheckAvailability also looks up the TLD price per name).
+func (c *Client) IsAvailable(ctx context.Context, name string) (bool, error) {
+	name = normalizeName(name)
+	if name == "" {
+		return false, apperr.Validation("domain name is required")
+	}
+	var data struct {
+		Available int `json:"available"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/domains/availability", url.Values{"domain": {name}}, nil, &data); err != nil {
+		return false, err
+	}
+	return data.Available != 0, nil
 }
 
 // Transfer transfers a domain in using its EPP/auth code: creates a
@@ -693,7 +824,45 @@ func (c *Client) SyncDomain(ctx context.Context, name string) (*ports.DomainSync
 	if err != nil {
 		return nil, err
 	}
-	return &ports.DomainSyncInfo{Status: detail.statusString(), ExpiryDate: exp, NS: detail.nameservers()}, nil
+	return &ports.DomainSyncInfo{
+		Status: detail.statusString(), ExpiryDate: exp, NS: detail.nameservers(),
+		DomainVerificationInfo: detail.verification(),
+	}, nil
+}
+
+// DocumentUploadLink asks the registrar for the hosted page where the
+// registrant uploads the documents the domain requires (POST
+// /domains/{id}/documents/link). The registrar has no upload API: this link
+// is the whole mechanism, and it is a bearer secret - it is neither stored
+// nor logged (the integration log redacts this endpoint's response). The
+// link is checked to be an absolute http(s) URL before it is handed on, so a
+// malformed or hostile value can never reach a client's browser.
+func (c *Client) DocumentUploadLink(ctx context.Context, name string) (string, error) {
+	detail, err := c.detailsByName(ctx, name)
+	if err != nil {
+		return "", err
+	}
+	var link string
+	path := fmt.Sprintf("/domains/%d/documents/link", detail.ID)
+	if err := c.do(ctx, http.MethodPost, path, nil, nil, &link); err != nil {
+		return "", err
+	}
+	link = strings.TrimSpace(link)
+	u, perr := url.Parse(link)
+	if link == "" || perr != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return "", apperr.Conflict("the registrar returned no document upload link for this domain")
+	}
+	return link, nil
+}
+
+// ResendVerification re-sends the registrant's domain verification email
+// (POST /domains/{id}/verification/resend).
+func (c *Client) ResendVerification(ctx context.Context, name string) error {
+	detail, err := c.detailsByName(ctx, name)
+	if err != nil {
+		return err
+	}
+	return c.do(ctx, http.MethodPost, fmt.Sprintf("/domains/%d/verification/resend", detail.ID), nil, nil, nil)
 }
 
 // AccountInfo fetches the reseller account profile and balance
@@ -826,6 +995,33 @@ func (c *Client) detailsByName(ctx context.Context, name string) (*domainPayload
 	return &data, nil
 }
 
+// rdashMinNameLen is the minimum length Dewabiz's validator accepts for a
+// customer/contact "name" or "organization" field (its rejection reads
+// "The organization must be at least 3 characters."). Neither field is
+// optional in WHCMS's own client profile, so a real Company/name value can
+// legitimately be shorter than this - resolve both with an escalating
+// fallback (full name -> email) that is always long enough, rather than
+// making Company a required, real-company-name field for every individual
+// client.
+const rdashMinNameLen = 3
+
+// contactNameAndOrg resolves the "name" and "organization" registrar fields
+// from a registrant contact, guaranteeing both meet rdashMinNameLen: name
+// falls back full-name -> email, and organization falls back
+// company -> (already-resolved) name - which is itself guaranteed long
+// enough because a validated email address is always well over 3 characters.
+func contactNameAndOrg(contact ports.RegistrantContact) (name, org string) {
+	name = strings.TrimSpace(contact.FirstName + " " + contact.LastName)
+	if len(name) < rdashMinNameLen {
+		name = contact.Email
+	}
+	org = contact.Company
+	if len(org) < rdashMinNameLen {
+		org = name
+	}
+	return name, org
+}
+
 // ensureCustomer returns the registrar customer id for contact's email,
 // reusing an existing one when the reseller already has a customer under
 // that email (Dewabiz rejects POST /customers outright for a duplicate email
@@ -845,14 +1041,7 @@ func (c *Client) ensureCustomer(ctx context.Context, contact ports.RegistrantCon
 	if err != nil {
 		return 0, apperr.Internal(fmt.Errorf("rdash: generate customer credential: %w", err))
 	}
-	name := strings.TrimSpace(contact.FirstName + " " + contact.LastName)
-	if name == "" {
-		name = contact.Email
-	}
-	org := contact.Company
-	if org == "" {
-		org = name
-	}
+	name, org := contactNameAndOrg(contact)
 	form := url.Values{
 		"name":                  {name},
 		"email":                 {contact.Email},
@@ -899,14 +1088,7 @@ func (c *Client) findCustomerByEmail(ctx context.Context, email string) (int64, 
 // registrant contact (used to apply a fresh contact to all four domain
 // contact roles in UpdateContact).
 func (c *Client) createContact(ctx context.Context, customerID int64, contact ports.RegistrantContact) (int64, error) {
-	name := strings.TrimSpace(contact.FirstName + " " + contact.LastName)
-	if name == "" {
-		name = contact.Email
-	}
-	org := contact.Company
-	if org == "" {
-		org = name
-	}
+	name, org := contactNameAndOrg(contact)
 	form := url.Values{
 		"label":        {"Default"},
 		"name":         {name},
@@ -1024,9 +1206,10 @@ func (c *Client) attempt(ctx context.Context, method, fullPath string, form url.
 		c.recordFailure()
 		call.Error = err.Error()
 		c.logCall(ctx, call)
-		return true, nil, apperr.External(Provider, err)
+		return true, nil, apperr.External(Provider, &ports.RegistrarCallError{Message: err.Error(), Ambiguous: true, Err: err})
 	}
 	defer resp.Body.Close()
+	retryAfter := parseRetryAfter(resp.Header.Get("Retry-After"), c.clock.Now())
 
 	call.StatusCode = resp.StatusCode
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes))
@@ -1034,9 +1217,11 @@ func (c *Client) attempt(ctx context.Context, method, fullPath string, form url.
 		c.recordFailure()
 		call.Error = err.Error()
 		c.logCall(ctx, call)
-		return true, nil, apperr.External(Provider, fmt.Errorf("read response: %w", err))
+		return true, nil, apperr.External(Provider, &ports.RegistrarCallError{
+			HTTPStatus: resp.StatusCode, Message: "read response: " + err.Error(), Ambiguous: true, Err: err,
+		})
 	}
-	call.Response = redactJSON(raw)
+	call.Response = redactResponse(fullPath, raw)
 
 	var env envelope
 	parseErr := json.Unmarshal(raw, &env)
@@ -1044,7 +1229,7 @@ func (c *Client) attempt(ctx context.Context, method, fullPath string, form url.
 	// 5xx: provider fault - counts toward the breaker, retryable for GETs.
 	if resp.StatusCode >= 500 {
 		c.recordFailure()
-		appErr := mapError(resp.StatusCode, env.Message, env.Errors)
+		appErr := withWire(mapError(resp.StatusCode, env.Message, env.Errors), resp.StatusCode, retryAfter, env.Message, true)
 		call.Error = appErr.Error()
 		c.logCall(ctx, call)
 		return true, nil, appErr
@@ -1055,14 +1240,16 @@ func (c *Client) attempt(ctx context.Context, method, fullPath string, form url.
 			// The server answered with a clear HTTP error but a non-envelope
 			// body; map by status.
 			c.recordSuccess()
-			appErr := mapError(resp.StatusCode, "", nil)
+			appErr := withWire(mapError(resp.StatusCode, "", nil), resp.StatusCode, retryAfter, "", false)
 			call.Error = appErr.Error()
 			c.logCall(ctx, call)
 			return false, nil, appErr
 		}
 		// 2xx with an unparseable body: provider fault.
 		c.recordFailure()
-		appErr := apperr.External(Provider, fmt.Errorf("invalid response body: %w", parseErr))
+		appErr := apperr.External(Provider, &ports.RegistrarCallError{
+			HTTPStatus: resp.StatusCode, Message: "invalid response body: " + parseErr.Error(), Ambiguous: true, Err: parseErr,
+		})
 		call.Error = appErr.Error()
 		c.logCall(ctx, call)
 		return false, nil, appErr
@@ -1076,7 +1263,7 @@ func (c *Client) attempt(ctx context.Context, method, fullPath string, form url.
 		status = http.StatusBadRequest // defensive: envelope explicitly disagrees with HTTP status
 	}
 	if status >= 400 {
-		appErr := mapError(status, env.Message, env.Errors)
+		appErr := withWire(mapError(status, env.Message, env.Errors), resp.StatusCode, retryAfter, env.Message, false)
 		call.Error = appErr.Error()
 		c.logCall(ctx, call)
 		return false, nil, appErr
@@ -1087,7 +1274,9 @@ func (c *Client) attempt(ctx context.Context, method, fullPath string, form url.
 
 	if out != nil && len(env.Data) > 0 && !bytes.Equal(env.Data, []byte("null")) {
 		if err := json.Unmarshal(env.Data, out); err != nil {
-			return false, nil, apperr.External(Provider, fmt.Errorf("decode response data: %w", err))
+			return false, nil, apperr.External(Provider, &ports.RegistrarCallError{
+				HTTPStatus: resp.StatusCode, Message: "decode response data: " + err.Error(), Ambiguous: true, Err: err,
+			})
 		}
 	}
 	return false, env.Meta, nil
@@ -1139,6 +1328,71 @@ func fieldErrorsFrom(errs map[string][]string) []apperr.FieldError {
 	return out
 }
 
+// withWire attaches the wire-level detail of a failed call (HTTP status,
+// Retry-After, whether the registrar may have acted) as the apperr cause, so a
+// caller such as the domain sniper can tell "taken" from "rate limited" from
+// "maybe placed" without parsing messages. The apperr code/message callers
+// already depend on are unchanged.
+func withWire(appErr *apperr.Error, status int, retryAfter time.Duration, message string, ambiguous bool) *apperr.Error {
+	if message == "" {
+		message = http.StatusText(status)
+	}
+	return appErr.WithCause(&ports.RegistrarCallError{
+		HTTPStatus: status, RetryAfter: retryAfter, Message: message, Ambiguous: ambiguous,
+	})
+}
+
+// parseRetryAfter reads a Retry-After header as delta-seconds or an HTTP
+// date; absent, malformed or already-past values yield zero.
+func parseRetryAfter(h string, now time.Time) time.Duration {
+	h = strings.TrimSpace(h)
+	if h == "" {
+		return 0
+	}
+	if secs, err := strconv.Atoi(h); err == nil {
+		if secs < 0 {
+			return 0
+		}
+		return time.Duration(secs) * time.Second
+	}
+	if t, err := http.ParseTime(h); err == nil {
+		if d := t.Sub(now); d > 0 {
+			return d
+		}
+	}
+	return 0
+}
+
+// CacheCredentials wraps a credentials resolver with a short TTL cache. The
+// shared adapter re-reads the registrar row and decrypts the API key on every
+// HTTP call (an acceptable cost next to a slow external call); a hot retry
+// loop would turn that into a database read per attempt, so the sniper's
+// dedicated client resolves through this. Errors are not cached.
+func CacheCredentials(resolve func(ctx context.Context) (Credentials, error), ttl time.Duration, clock ports.Clock) func(ctx context.Context) (Credentials, error) {
+	if clock == nil {
+		clock = sysClock{}
+	}
+	var (
+		mu      sync.Mutex
+		cached  Credentials
+		expires time.Time
+	)
+	return func(ctx context.Context) (Credentials, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		now := clock.Now()
+		if !expires.IsZero() && now.Before(expires) {
+			return cached, nil
+		}
+		creds, err := resolve(ctx)
+		if err != nil {
+			return Credentials{}, err
+		}
+		cached, expires = creds, now.Add(ttl)
+		return creds, nil
+	}
+}
+
 // Circuit breaker (lite)
 
 // checkBreaker fails fast with an EXTERNAL apperr while the breaker is open.
@@ -1146,7 +1400,8 @@ func (c *Client) checkBreaker() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if !c.openUntil.IsZero() && c.clock.Now().Before(c.openUntil) {
-		return apperr.New(apperr.CodeExternal, "rdash: circuit breaker open, failing fast")
+		return apperr.New(apperr.CodeExternal, "rdash: circuit breaker open, failing fast").
+			WithCause(&ports.RegistrarCallError{NotSent: true, Message: "circuit breaker open"})
 	}
 	return nil
 }

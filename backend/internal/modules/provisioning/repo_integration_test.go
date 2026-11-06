@@ -569,3 +569,53 @@ func TestRepoCancellationRequestCRUD(t *testing.T) {
 	missingUpdate.ID = -1
 	assert.ErrorAs(t, view.Update(ctx, &missingUpdate), &ae)
 }
+
+func TestRepoAdminListServiceFilters(t *testing.T) {
+	d := testDB(t)
+	repo := NewRepo(d)
+	f := seedFixtures(t, d)
+	other := seedFixtures(t, d) // a second client with its own product
+	ctx := context.Background()
+
+	grp := &domain.ServerGroup{Name: "flt-" + f.uid, Strategy: domain.StrategyRoundRobin}
+	require.NoError(t, repo.CreateGroup(ctx, grp))
+	srv := &domain.Server{GroupID: &grp.ID, Name: "flt-" + f.uid, Module: domain.ModuleCpanel,
+		Hostname: "flt-" + f.uid + ".test", Port: 2087, Active: true}
+	require.NoError(t, repo.createServer(ctx, srv))
+
+	onServer := f.newService(t, repo, domain.ServiceActive, &srv.ID)
+	f.newService(t, repo, domain.ServiceActive, nil)
+	theirs := other.newService(t, repo, domain.ServiceActive, nil)
+
+	// client_id: the client-detail tab lists only that client's services.
+	_, total, err := repo.List(ctx, ports.ListParams{ClientID: f.clientID})
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), total)
+
+	list, total, err := repo.List(ctx, ports.ListParams{ClientID: other.clientID})
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), total)
+	require.Len(t, list, 1)
+	assert.Equal(t, theirs.ID, list[0].ID)
+
+	// product_id and server_id narrow the Services list filters.
+	_, total, err = repo.List(ctx, ports.ListParams{ProductID: f.productID})
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), total)
+
+	list, total, err = repo.List(ctx, ports.ListParams{ServerID: srv.ID})
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), total)
+	require.Len(t, list, 1)
+	assert.Equal(t, onServer.ID, list[0].ID)
+
+	// Filters combine (AND): this product belongs to the other client.
+	_, total, err = repo.List(ctx, ports.ListParams{ClientID: other.clientID, ProductID: f.productID})
+	require.NoError(t, err)
+	assert.Zero(t, total)
+
+	// Zero values mean "no filter": both clients' services are visible together.
+	_, total, err = repo.List(ctx, ports.ListParams{Search: "svc-"})
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, total, int64(3))
+}

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
 	import { enhance } from '$app/forms';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import DateText from '$lib/components/DateText.svelte';
@@ -38,7 +39,7 @@
 </script>
 
 <svelte:head>
-	<title>Announcements — HostPanel Admin</title>
+	<title>Announcements — {appName} Admin</title>
 </svelte:head>
 
 <h1 class="hp-h1">Announcements</h1>

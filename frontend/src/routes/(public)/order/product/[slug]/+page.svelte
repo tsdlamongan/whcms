@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appName } from '$lib/appName';
 	import { goto } from '$app/navigation';
 	import { Alert, Breadcrumb, EmptyState, MoneyText } from '$lib/components';
 	import CaPanel from '$lib/components/ca/CaPanel.svelte';
@@ -31,8 +32,15 @@
 		 *  multi-year estimate must look this up instead of assuming
 		 *  price * years). */
 		register_prices?: Record<string, number>;
+		/** The extension has an ACTIVE Domain Pricing row (is for sale). */
+		sellable?: boolean;
 		min_years: number;
 		max_years: number;
+	}
+
+	/** Everything after the first label: "toko.co.id" -> "co.id". */
+	function extensionOf(name: string): string {
+		return name.slice(name.indexOf('.') + 1);
 	}
 
 	const product = $derived(data.product);
@@ -207,6 +215,10 @@
 				addError = t('orderfe.product.domainRequired');
 				return;
 			}
+			if (checkState === 'done' && checkResult?.sellable === false) {
+				addError = t('orderfe.product.notOffered', { ext: extensionOf(checkResult.name) });
+				return;
+			}
 			if (domainMode === 'register' && !(checkState === 'done' && checkResult?.available)) {
 				addError = t('orderfe.product.registerNotAvailable');
 				return;
@@ -261,7 +273,7 @@
 </script>
 
 <svelte:head>
-	<title>{product ? product.name : t('orderfe.product.configure')} — WHCMS</title>
+	<title>{product ? product.name : t('orderfe.product.configure')} — {appName}</title>
 </svelte:head>
 
 <Breadcrumb
@@ -434,7 +446,13 @@
 									>{t('orderfe.product.checkFailed')}</span
 								>
 							{:else if checkState === 'done' && checkResult}
-								{#if checkResult.available}
+								{#if checkResult.sellable === false}
+									<span style="font-weight:600;color:#c43c35;" data-testid="domain-not-offered"
+										>{t('orderfe.product.notOffered', {
+											ext: extensionOf(checkResult.name)
+										})}</span
+									>
+								{:else if checkResult.available}
 									<span style="color:var(--ca-success);font-weight:600;">
 										{t('orderfe.product.available', { domain: checkResult.name })}
 										{#if checkResult.premium}
@@ -563,7 +581,7 @@
 						</div>
 					{/if}
 
-					{#if showDomain && domainMode === 'register' && checkResult?.available}
+					{#if showDomain && domainMode === 'register' && checkResult?.available && checkResult.sellable !== false}
 						<div class="ca-summary-row">
 							<span>
 								{t('orderfe.product.domainRegistration')}
