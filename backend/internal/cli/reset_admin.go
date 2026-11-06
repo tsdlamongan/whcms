@@ -15,7 +15,7 @@ import (
 func cmdResetAdmin(args []string) error {
 	installDir := getInstallDir()
 	email := ""
-	password := ""
+	password := os.Getenv("WHCMS_ADMIN_PASSWORD")
 
 	for i := 0; i < len(args); i++ {
 		switch args[i] {

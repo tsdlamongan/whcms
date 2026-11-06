@@ -38,7 +38,8 @@ func cmdBackup(args []string) error {
 	fmt.Println("============")
 	fmt.Printf("Output: %s\n\n", outputPath)
 
-	out, err := os.Create(outputPath)
+	// 0600: the archive holds whcms.env (secrets) and the full database.
+	out, err := os.OpenFile(outputPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
 	if err != nil {
 		return fmt.Errorf("cannot create output file: %w", err)
 	}
@@ -59,11 +60,16 @@ func cmdBackup(args []string) error {
 	}()
 
 	fmt.Println("[1/3] Backing up database...")
-	dbDumpPath := filepath.Join(os.TempDir(), "whcms-backup-db.sql")
+	dumpFile, err := os.CreateTemp("", "whcms-backup-db-*.sql")
+	if err != nil {
+		return fmt.Errorf("cannot create temp dump file: %w", err)
+	}
+	dbDumpPath := dumpFile.Name()
+	dumpFile.Close()
+	defer os.Remove(dbDumpPath)
 	if err := dumpDatabase(installDir, dbDumpPath); err != nil {
 		return fmt.Errorf("database backup failed: %w", err)
 	}
-	defer os.Remove(dbDumpPath)
 
 	if err := addFileToTar(tw, dbDumpPath, "database.sql"); err != nil {
 		return fmt.Errorf("failed to add database dump to archive: %w", err)
@@ -73,7 +79,7 @@ func cmdBackup(args []string) error {
 	fmt.Println("[2/3] Backing up configuration...")
 	configDir := filepath.Join(installDir, "config")
 	if err := addDirToTar(tw, configDir, "config"); err != nil {
-		fmt.Println("  Warning: Could not backup config directory")
+		return fmt.Errorf("config backup failed: %w", err)
 	} else {
 		fmt.Println("  ✓ Configuration backed up")
 	}
@@ -83,7 +89,7 @@ func cmdBackup(args []string) error {
 		storageDir := filepath.Join(installDir, "data", "storage")
 		if _, err := os.Stat(storageDir); err == nil {
 			if err := addDirToTar(tw, storageDir, "storage"); err != nil {
-				fmt.Println("  Warning: Could not backup storage directory")
+				return fmt.Errorf("storage backup failed: %w", err)
 			} else {
 				fmt.Println("  ✓ File storage backed up")
 			}
@@ -218,20 +224,20 @@ func dumpDatabaseImpl(installDir, outputPath string) error {
 
 	if commandExists("docker") {
 		cmd := exec.Command("docker", "compose", "-f", filepath.Join(installDir, "config", "docker-compose.yml"),
-			"exec", "-T", "postgres", "pg_dump", "-U", "whcms", "-d", "whcms")
+			"exec", "-T", "postgres", "pg_dump", "--clean", "--if-exists", "-U", "whcms", "-d", "whcms")
 		out, err := cmd.Output()
 		if err != nil {
 			return err
 		}
-		return os.WriteFile(outputPath, out, 0644)
+		return os.WriteFile(outputPath, out, 0600)
 	}
 
-	cmd := exec.Command("pg_dump", dbURL)
+	cmd := exec.Command("pg_dump", "--clean", "--if-exists", dbURL)
 	output, err := cmd.Output()
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(outputPath, output, 0644)
+	return os.WriteFile(outputPath, output, 0600)
 }
 
 var restoreDatabase = restoreDatabaseImpl
@@ -240,8 +246,13 @@ func restoreDatabaseImpl(installDir, dumpPath string) error {
 	if commandExists("docker") {
 		composePath := filepath.Join(installDir, "config", "docker-compose.yml")
 		cmd := exec.Command("docker", "compose", "-f", composePath,
-			"exec", "-T", "postgres", "psql", "-U", "whcms", "-d", "whcms")
-		cmd.Stdin, _ = os.Open(dumpPath)
+			"exec", "-T", "postgres", "psql", "-v", "ON_ERROR_STOP=1", "-U", "whcms", "-d", "whcms")
+		dump, err := os.Open(dumpPath)
+		if err != nil {
+			return err
+		}
+		defer dump.Close()
+		cmd.Stdin = dump
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		return cmd.Run()
@@ -253,8 +264,13 @@ func restoreDatabaseImpl(installDir, dumpPath string) error {
 		dbURL = "postgres://whcms:whcms@localhost:5432/whcms?sslmode=disable"
 	}
 
-	cmd := exec.Command("psql", dbURL)
-	cmd.Stdin, _ = os.Open(dumpPath)
+	dump, err := os.Open(dumpPath)
+	if err != nil {
+		return err
+	}
+	defer dump.Close()
+	cmd := exec.Command("psql", "-v", "ON_ERROR_STOP=1", dbURL)
+	cmd.Stdin = dump
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
@@ -289,6 +305,10 @@ func extractTarGz(tarball, targetDir string) error {
 		}
 
 		targetPath := filepath.Join(targetDir, header.Name)
+		if targetPath != filepath.Clean(targetDir) &&
+			!strings.HasPrefix(targetPath, filepath.Clean(targetDir)+string(os.PathSeparator)) {
+			return fmt.Errorf("unsafe path in archive: %q", header.Name)
+		}
 
 		switch header.Typeflag {
 		case tar.TypeDir:
@@ -299,7 +319,7 @@ func extractTarGz(tarball, targetDir string) error {
 			if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
 				return err
 			}
-			out, err := os.OpenFile(targetPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, os.FileMode(header.Mode))
+			out, err := os.OpenFile(targetPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, header.FileInfo().Mode().Perm())
 			if err != nil {
 				return err
 			}

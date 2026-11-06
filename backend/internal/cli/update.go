@@ -54,7 +54,7 @@ func cmdUpdate(args []string) error {
 	}
 
 	latestVersion := strings.TrimPrefix(release.TagName, "v")
-	currentVersion := Version
+	currentVersion := strings.TrimPrefix(Version, "v")
 
 	fmt.Printf("Current version: %s\n", currentVersion)
 	fmt.Printf("Latest version:  %s\n", latestVersion)
@@ -121,7 +121,7 @@ func cmdUpdate(args []string) error {
 
 	fmt.Println("Verifying checksum...")
 	if err := verifyChecksum(release, assetName, tmpFile); err != nil {
-		fmt.Printf("  Warning: %v\n", err)
+		return fmt.Errorf("checksum verification failed, update aborted: %w", err)
 	}
 
 	fmt.Println("Stopping services...")
@@ -139,7 +139,12 @@ func cmdUpdate(args []string) error {
 
 	fmt.Println("Running migrations...")
 	if err := runMigrations(installDir); err != nil {
-		fmt.Printf("  Warning: migrations failed: %v\n", err)
+		fmt.Println("Migrations failed, restoring previous binaries...")
+		if restoreErr := restoreBinaries(backupPath, installDir); restoreErr != nil {
+			return fmt.Errorf("migrations failed: %w\nrestore also failed: %v", err, restoreErr)
+		}
+		startServicesAfterUpdate()
+		return fmt.Errorf("migrations failed, rolled back binaries: %w", err)
 	}
 
 	fmt.Println("Starting services...")
@@ -213,20 +218,27 @@ func verifyChecksum(release *githubRelease, assetName, filePath string) error {
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("checksums.txt: HTTP %d", resp.StatusCode)
+	}
+
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return err
 	}
 
-	lines := strings.Split(string(body), "\n")
+	return verifyHash(string(body), assetName, filePath)
+}
+
+// verifyHash checks filePath against sha256sum-format checksums text.
+func verifyHash(checksums, assetName, filePath string) error {
+	lines := strings.Split(checksums, "\n")
 	var expectedHash string
 	for _, line := range lines {
-		if strings.Contains(line, assetName) {
-			parts := strings.Fields(line)
-			if len(parts) >= 1 {
-				expectedHash = parts[0]
-				break
-			}
+		parts := strings.Fields(line)
+		if len(parts) == 2 && strings.TrimPrefix(parts[1], "*") == assetName {
+			expectedHash = parts[0]
+			break
 		}
 	}
 
@@ -253,7 +265,10 @@ func verifyChecksum(release *githubRelease, assetName, filePath string) error {
 	return nil
 }
 
-func runMigrations(installDir string) error {
+// runMigrations is a var so tests can avoid exec'ing a fake binary.
+var runMigrations = runMigrationsImpl
+
+func runMigrationsImpl(installDir string) error {
 	apiBin := filepath.Join(installDir, "bin", "whcms-api")
 	envFile := filepath.Join(installDir, "config", "whcms.env")
 
@@ -438,6 +453,9 @@ func extractUpdate(tarball, installDir string) error {
 		}
 
 		if header.Typeflag == tar.TypeReg {
+			if !updatableBinaries[header.Name] {
+				continue
+			}
 			targetPath := filepath.Join(binDir, header.Name)
 			out, err := os.OpenFile(targetPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
 			if err != nil {
@@ -452,6 +470,12 @@ func extractUpdate(tarball, installDir string) error {
 	}
 
 	return nil
+}
+
+// updatableBinaries is the allowlist of archive entries extractUpdate writes
+// into bin/; anything else (including path-bearing names) is ignored.
+var updatableBinaries = map[string]bool{
+	"whcms": true, "whcms-api": true, "whcms-worker": true, "whcms-frontend": true,
 }
 
 func restoreBinaries(backupPath, installDir string) error {

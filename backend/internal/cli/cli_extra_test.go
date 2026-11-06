@@ -261,13 +261,17 @@ func TestCmdRestore_ScanlnFails(t *testing.T) {
 
 func TestDownloadWHCMS_Success(t *testing.T) {
 	tarGz := buildTarGz(t, map[string][]byte{
-		"whcms-api":      []byte("api-binary"),
-		"whcms-worker":   []byte("worker-binary"),
-		"whcms-frontend": []byte("frontend-binary"),
+		"whcms":        []byte("cli-binary"),
+		"whcms-api":    []byte("api-binary"),
+		"whcms-worker": []byte("worker-binary"),
 	})
 
+	sum := sha256.Sum256(tarGz)
 	origDownload := downloadFile
 	downloadFile = func(url, path string) error {
+		if strings.HasSuffix(url, "checksums.txt") {
+			return os.WriteFile(path, []byte(fmt.Sprintf("%s  %s\n", hex.EncodeToString(sum[:]), fmt.Sprintf("whcms-linux-%s.tar.gz", runtime.GOARCH))), 0644)
+		}
 		return os.WriteFile(path, tarGz, 0644)
 	}
 	defer func() { downloadFile = origDownload }()
@@ -279,7 +283,7 @@ func TestDownloadWHCMS_Success(t *testing.T) {
 	err := downloadWHCMS(cfg)
 	require.NoError(t, err)
 
-	for _, bin := range []string{"whcms-api", "whcms-worker", "whcms-frontend"} {
+	for _, bin := range []string{"whcms", "whcms-api", "whcms-worker"} {
 		info, err := os.Stat(filepath.Join(tmpDir, "bin", bin))
 		require.NoError(t, err, "binary %s should exist", bin)
 		assert.Equal(t, os.FileMode(0755), info.Mode().Perm())
@@ -544,6 +548,7 @@ func TestCmdUpdate_GetLatestReleaseError(t *testing.T) {
 }
 
 func TestCmdUpdate_FullSuccessWithChecksum(t *testing.T) {
+	stubMigrations(t, nil)
 	tarGz := buildTarGz(t, map[string][]byte{"whcms-api": []byte("new binary content")})
 	sum := sha256.Sum256(tarGz)
 	assetName := fmt.Sprintf("whcms-linux-%s.tar.gz", runtime.GOARCH)
@@ -584,11 +589,15 @@ func TestCmdUpdate_FullSuccessWithChecksum(t *testing.T) {
 }
 
 func TestCmdUpdate_SpecificVersion(t *testing.T) {
+	stubMigrations(t, nil)
 	tarGz := buildTarGz(t, map[string][]byte{"whcms-api": []byte("versioned binary")})
+	sum := sha256.Sum256(tarGz)
 	assetName := fmt.Sprintf("whcms-linux-%s.tar.gz", runtime.GOARCH)
+	checksums := fmt.Sprintf("%s  %s\n", hex.EncodeToString(sum[:]), assetName)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/asset.tar.gz", func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write(tarGz) })
+	mux.HandleFunc("/checksums.txt", func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(checksums)) })
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
@@ -600,6 +609,7 @@ func TestCmdUpdate_SpecificVersion(t *testing.T) {
 			Size               int64  `json:"size"`
 		}{
 			releaseAssetType(assetName, server.URL+"/asset.tar.gz", int64(len(tarGz))),
+			releaseAssetType("checksums.txt", server.URL+"/checksums.txt", 0),
 		},
 	}
 
@@ -648,11 +658,14 @@ func TestCmdUpdate_VersionNotFound(t *testing.T) {
 
 func TestCmdUpdate_ExtractFailsAndRollsBack(t *testing.T) {
 	assetName := fmt.Sprintf("whcms-linux-%s.tar.gz", runtime.GOARCH)
+	sum := sha256.Sum256([]byte("not a valid gzip file"))
+	checksums := fmt.Sprintf("%s  %s\n", hex.EncodeToString(sum[:]), assetName)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/asset.tar.gz", func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("not a valid gzip file"))
 	})
+	mux.HandleFunc("/checksums.txt", func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(checksums)) })
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
@@ -664,6 +677,7 @@ func TestCmdUpdate_ExtractFailsAndRollsBack(t *testing.T) {
 			Size               int64  `json:"size"`
 		}{
 			releaseAssetType(assetName, server.URL+"/asset.tar.gz", 21),
+			releaseAssetType("checksums.txt", server.URL+"/checksums.txt", 0),
 		},
 	}
 
@@ -678,6 +692,102 @@ func TestCmdUpdate_ExtractFailsAndRollsBack(t *testing.T) {
 	err := cmdUpdate([]string{})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "rolled back")
+}
+
+func stubMigrations(t *testing.T, err error) {
+	t.Helper()
+	orig := runMigrations
+	runMigrations = func(string) error { return err }
+	t.Cleanup(func() { runMigrations = orig })
+}
+
+func updateServer(t *testing.T, tarGz []byte, checksums string) *githubRelease {
+	t.Helper()
+	assetName := fmt.Sprintf("whcms-linux-%s.tar.gz", runtime.GOARCH)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/asset.tar.gz", func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write(tarGz) })
+	mux.HandleFunc("/checksums.txt", func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(checksums)) })
+	server := httptest.NewServer(mux)
+	t.Cleanup(server.Close)
+	release := &githubRelease{TagName: "v9.9.9"}
+	release.Assets = append(release.Assets,
+		releaseAssetType(assetName, server.URL+"/asset.tar.gz", int64(len(tarGz))),
+		releaseAssetType("checksums.txt", server.URL+"/checksums.txt", 0))
+	origLatest := getLatestRelease
+	getLatestRelease = func() (*githubRelease, error) { return release, nil }
+	t.Cleanup(func() { getLatestRelease = origLatest })
+	return release
+}
+
+func TestCmdUpdate_ChecksumMismatchAborts(t *testing.T) {
+	stubMigrations(t, nil)
+	tarGz := buildTarGz(t, map[string][]byte{"whcms-api": []byte("evil")})
+	assetName := fmt.Sprintf("whcms-linux-%s.tar.gz", runtime.GOARCH)
+	updateServer(t, tarGz, strings.Repeat("0", 64)+"  "+assetName+"\n")
+
+	tmpDir := t.TempDir()
+	withEnv(t, "WHCMS_HOME", tmpDir)
+	require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, "bin"), 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "bin", "whcms-api"), []byte("old"), 0755))
+
+	err := cmdUpdate([]string{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "checksum")
+	data, _ := os.ReadFile(filepath.Join(tmpDir, "bin", "whcms-api"))
+	assert.Equal(t, "old", string(data))
+}
+
+func TestCmdUpdate_MigrationFailureRollsBack(t *testing.T) {
+	stubMigrations(t, fmt.Errorf("migration boom"))
+	tarGz := buildTarGz(t, map[string][]byte{"whcms-api": []byte("new")})
+	sum := sha256.Sum256(tarGz)
+	assetName := fmt.Sprintf("whcms-linux-%s.tar.gz", runtime.GOARCH)
+	updateServer(t, tarGz, fmt.Sprintf("%s  %s\n", hex.EncodeToString(sum[:]), assetName))
+
+	tmpDir := t.TempDir()
+	withEnv(t, "WHCMS_HOME", tmpDir)
+	require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, "bin"), 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "bin", "whcms-api"), []byte("old"), 0755))
+
+	err := cmdUpdate([]string{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "rolled back")
+	data, _ := os.ReadFile(filepath.Join(tmpDir, "bin", "whcms-api"))
+	assert.Equal(t, "old", string(data))
+}
+
+func TestExtractUpdate_IgnoresUnlistedAndPathNames(t *testing.T) {
+	tarGz := buildTarGz(t, map[string][]byte{"../evil": []byte("x"), "other": []byte("y"), "whcms": []byte("ok")})
+	tarball := filepath.Join(t.TempDir(), "u.tar.gz")
+	require.NoError(t, os.WriteFile(tarball, tarGz, 0644))
+	installDir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(installDir, "bin"), 0755))
+	require.NoError(t, extractUpdate(tarball, installDir))
+	entries, _ := os.ReadDir(filepath.Join(installDir, "bin"))
+	require.Len(t, entries, 1)
+	assert.Equal(t, "whcms", entries[0].Name())
+}
+
+func TestExtractTarGz_RejectsPathTraversal(t *testing.T) {
+	tarGz := buildTarGz(t, map[string][]byte{"../escape.txt": []byte("x")})
+	tarball := filepath.Join(t.TempDir(), "b.tar.gz")
+	require.NoError(t, os.WriteFile(tarball, tarGz, 0644))
+	dst := filepath.Join(t.TempDir(), "out")
+	require.NoError(t, os.MkdirAll(dst, 0755))
+	err := extractTarGz(tarball, dst)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unsafe path")
+	_, statErr := os.Stat(filepath.Join(filepath.Dir(dst), "escape.txt"))
+	assert.True(t, os.IsNotExist(statErr))
+}
+
+func TestVerifyHash_ExactNameMatch(t *testing.T) {
+	f := filepath.Join(t.TempDir(), "a")
+	require.NoError(t, os.WriteFile(f, []byte("data"), 0644))
+	sum := sha256.Sum256([]byte("data"))
+	h := hex.EncodeToString(sum[:])
+	assert.NoError(t, verifyHash(h+"  whcms-linux-amd64.tar.gz\n", "whcms-linux-amd64.tar.gz", f))
+	assert.Error(t, verifyHash(h+"  xwhcms-linux-amd64.tar.gz\n", "whcms-linux-amd64.tar.gz", f))
 }
 
 func TestRunMigrations_NoBinary(t *testing.T) {

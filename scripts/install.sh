@@ -163,15 +163,21 @@ download_binaries() {
         RELEASE_URL="https://github.com/${GITHUB_REPO}/releases/download/${WHCMS_VERSION}"
     fi
 
-    ARCHIVE_NAME="whcms-${WHCMS_VERSION}-${GOARCH}.tar.gz"
+    ARCHIVE_NAME="whcms-linux-${GOARCH}.tar.gz"
     DOWNLOAD_URL="${RELEASE_URL}/${ARCHIVE_NAME}"
 
     info "Downloading ${ARCHIVE_NAME}..."
-    curl -fsSL "$DOWNLOAD_URL" -o /tmp/whcms.tar.gz
+    DL_DIR=$(mktemp -d)
+    curl -fsSL "$DOWNLOAD_URL" -o "$DL_DIR/$ARCHIVE_NAME"
+    curl -fsSL "${RELEASE_URL}/checksums.txt" -o "$DL_DIR/checksums.txt"
+
+    info "Verifying checksum..."
+    (cd "$DL_DIR" && grep " ${ARCHIVE_NAME}\$" checksums.txt | sha256sum -c -) \
+        || error "Checksum verification failed for ${ARCHIVE_NAME}"
 
     info "Extracting binaries..."
-    tar -xzf /tmp/whcms.tar.gz -C "$WHCMS_HOME/bin"
-    rm /tmp/whcms.tar.gz
+    tar -xzf "$DL_DIR/$ARCHIVE_NAME" -C "$WHCMS_HOME/bin"
+    rm -rf "$DL_DIR"
 
     chmod +x "$WHCMS_HOME/bin/"*
     ok "WHCMS binaries downloaded"
@@ -203,7 +209,7 @@ download_and_build() {
     export PATH="/usr/local/go/bin:$PATH"
     go build -o "$WHCMS_HOME/bin/whcms-api"    ./cmd/api
     go build -o "$WHCMS_HOME/bin/whcms-worker" ./cmd/worker
-    go build -o "$WHCMS_HOME/bin/whcms-cli"    ./cmd/cli
+    go build -o "$WHCMS_HOME/bin/whcms"        ./cmd/cli
 
     cd "$BUILD_DIR/frontend"
     if command -v node >/dev/null 2>&1; then
@@ -431,7 +437,7 @@ EOF
 install_cli() {
     info "Installing whcms CLI to /usr/local/bin/whcms..."
 
-    $SUDO cp "$WHCMS_HOME/bin/whcms-cli" /usr/local/bin/whcms
+    $SUDO cp "$WHCMS_HOME/bin/whcms" /usr/local/bin/whcms
     $SUDO chmod +x /usr/local/bin/whcms
 
     ok "CLI installed: whcms"

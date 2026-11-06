@@ -11,7 +11,8 @@ import (
 	"runtime"
 )
 
-const (
+// Overridden at release time via -ldflags -X (only works on vars).
+var (
 	Version   = "0.1.0"
 	BuildDate = "dev"
 	GitCommit = "dev"

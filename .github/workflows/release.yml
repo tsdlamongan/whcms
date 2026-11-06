@@ -20,28 +20,11 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        include:
-          - goos: linux
-            goarch: amd64
-            suffix: linux-amd64
-          - goos: linux
-            goarch: arm64
-            suffix: linux-arm64
-          - goos: windows
-            goarch: amd64
-            suffix: windows-amd64.exe
-          - goos: darwin
-            goarch: amd64
-            suffix: darwin-amd64
-          - goos: darwin
-            goarch: arm64
-            suffix: darwin-arm64
+        goarch: [amd64, arm64]
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -52,57 +35,37 @@ jobs:
 
       - name: Get version
         id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "version=${{ inputs.version }}" >> $GITHUB_OUTPUT
+            echo "version=${INPUT_VERSION}" >> "$GITHUB_OUTPUT"
           else
-            echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+            echo "version=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Build CLI binary
+      # The updater/installer expect whcms-linux-<arch>.tar.gz containing the
+      # plain names whcms, whcms-api, whcms-worker.
+      - name: Build binaries
         env:
-          GOOS: ${{ matrix.goos }}
+          GOOS: linux
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: 0
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
+          mkdir -p stage
           cd backend
-          go build \
-            -ldflags="-s -w -X 'github.com/tsdlamongan/whcms/backend/internal/cli.Version=${{ steps.version.outputs.version }}' -X 'github.com/tsdlamongan/whcms/backend/internal/cli.BuildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)' -X 'github.com/tsdlamongan/whcms/backend/internal/cli.GitCommit=${{ github.sha }}'" \
-            -o ../whcms-${{ steps.version.outputs.version }}-${{ matrix.suffix }} \
-            ./cmd/cli
-
-      - name: Build API binary
-        env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
-          CGO_ENABLED: 0
-        run: |
-          cd backend
-          go build \
-            -ldflags="-s -w" \
-            -o ../whcms-api-${{ steps.version.outputs.version }}-${{ matrix.suffix }} \
-            ./cmd/api
-
-      - name: Build Worker binary
-        env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
-          CGO_ENABLED: 0
-        run: |
-          cd backend
-          go build \
-            -ldflags="-s -w" \
-            -o ../whcms-worker-${{ steps.version.outputs.version }}-${{ matrix.suffix }} \
-            ./cmd/worker
+          go build -ldflags="-s -w -X 'github.com/tsdlamongan/whcms/backend/internal/cli.Version=${VERSION#v}' -X 'github.com/tsdlamongan/whcms/backend/internal/cli.BuildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)' -X 'github.com/tsdlamongan/whcms/backend/internal/cli.GitCommit=${GITHUB_SHA}'" -o ../stage/whcms ./cmd/cli
+          go build -ldflags="-s -w" -o ../stage/whcms-api ./cmd/api
+          go build -ldflags="-s -w" -o ../stage/whcms-worker ./cmd/worker
+          cd ..
+          tar -czf whcms-linux-${{ matrix.goarch }}.tar.gz -C stage whcms whcms-api whcms-worker
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: binaries-${{ matrix.suffix }}
-          path: |
-            whcms-${{ steps.version.outputs.version }}-${{ matrix.suffix }}
-            whcms-api-${{ steps.version.outputs.version }}-${{ matrix.suffix }}
-            whcms-worker-${{ steps.version.outputs.version }}-${{ matrix.suffix }}
+          name: whcms-linux-${{ matrix.goarch }}
+          path: whcms-linux-${{ matrix.goarch }}.tar.gz
           retention-days: 7
 
   release:
@@ -112,39 +75,24 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/')
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
-
-      - name: Get version
-        id: version
-        run: echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
-
-      - name: Create release archives
-        run: |
-          cd artifacts
-          for dir in binaries-*; do
-            suffix=${dir#binaries-}
-            cd $dir
-            tar -czf ../../whcms-${{ steps.version.outputs.version }}-${suffix}.tar.gz *
-            cd ..
-          done
+          merge-multiple: true
 
       - name: Generate checksums
+        working-directory: artifacts
         run: |
-          sha256sum whcms-*.tar.gz > checksums.txt
+          sha256sum whcms-linux-*.tar.gz > checksums.txt
           cat checksums.txt
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            whcms-*.tar.gz
-            checksums.txt
+            artifacts/whcms-linux-*.tar.gz
+            artifacts/checksums.txt
           generate_release_notes: true
           draft: false
-          prerelease: ${{ contains(steps.version.outputs.version, '-') }}
+          prerelease: ${{ contains(github.ref_name, '-') }}

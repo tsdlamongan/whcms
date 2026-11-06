@@ -108,6 +108,8 @@ func parseInstallFlags(args []string) installConfig {
 	cfg := installConfig{
 		Port:       8080,
 		InstallDir: getInstallDir(),
+		// Prefer the env var: argv is visible in ps and shell history.
+		Password: os.Getenv("WHCMS_ADMIN_PASSWORD"),
 	}
 
 	for i := 0; i < len(args); i++ {
@@ -253,6 +255,20 @@ func downloadWHCMS(cfg *installConfig) error {
 		return fmt.Errorf("download failed: %w", err)
 	}
 
+	sumsPath := filepath.Join(cfg.InstallDir, "checksums.txt")
+	if err := downloadFile(strings.TrimSuffix(releaseURL, filepath.Base(releaseURL))+"checksums.txt", sumsPath); err != nil {
+		return fmt.Errorf("checksums download failed: %w", err)
+	}
+	defer os.Remove(sumsPath)
+	sums, err := os.ReadFile(sumsPath)
+	if err != nil {
+		return err
+	}
+	if err := verifyHash(string(sums), filepath.Base(releaseURL), tarball); err != nil {
+		os.Remove(tarball)
+		return fmt.Errorf("checksum verification failed: %w", err)
+	}
+
 	fmt.Println("  Extracting...")
 	if err := runCommand("tar", "-xzf", tarball, "-C", filepath.Join(cfg.InstallDir, "bin")); err != nil {
 		return fmt.Errorf("extraction failed: %w", err)
@@ -260,8 +276,7 @@ func downloadWHCMS(cfg *installConfig) error {
 
 	os.Remove(tarball)
 
-	binaries := []string{"whcms-api", "whcms-worker", "whcms-frontend"}
-	for _, bin := range binaries {
+	for _, bin := range []string{"whcms", "whcms-api", "whcms-worker"} {
 		binPath := filepath.Join(cfg.InstallDir, "bin", bin)
 		if err := os.Chmod(binPath, 0755); err != nil {
 			return err
