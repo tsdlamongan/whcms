@@ -232,10 +232,9 @@ func installDependencies(cfg *installConfig) error {
 	}
 
 	if !commandExists("docker-compose") && !dockerComposeExists() {
-		fmt.Println("  Installing Docker Compose plugin...")
-		if err := runCommand("sh", "-c", "docker plugin install docker/compose-compose-plugin:latest || true"); err != nil {
-			fmt.Println("  Warning: Could not install docker-compose plugin, continuing...")
-		}
+		// get.docker.com already installs the compose plugin; if it is still
+		// missing the host needs the distro's docker-compose-plugin package.
+		return fmt.Errorf("docker compose plugin not found; install the docker-compose-plugin package")
 	}
 
 	return nil

@@ -471,6 +471,14 @@ print_summary() {
 }
 
 main() {
+    local domain=""
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --domain)   domain="${2:-}"; [ -n "$domain" ] || error "--domain requires a value"; shift 2 ;;
+            --domain=*) domain="${1#--domain=}"; shift ;;
+            *) error "Unknown option: $1" ;;
+        esac
+    done
     banner
     check_root
     check_os
@@ -484,7 +492,7 @@ main() {
     
     setup_directories
     generate_secrets
-    write_config "${1:-}"
+    write_config "$domain"
     write_compose
     download_and_build
     start_infrastructure

@@ -10,38 +10,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  changes:
-    name: Detect changes
-    runs-on: ubuntu-latest
-    outputs:
-      backend: ${{ steps.filter.outputs.backend }}
-      frontend: ${{ steps.filter.outputs.frontend }}
-      mockserver: ${{ steps.filter.outputs.mockserver }}
-      e2e: ${{ steps.filter.outputs.e2e }}
-    steps:
-      - uses: actions/checkout@v7
-      - uses: dorny/paths-filter@v3
-        id: filter
-        with:
-          filters: |
-            backend:
-              - 'backend/**'
-              - 'scripts/**'
-              - 'Makefile'
-            frontend:
-              - 'frontend/**'
-            mockserver:
-              - 'mockserver/**'
-            e2e:
-              - 'frontend/**'
-              - 'backend/**'
-              - 'scripts/**'
-              - 'Makefile'
-
   backend:
     name: Backend (build + vet + >90% coverage gate)
-    needs: changes
-    if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     services:
@@ -106,8 +76,6 @@ jobs:
 
   lint:
     name: Backend lint (golangci-lint)
-    needs: changes
-    if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -123,8 +91,6 @@ jobs:
 
   mockserver:
     name: Mockserver (vet + tests)
-    needs: changes
-    if: needs.changes.outputs.mockserver == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -141,8 +107,6 @@ jobs:
 
   frontend:
     name: Frontend (svelte-check + build)
-    needs: changes
-    if: needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -166,8 +130,7 @@ jobs:
     name: E2E (Playwright against the full stack)
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    needs: [changes, backend, frontend]
-    if: needs.changes.outputs.e2e == 'true'
+    needs: [backend, frontend]
     services:
       postgres:
         image: postgres:18-alpine
